@@ -21,6 +21,15 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 
 ## 🚀 Installation
 
+### Le plus simple (sans taper de commande)
+
+1. Installez **Node.js** (version LTS) depuis https://nodejs.org
+2. Sur GitHub, bouton vert **Code → Download ZIP**, puis décompressez le dossier
+3. Double-cliquez sur **`demarrer-windows.bat`** (Windows) ou **`demarrer-mac.command`** (Mac)
+4. Le navigateur s'ouvre sur http://localhost:3000 — laissez la fenêtre noire ouverte tant que vous utilisez le logiciel
+
+### En ligne de commande
+
 Prérequis : **Node.js 22 ou plus récent** (https://nodejs.org).
 
 ```bash
@@ -45,6 +54,13 @@ Les données sont enregistrées dans `data/garage.db` (SQLite). **Sauvegardez ce
 Les agents utilisent le modèle Claude `claude-opus-5` (modifiable via `CLAUDE_MODEL`), peuvent consulter les données du garage (lecture seule) et faire des recherches sur le web. Les tâches programmées tournent tant que le logiciel est allumé (fuseau `Europe/Luxembourg`).
 Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est partagé avec toute l'équipe.
 
+## 🔄 Importer depuis Odoo
+
+**Paramètres → Import Odoo** : indiquez l'adresse de votre Odoo, le nom de la base, votre e-mail de connexion et une **clé API** (Odoo → votre profil → Sécurité du compte → Nouvelle clé API), puis **Tester la connexion** et **Lancer l'import**.
+
+Sont importés : clients et fournisseurs (avec TVA, adresse), véhicules (plaque, VIN, marque/modèle, kilométrage, 1ère immatriculation, **prochain contrôle technique**, prochain entretien, dimension pneus, propriétaire) et articles (référence, EAN, prix d'achat/vente, TVA, catégorie, fournisseur principal, **quantité en stock**).
+L'import peut être relancé : les fiches déjà importées sont mises à jour, jamais dupliquées. Les données restent sur votre ordinateur.
+
 ## 🏦 Banque
 
 - **Aujourd'hui** : dans votre banque en ligne (Spuerkeess, BGL BNP Paribas, BIL, POST, Raiffeisen, ING…), téléchargez le relevé au format **CAMT.053 (XML)** et importez-le dans *Banque*. Les virements contenant le numéro de facture sont rapprochés automatiquement ; les autres vous sont proposés.
@@ -61,7 +77,7 @@ Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est par
 - Serveur : Node.js + Express, base SQLite intégrée (`node:sqlite`), aucune installation de base de données
 - Interface : Vue 3 + Three.js servis en local (fonctionne sans internet, sauf l'IA et le décodage VIN en ligne)
 - IA : SDK officiel Anthropic (`@anthropic-ai/sdk`), outils de lecture des données + recherche web
-- Tests : `npm test` (parcours complet achat → stock → devis → OR → pointage → facture → banque → comptabilité)
+- Tests : `npm test` (parcours complet achat → stock → devis → OR → pointage → facture → banque → comptabilité, et import Odoo)
 
 ```
 server.js            API + serveur web
@@ -71,5 +87,6 @@ src/bank.js          import CAMT.053/CSV, rapprochement
 src/agents.js        les 6 agents + outils d'accès aux données
 src/claude.js        appels à l'API Claude, réunion d'équipe
 src/scheduler.js     tâches programmées
+src/odoo.js          import depuis Odoo (JSON-RPC)
 public/              interface (Vue) + kiosque + bureau 3D
 ```

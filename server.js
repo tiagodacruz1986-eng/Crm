@@ -11,6 +11,7 @@ import {
 } from './src/business.js';
 import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, PROVIDERS } from './src/bank.js';
 import { AGENTS } from './src/agents.js';
+import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
@@ -435,10 +436,21 @@ api.put('/users/:id', adminOnly, wrap((req) => {
   return { ok: true };
 }));
 api.get('/me', (req, res) => res.json(req.user));
-api.get('/settings', (req, res) => res.json(getSettings()));
+api.get('/settings', (req, res) => { const { odoo, ...s } = getSettings(); res.json(s); });
 api.put('/settings', adminOnly, wrap((req) => {
   for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
-  return getSettings();
+  const { odoo, ...s } = getSettings();
+  return s;
+}));
+
+// ---------- Import Odoo ----------
+api.get('/odoo', (req, res) => res.json({ config: publicOdooConfig(), job: odooJob, last: getSettings().odoo_last_import || null }));
+api.put('/odoo', adminOnly, wrap((req) => { saveOdooConfig(req.body); return { config: publicOdooConfig() }; }));
+api.post('/odoo/test', adminOnly, wrap(() => testConnection()));
+api.post('/odoo/import', adminOnly, wrap((req) => {
+  if (odooJob.running) throw new BusinessError('Un import est déjà en cours');
+  runImport(req.body?.options);
+  return odooJob;
 }));
 
 // ---------- Bureau virtuel IA ----------

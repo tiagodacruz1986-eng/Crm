@@ -1,5 +1,5 @@
-import { ref, onMounted } from 'vue';
-import { GET, POST, PUT, act, store } from '../api.js';
+import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
@@ -11,7 +11,28 @@ export const Settings = {
     const tab = ref('company');
     const editUser = ref(null);
     const newAcc = ref(null);
-    const load = async () => { s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
+    const odoo = ref(null);
+    const odooOpts = reactive({ customers: true, suppliers: true, vehicles: true, products: true });
+    const odooTest = ref(null);
+    let odooPoll;
+    const loadOdoo = async () => {
+      odoo.value = { ...(await GET('/odoo')), form: odoo.value?.form || null };
+      if (!odoo.value.form) odoo.value.form = { ...odoo.value.config, api_key: '' };
+      if (odoo.value.job.running && !odooPoll) odooPoll = setInterval(async () => {
+        const r = await GET('/odoo');
+        odoo.value.job = r.job; odoo.value.last = r.last;
+        if (!r.job.running) { clearInterval(odooPoll); odooPoll = null; toast(r.job.error ? 'Import Odoo : ' + r.job.error : 'Import Odoo terminé', r.job.error ? 'error' : 'ok'); }
+      }, 1500);
+    };
+    onUnmounted(() => clearInterval(odooPoll));
+    const saveOdoo = async () => { await act(() => PUT('/odoo', odoo.value.form), 'Connexion Odoo enregistrée'); odoo.value.form.api_key = ''; await loadOdoo(); };
+    const testOdoo = async () => { await saveOdoo(); odooTest.value = await act(() => POST('/odoo/test')); };
+    const importOdoo = async () => {
+      if (!confirm('Importer les données depuis Odoo ? Les éléments déjà importés seront mis à jour (pas de doublons).')) return;
+      await act(() => POST('/odoo/import', { options: odooOpts }));
+      await loadOdoo();
+    };
+    const load = async () => { loadOdoo(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     onMounted(load);
     const save = async () => { store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name; };
     const saveUser = async () => {
@@ -20,13 +41,13 @@ export const Settings = {
       editUser.value = null; load();
     };
     const saveAcc = async () => { await act(() => POST('/accounting/accounts', newAcc.value), 'Compte enregistré'); newAcc.value = null; load(); };
-    return { s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
+    return { odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
   },
   template: `
   <div v-if="s">
     <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','workshop','ai'].includes(tab)" @click="save">Enregistrer</button></div>
     <div class="tabs">
-      <button v-for="[k, l] in [['company','Société'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
+      <button v-for="[k, l] in [['company','Société'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
     </div>
     <div class="card" v-if="tab==='company'">
       <div class="form-grid">
@@ -59,6 +80,33 @@ export const Settings = {
     <div class="card" v-if="tab==='accounts'">
       <div class="card-head"><div><h2 style="margin:0">Plan comptable</h2><div class="muted small">Inspiré du PCN luxembourgeois — à faire valider par votre fiduciaire.</div></div><button class="btn" @click="newAcc = {type: 'expense'}">+ Compte</button></div>
       <table><thead><tr><th>Code</th><th>Intitulé</th><th>Type</th></tr></thead><tbody><tr v-for="a in accounts" class="click" @click="newAcc = {...a}"><td><b>{{ a.code }}</b></td><td>{{ a.name }}</td><td>{{ a.type }}</td></tr></tbody></table>
+    </div>
+    <div class="card" v-if="tab==='odoo' && odoo">
+      <h2>🔄 Importer mes données depuis Odoo</h2>
+      <p class="muted">Récupère vos clients, fournisseurs, véhicules (avec contrôle technique, pneus…) et articles avec leur stock. Vous pouvez relancer l'import autant de fois que nécessaire : rien n'est dupliqué, les fiches sont mises à jour.</p>
+      <div class="form-grid">
+        <label class="full" style="grid-column: span 2">Adresse de votre Odoo<input v-model="odoo.form.url" placeholder="https://votre-societe.odoo.com"></label>
+        <label>Nom de la base<input v-model="odoo.form.db" placeholder="votre-societe"></label>
+        <label>Identifiant (e-mail de connexion)<input v-model="odoo.form.login" type="email"></label>
+        <label class="full" style="grid-column: span 2">Clé API {{ odoo.config.has_key ? '(enregistrée — laisser vide pour la garder)' : '' }}<input v-model="odoo.form.api_key" type="password" autocomplete="off"></label>
+      </div>
+      <p class="muted small">Clé API : dans Odoo, cliquez sur votre photo → <b>Mon profil</b> → onglet <b>Sécurité du compte</b> → <b>Nouvelle clé API</b>. Le nom de la base apparaît dans Odoo sous <b>Paramètres → Activer le mode développeur</b>, ou c'est généralement le début de votre adresse (…<b>.odoo.com</b>).</p>
+      <div class="btns"><button class="btn" @click="saveOdoo">Enregistrer</button><button class="btn" @click="testOdoo">🔌 Tester la connexion</button></div>
+      <div v-if="odooTest" class="pos" style="margin-top:10px">✅ Connecté : {{ odooTest.partners }} contacts, {{ odooTest.vehicles }} véhicules, {{ odooTest.products }} articles trouvés.</div>
+      <h3 style="margin-top:18px">Que faut-il importer ?</h3>
+      <div class="btns" style="margin:8px 0 12px">
+        <label class="check"><input type="checkbox" v-model="odooOpts.customers"> Clients</label>
+        <label class="check"><input type="checkbox" v-model="odooOpts.suppliers"> Fournisseurs</label>
+        <label class="check"><input type="checkbox" v-model="odooOpts.vehicles"> Véhicules</label>
+        <label class="check"><input type="checkbox" v-model="odooOpts.products"> Articles & stock</label>
+      </div>
+      <button class="btn primary" :disabled="odoo.job.running || !odoo.config.has_key" @click="importOdoo">{{ odoo.job.running ? '⏳ Import en cours…' : '⬇ Lancer l’import' }}</button>
+      <div v-if="odoo.job.running || odoo.job.finished_at" style="margin-top:14px">
+        <div><b>{{ odoo.job.step }}</b> <span v-if="odoo.job.running" class="typing"><span></span><span></span><span></span></span></div>
+        <div v-if="odoo.job.error" class="error" style="margin-top:6px">{{ odoo.job.error }}</div>
+        <table style="margin-top:8px;max-width:420px"><tbody><tr v-for="(v, k) in odoo.job.done"><td>{{ {customers: 'Clients', suppliers: 'Fournisseurs', vehicles: 'Véhicules', products: 'Articles'}[k] }}</td><td class="num">{{ v.created }} créés</td><td class="num">{{ v.updated }} mis à jour</td></tr></tbody></table>
+      </div>
+      <p v-else-if="odoo.last" class="muted small" style="margin-top:12px">Dernier import : {{ datetime(odoo.last.at) }}</p>
     </div>
     <div class="card" v-if="tab==='ai'">
       <p>Statut : <b :class="store.ai ? 'pos' : 'neg'">{{ store.ai ? 'Agents IA actifs' : 'Mode démo — ajoutez ANTHROPIC_API_KEY dans le fichier .env puis redémarrez' }}</b></p>
