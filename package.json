@@ -1,0 +1,25 @@
+{
+  "name": "bureau-virtuel-ia",
+  "version": "1.0.0",
+  "description": "Bureau virtuel 3D avec 6 agents IA (comptable, marketing, secrétariat, atelier mécanique, avocat, CIO) pour un garage automobile",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --watch --env-file-if-exists=.env server.js",
+    "test": "node --test tests/*.test.js",
+    "demo": "node --env-file-if-exists=.env scripts/demo.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "dompurify": "^3.4.16",
+    "express": "^5.1.0",
+    "marked": "^18.0.14",
+    "qrcode": "^1.5.4",
+    "three": "^0.169.0",
+    "vue": "^3.5.43"
+  }
+}
