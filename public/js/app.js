@@ -1,4 +1,4 @@
-import { createApp, reactive, computed, defineAsyncComponent, ref, onMounted, onUnmounted } from 'vue';
+import { createApp, reactive, computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue';
 import { store, GET, POST, money, DOC_TYPES_SHORT } from './api.js';
 import { Badge, Modal, Picker, BarChart, Empty } from './components.js';
 import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
@@ -117,7 +117,16 @@ const Root = {
     const view = computed(() => VIEWS[route.name] || VIEWS.dashboard);
     const isActive = (n) => n.match === route.name && (!n.type || n.type === route.params.type);
     const logout = async () => { await POST('/auth/logout'); store.user = null; };
-    return { store, route, NAV, view, isActive, searchOpen, menuOpen, logout };
+    const plusOpen = ref(false);
+    const devices = ref(null);
+    const openDevices = async () => { devices.value = await GET('/network'); };
+    // Installation comme application (Chrome, Edge, Android)
+    const installable = ref(false);
+    let deferred = null;
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; installable.value = true; });
+    const install = async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice; deferred = null; installable.value = false; };
+    watch(() => route.path, () => { menuOpen.value = false; plusOpen.value = false; });
+    return { store, route, NAV, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent };
   },
   template: `
   <div v-if="store.loading" class="boot">🔧</div>
@@ -128,26 +137,50 @@ const Root = {
       <nav>
         <template v-for="n in NAV">
           <div v-if="n.section !== undefined" class="nav-section">{{ n.section }}</div>
-          <a v-else :href="'#' + n.to" :class="{active: isActive(n)}"><span>{{ n.icon }}</span>{{ n.label }}</a>
+          <a v-else :href="'#' + n.to" :class="{active: isActive(n)}" :title="n.label"><span>{{ n.icon }}</span><span class="nav-label">{{ n.label }}</span></a>
         </template>
       </nav>
       <div class="sidebar-foot">
-        <a href="/kiosk.html" target="_blank">📟 Ouvrir le kiosque atelier</a>
+        <a href="/kiosk.html" target="_blank" title="Kiosque atelier">📟 <span class="nav-label">Ouvrir le kiosque atelier</span></a>
+        <a href="#" @click.prevent="openDevices" title="Téléphone / tablette">📱 <span class="nav-label">Sur téléphone / tablette</span></a>
+        <a href="#" v-if="installable" @click.prevent="install" title="Installer">⬇ <span class="nav-label">Installer l'application</span></a>
         <div class="me">{{ store.user.name }} <button class="link" @click="logout">Déconnexion</button></div>
       </div>
     </aside>
     <main>
       <header class="topbar">
         <button class="icon-btn burger" @click="menuOpen = !menuOpen">☰</button>
-        <button class="search-trigger" @click="searchOpen = true">🔍 Rechercher une plaque, un client, une facture… <kbd>Ctrl K</kbd></button>
+        <button class="search-trigger" @click="searchOpen = true"><span>🔍 <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
         <div class="quick">
           <ActivityBell/>
-          <a class="btn" href="#/new/quote">+ Devis</a>
-          <a class="btn primary" href="#/new/order">+ Ordre de réparation</a>
+          <a class="btn hide-phone" href="#/new/quote">+ Devis</a>
+          <a class="btn primary hide-phone" href="#/new/order">+ <span class="long">Ordre de réparation</span><span class="short">OR</span></a>
         </div>
       </header>
       <div class="content"><component :is="view" :key="route.path"/></div>
     </main>
+    <nav class="bottom-nav">
+      <a href="#/" :class="{active: route.name === 'dashboard'}"><span>🏠</span>Accueil</a>
+      <a href="#/workshop" :class="{active: route.name === 'workshop'}"><span>🔧</span>Atelier</a>
+      <a href="#" class="plus" @click.prevent="plusOpen = !plusOpen"><span>＋</span></a>
+      <a href="#/planning" :class="{active: route.name === 'planning'}"><span>📅</span>Planning</a>
+      <a href="#" @click.prevent="menuOpen = true"><span>☰</span>Menu</a>
+    </nav>
+    <div v-if="plusOpen" class="plus-menu" @click="plusOpen = false">
+      <div>
+        <a href="#/new/order">🔧 Ordre de réparation</a><a href="#/new/quote">📝 Devis</a><a href="#/new/invoice">🧾 Facture</a>
+        <a href="#/customer/new">👤 Client</a><a href="#/purchases">📥 Facture fournisseur</a><a href="#/activities">⏰ Activité</a>
+      </div>
+    </div>
+    <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
+    <Modal v-if="devices" title="📱 Utiliser sur téléphone et tablette" @close="devices = null">
+      <p>Connectez le téléphone ou la tablette <b>au même Wi-Fi que ce PC</b>, puis scannez :</p>
+      <div v-for="u in devices.urls" style="text-align:center;margin-bottom:10px">
+        <img :src="'/api/qr.svg?text=' + encodeURIComponent(u)" style="width:200px"><div><b>{{ u }}</b></div>
+      </div>
+      <p v-if="!devices.urls.length" class="error">Aucune adresse réseau trouvée : vérifiez que le PC est connecté au Wi-Fi ou au câble.</p>
+      <p class="muted small">Ensuite, dans le navigateur du téléphone : <b>Partager → Sur l'écran d'accueil</b> (iPhone) ou <b>⋮ → Ajouter à l'écran d'accueil</b> (Android) pour avoir l'icône comme une vraie application. Kiosque des mécaniciens : ajoutez <b>/kiosk.html</b> à l'adresse.</p>
+    </Modal>
     <GlobalSearch v-if="searchOpen" @close="searchOpen = false"/>
   </div>
   <div class="toasts"><div v-for="t in store.toasts" :key="t.id" class="toast" :class="t.type">{{ t.msg }}</div></div>`,
@@ -168,4 +201,23 @@ const app = createApp(Root);
 Object.entries({ Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;
 app.mount('#app');
+
+// Sur téléphone, les tableaux deviennent des fiches : chaque cellule reçoit le titre de sa colonne
+function labelTables(root = document) {
+  for (const t of root.querySelectorAll('.content table')) {
+    const heads = [...t.querySelectorAll(':scope > thead th')].map((th) => th.textContent.trim());
+    if (!heads.length) continue;
+    t.classList.add('stackable');
+    for (const tr of t.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr')) {
+      [...tr.children].forEach((td, i) => { if (heads[i] && td.dataset.label !== heads[i]) td.dataset.label = heads[i]; });
+    }
+  }
+}
+let labelTimer;
+new MutationObserver(() => { clearTimeout(labelTimer); labelTimer = setTimeout(labelTables, 80); }).observe(document.getElementById('app'), { childList: true, subtree: true });
+
+// Application installable / hors-ligne (HTTPS ou localhost)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 boot();

@@ -2,6 +2,7 @@ process.env.TZ ||= 'Europe/Luxembourg';
 
 import express from 'express';
 import path from 'node:path';
+import os from 'node:os';
 import QRCode from 'qrcode';
 import { all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
 import { hashSecret, verifySecret, createSession, currentUser, requireAuth } from './src/auth.js';
@@ -146,6 +147,15 @@ api.post('/kiosk/orders/:id/live', mech, wrap((req) => ({ url: `/suivi.html?t=${
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : staff(req, res, next)));
 
 api.get('/dashboard', (req, res) => res.json(dashboard()));
+// Adresses du PC sur le réseau local (pour ouvrir le logiciel sur téléphone / tablette)
+api.get('/network', (req, res) => {
+  const port = req.get('host')?.split(':')[1] || process.env.PORT || 3000;
+  const urls = Object.values(os.networkInterfaces()).flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.'))
+    .map((i) => `http://${i.address}:${port}/`);
+  const pub = getSettings().public_url;
+  res.json({ urls: pub ? [pub.replace(/\/?$/, '/'), ...urls] : urls });
+});
 api.get('/search', (req, res) => {
   const q = `%${req.query.q || ''}%`;
   res.json({

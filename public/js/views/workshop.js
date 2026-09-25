@@ -29,13 +29,14 @@ export const Workshop = {
       await act(() => POST(`/documents/${o.id}/status`, { status }));
       load();
     };
+    const moveTo = async (o, status) => { dragged = o; await drop(status); };
     const isLate = (o) => o.promised_at && new Date(o.promised_at) < new Date() && o.status !== 'done';
-    return { STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
+    return { moveTo, STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
   },
   template: `
   <div>
     <div class="page-head">
-      <div><h1>Atelier</h1><div class="sub">Glissez les fiches d'une colonne à l'autre. Les mécaniciens pointent depuis le kiosque.</div></div>
+      <div><h1>Atelier</h1><div class="sub">Glissez les fiches d'une colonne à l'autre (sur tablette : menu ➜ sur chaque fiche). Les mécaniciens pointent depuis le kiosque.</div></div>
       <div class="btns">
         <ModuleTools module="atelier"/>
         <select v-model="mech" style="width:auto"><option value="">Tous les mécaniciens</option><option v-for="[id, n] in mechanics" :value="String(id)">{{ n }}</option></select>
@@ -58,6 +59,7 @@ export const Workshop = {
           <div class="row small muted" style="margin-top:4px"><span>{{ o.hours_sold ? hours(o.hours_sold) + ' vendues' : '' }}</span><span>{{ money(o.total) }}</span></div>
           <div class="mini-gauge" :title="STAGE_LABEL[o.stage || 'received']"><div :style="{width: (100 * STAGE_KEYS.indexOf(o.stage || 'received') / 6) + '%'}"></div></div>
           <div class="small muted">{{ STAGE_LABEL[o.stage || 'received'] }}</div>
+          <select class="touch-move" :value="o.status" @click.stop @change="moveTo(o, $event.target.value)"><option v-for="[k, label] in COLS" :value="k">➜ {{ label }}</option></select>
         </div>
       </div>
     </div>
@@ -74,12 +76,14 @@ export const Planning = {
     const appts = ref([]);
     const mechanics = ref([]);
     const edit = ref(null);
-    const days = computed(() => Array.from({ length: 6 }, (_, i) => addDays(week.value, i)));
-    const load = async () => { appts.value = await GET(`/appointments?from=${week.value}&to=${addDays(week.value, 6)}`); };
+    const narrow = window.matchMedia('(max-width: 800px)').matches;
+    if (narrow) week.value = today();
+    const days = computed(() => Array.from({ length: narrow ? 1 : 6 }, (_, i) => addDays(week.value, i)));
+    const load = async () => { appts.value = await GET(`/appointments?from=${week.value}&to=${addDays(week.value, narrow ? 0 : 6)}`); };
     onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); load(); });
-    const shift = (n) => { week.value = addDays(week.value, n * 7); load(); };
+    const shift = (n) => { week.value = addDays(week.value, n * (narrow ? 1 : 7)); load(); };
     const mailAppt = ref(null);
-    const thisWeek = () => { week.value = monday(today()); load(); };
+    const thisWeek = () => { week.value = narrow ? today() : monday(today()); load(); };
     const pos = (a) => {
       const s = new Date(a.start), e = new Date(a.end);
       const top = ((s.getHours() + s.getMinutes() / 60) - START_H) * SLOT;
@@ -108,16 +112,16 @@ export const Planning = {
       go('/document/' + r.id);
     };
     const hoursList = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
-    return { mailAppt, go, thisWeek, week, days, appts, mechanics, edit, shift, pos, dayAppts, newAt, open, onCustomer, save, remove, arrive, hoursList, date, time, today };
+    return { narrow, mailAppt, go, thisWeek, week, days, appts, mechanics, edit, shift, pos, dayAppts, newAt, open, onCustomer, save, remove, arrive, hoursList, date, time, today };
   },
   template: `
   <div>
     <div class="page-head">
-      <div><h1>Planning atelier</h1><div class="sub">Semaine du {{ date(week) }} — cliquez sur un créneau pour ajouter un rendez-vous</div></div>
-      <div class="btns"><ModuleTools module="planning"/><button class="btn" @click="shift(-1)">←</button><button class="btn" @click="thisWeek">Cette semaine</button><button class="btn" @click="shift(1)">→</button></div>
+      <div><h1>Planning atelier</h1><div class="sub">{{ narrow ? new Date(week + 'T12:00').toLocaleDateString('fr-LU', {weekday: 'long', day: 'numeric', month: 'long'}) : 'Semaine du ' + date(week) }} — touchez un créneau pour ajouter un rendez-vous</div></div>
+      <div class="btns"><ModuleTools module="planning"/><button class="btn" @click="shift(-1)">←</button><button class="btn" @click="thisWeek">{{ narrow ? "Aujourd'hui" : 'Cette semaine' }}</button><button class="btn" @click="shift(1)">→</button></div>
     </div>
     <div class="table-wrap">
-    <div class="planning" style="--days: 6">
+    <div class="planning" :style="{'--days': days.length}">
       <div class="pl-head"></div>
       <div v-for="d in days" class="pl-head" :class="{today: d === today()}">{{ new Date(d + 'T12:00').toLocaleDateString('fr-LU', {weekday: 'short', day: 'numeric', month: 'short'}) }}</div>
       <div class="pl-hours"><div v-for="h in hoursList" class="pl-hour">{{ h }}:00</div></div>

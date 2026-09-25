@@ -153,3 +153,5 @@ const App = {
 };
 
 createApp(App).mount('#app');
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => {});

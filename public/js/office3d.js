@@ -78,8 +78,9 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   const width = () => container.clientWidth;
   const height = () => container.clientHeight;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const small = Math.min(window.innerWidth, window.innerHeight) < 700;
+  const renderer = new THREE.WebGLRenderer({ antialias: !small, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, small ? 1.5 : 2)); // plus léger sur téléphone
   renderer.setSize(width(), height());
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -97,13 +98,18 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   scene.fog = new THREE.Fog('#0f172a', 30, 60);
 
   const camera = new THREE.PerspectiveCamera(45, width() / height(), 0.1, 200);
-  const HOME = { pos: new THREE.Vector3(0, 15, 19), target: new THREE.Vector3(0, 0.8, 0) };
+  // Plus l'écran est étroit (téléphone en portrait), plus la caméra recule pour voir tout le bureau
+  const HOME_BASE = new THREE.Vector3(0, 15, 19);
+  const HOME = { pos: HOME_BASE.clone(), target: new THREE.Vector3(0, 0.8, 0) };
+  const fitHome = () => HOME.pos.copy(HOME_BASE).multiplyScalar(Math.max(1, Math.min(2.2, 1.35 / camera.aspect)));
+  fitHome();
+  let focused = null;
   camera.position.copy(HOME.pos);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(HOME.target);
   controls.enableDamping = true;
   controls.maxPolarAngle = Math.PI / 2.2;
-  controls.minDistance = 5; controls.maxDistance = 35;
+  controls.minDistance = 5; controls.maxDistance = 50;
 
   // Lumières
   scene.add(new THREE.HemisphereLight('#dbeafe', '#1e293b', 0.9));
@@ -233,6 +239,7 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   let camAnim = null;
   const flyTo = (pos, target) => { camAnim = { t: 0, fromPos: camera.position.clone(), fromTarget: controls.target.clone(), pos, target }; };
   const focus = (id) => {
+    focused = id;
     if (!id) return flyTo(HOME.pos.clone(), HOME.target.clone());
     const g = agentObjs[id].group.position;
     const dir = g.clone().setY(0).normalize();
@@ -273,6 +280,8 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   const ro = new ResizeObserver(() => {
     camera.aspect = width() / height();
     camera.updateProjectionMatrix();
+    fitHome();
+    if (!focused && !camAnim) camera.position.copy(HOME.pos);
     renderer.setSize(width(), height());
     labelRenderer.setSize(width(), height());
   });

@@ -21,6 +21,7 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 | ⏰ **Activités (comme Odoo)** | Sur chaque fiche et chaque module : tâches, appels, relances, commandes… avec échéance, responsable et **répétition** (jour, semaine, mois, an). Page « Activités » (en retard / aujourd'hui / à venir) et cloche dans la barre du haut. Historique de chaque fiche avec notes internes |
 | 📡 **Suivi en direct des OR** | Pour chaque ordre de réparation : un **lien mécanicien** (téléphone de l'atelier) pour envoyer photos, vidéos et messages, et un **lien client** avec une **jauge d'avancement en temps réel** (Véhicule reçu → Diagnostic → Accord client → Pièces → Réparation → Contrôle qualité → Prêt). Le client voit les photos et vidéos, répond, et **accepte ou refuse d'un clic les travaux supplémentaires** (ajoutés automatiquement à l'OR). Envoi du lien par e-mail, WhatsApp, SMS ou QR code |
 | 📥 **Factures fournisseurs par e-mail + IA** | Transférez les factures à une adresse dédiée (ou déposez PDF / photos) : l'IA lit le document, retrouve ou crée le fournisseur, reconnaît vos articles, propose le compte de charge et la TVA, vérifie le total et signale les doublons. Le **document original reste en pièce jointe** et s'affiche à côté de la facture pour la vérification, comme dans Odoo |
+| 📱 **PC, tablette et téléphone** | Interface adaptée à chaque écran : menu à icônes sur tablette, barre de navigation en bas et bouton ＋ sur téléphone, listes en fiches, planning jour par jour, déplacement des OR au doigt. **Installable comme une application** (icône sur l'écran d'accueil). Menu « 📱 Sur téléphone / tablette » : QR code pour ouvrir le logiciel sur le réseau du garage |
 | 🔍 **Recherche globale** | `Ctrl + K` : plaque, client, n° de facture, référence pièce |
 
 ## 🚀 Installation
@@ -57,6 +58,15 @@ Les données sont enregistrées dans `data/garage.db` (SQLite). **Sauvegardez ce
 
 Les agents utilisent le modèle Claude `claude-opus-5` (modifiable via `CLAUDE_MODEL`), peuvent consulter les données du garage (lecture seule) et faire des recherches sur le web. Les tâches programmées tournent tant que le logiciel est allumé (fuseau `Europe/Luxembourg`).
 Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est partagé avec toute l'équipe.
+
+## 📱 Utiliser sur tablette et téléphone
+
+1. Le PC où tourne le logiciel et la tablette / le téléphone doivent être sur **le même Wi-Fi**.
+2. Dans le logiciel (sur le PC) : menu **📱 Sur téléphone / tablette** → scannez le QR code avec l'appareil.
+3. Pour avoir l'icône comme une vraie application : **iPhone / iPad** : Safari → Partager → *Sur l'écran d'accueil* ; **Android** : Chrome → ⋮ → *Ajouter à l'écran d'accueil*. Pour la tablette de l'atelier, faites de même avec l'adresse terminée par **/kiosk.html**.
+4. En dehors du garage : utilisez l'adresse publique (voir « Suivi en direct » plus bas). En HTTPS, l'application s'installe aussi directement depuis le navigateur (bouton **⬇ Installer l'application**).
+
+Si Windows demande l'autorisation du pare-feu au premier lancement, acceptez pour les **réseaux privés**, sinon les appareils ne pourront pas se connecter.
 
 ## ✉️ Configurer les e-mails
 
