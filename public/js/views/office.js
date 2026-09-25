@@ -209,7 +209,7 @@ export const Office = {
     </div>
 
     <div v-if="!view3d">
-      <div class="page-head"><div><h1>🤖 Votre équipe IA</h1><div class="sub">6 experts disponibles 24h/24</div></div><div class="btns"><button class="btn" @click="meeting.open = true">👥 Réunion d'équipe</button><button class="btn" @click="view3d = true; $nextTick(() => select(null))">🏢 Vue 3D</button></div></div>
+      <div class="page-head"><div><h1>🤖 Votre équipe IA</h1><div class="sub">6 experts disponibles 24h/24</div></div><div class="btns"><ModuleTools module="ia"/><button class="btn" @click="meeting.open = true">👥 Réunion d'équipe</button><button class="btn" @click="view3d = true; $nextTick(() => select(null))">🏢 Vue 3D</button></div></div>
       <div class="grid g3">
         <div v-for="a in agents" class="card" style="cursor:pointer" @click="view3d = true; $nextTick(() => select(a.id))">
           <div style="display:flex;gap:12px;align-items:center"><div class="avatar" :style="{background: a.color, width: '48px', height: '48px', fontSize: '24px'}">{{ a.emoji }}</div>

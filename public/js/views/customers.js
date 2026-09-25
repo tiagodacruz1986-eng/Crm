@@ -43,7 +43,7 @@ export const CustomerList = {
   components: { },
   template: `
   <div>
-    <div class="page-head"><h1>Clients</h1><button class="btn primary" @click="go('/customer/new')">+ Nouveau client</button></div>
+    <div class="page-head"><h1>Clients</h1><div class="btns"><ModuleTools module="clients"/><button class="btn primary" @click="go('/customer/new')">+ Nouveau client</button></div></div>
     <div class="card">
       <div class="toolbar"><input v-model="q" @input="load" placeholder="Nom, téléphone, e-mail…"><span class="muted" style="margin-left:auto">{{ rows.length }} clients</span></div>
       <div class="table-wrap"><table>
@@ -144,6 +144,7 @@ export const CustomerDetail = {
         </div>
       </div>
     </div>
+    <Chatter v-if="!isNew" model="customer" :record-id="c.id" style="margin-top:16px"/>
     <Modal v-if="vehicle" title="Véhicule" @close="vehicle = null" wide>
       <div class="form-grid">
         <label>Plaque<input v-model="vehicle.plate"></label>
@@ -173,7 +174,7 @@ export const VehicleList = {
   },
   template: `
   <div>
-    <div class="page-head"><h1>Véhicules</h1></div>
+    <div class="page-head"><h1>Véhicules</h1><div class="btns"><ModuleTools module="vehicules"/></div></div>
     <div class="card">
       <div class="toolbar"><input v-model="q" @input="load" placeholder="Plaque, VIN, marque, client…"><span class="muted" style="margin-left:auto">{{ rows.length }} véhicules</span></div>
       <div class="table-wrap"><table>
@@ -237,5 +238,6 @@ export const VehicleDetail = {
         <Empty v-if="!v.history.length" icon="🛠️" text="Aucune intervention enregistrée"/>
       </div>
     </div>
+    <Chatter model="vehicle" :record-id="v.id" style="margin-top:16px"/>
   </div>`,
 };

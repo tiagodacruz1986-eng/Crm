@@ -1,6 +1,7 @@
 import { createApp, reactive, computed, defineAsyncComponent, ref, onMounted, onUnmounted } from 'vue';
 import { store, GET, POST, money, DOC_TYPES_SHORT } from './api.js';
 import { Badge, Modal, Picker, BarChart, Empty } from './components.js';
+import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 
 import { route, go } from './router.js';
 
@@ -14,13 +15,15 @@ const VIEWS = {
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
   accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'),
-  office: lazy('office', 'Office'), settings: lazy('settings', 'Settings'),
+  office: lazy('office', 'Office'), activities: lazy('activities', 'Activities'), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
 const NAV = [
   { section: 'Pilotage' },
   { to: '/', icon: '🏠', label: 'Tableau de bord', match: 'dashboard' },
   { to: '/office', icon: '🤖', label: 'Bureau IA', match: 'office' },
+  { to: '/activities', icon: '⏰', label: 'Activités', match: 'activities' },
+  { to: '/mail', icon: '✉️', label: 'E-mails', match: 'mail' },
   { section: 'Atelier' },
   { to: '/workshop', icon: '🔧', label: 'Atelier (OR)', match: 'workshop' },
   { to: '/planning', icon: '📅', label: 'Planning', match: 'planning' },
@@ -138,6 +141,7 @@ const Root = {
         <button class="icon-btn burger" @click="menuOpen = !menuOpen">☰</button>
         <button class="search-trigger" @click="searchOpen = true">🔍 Rechercher une plaque, un client, une facture… <kbd>Ctrl K</kbd></button>
         <div class="quick">
+          <ActivityBell/>
           <a class="btn" href="#/new/quote">+ Devis</a>
           <a class="btn primary" href="#/new/order">+ Ordre de réparation</a>
         </div>
@@ -161,7 +165,7 @@ async function boot() {
 }
 
 const app = createApp(Root);
-Object.entries({ Badge, Modal, Picker, BarChart, Empty }).forEach(([n, c]) => app.component(n, c));
+Object.entries({ Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;
 app.mount('#app');
 boot();

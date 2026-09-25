@@ -21,7 +21,7 @@ export const Timesheets = {
   <div>
     <div class="page-head">
       <div><h1>Pointage</h1><div class="sub">Présence et temps passé sur les ordres de réparation. Les mécaniciens pointent sur <a href="/kiosk.html" target="_blank">le kiosque atelier</a>.</div></div>
-      <div class="toolbar" style="margin:0"><input type="date" v-model="from" @change="load"> → <input type="date" v-model="to" @change="load"><button class="btn sm" @click="day">Aujourd'hui</button><button class="btn sm" @click="week">Semaine</button></div>
+      <div class="toolbar" style="margin:0"><ModuleTools module="pointage"/><input type="date" v-model="from" @change="load"> → <input type="date" v-model="to" @change="load"><button class="btn sm" @click="day">Aujourd'hui</button><button class="btn sm" @click="week">Semaine</button></div>
     </div>
     <template v-if="data">
       <div class="grid g4" style="margin-bottom:16px">

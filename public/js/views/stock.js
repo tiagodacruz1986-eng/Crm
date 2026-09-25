@@ -31,7 +31,7 @@ export const ProductList = {
   <div>
     <div class="page-head">
       <div><h1>Articles & stock</h1><div class="sub">Valeur du stock : {{ money(valuation.purchase_value) }} (prix d'achat) · {{ valuation.items || 0 }} références en stock</div></div>
-      <div class="btns"><button class="btn" @click="reorder">🔄 Commander le stock bas</button><button class="btn primary" @click="go('/product/new')">+ Nouvel article</button></div>
+      <div class="btns"><ModuleTools module="stock"/><button class="btn" @click="reorder">🔄 Commander le stock bas</button><button class="btn primary" @click="go('/product/new')">+ Nouvel article</button></div>
     </div>
     <div class="tabs"><button :class="{active: tab==='items'}" @click="tab='items'">Articles</button><button :class="{active: tab==='moves'}" @click="tab='moves'; loadMoves()">Mouvements de stock</button></div>
     <div class="card" v-if="tab==='items'">
@@ -107,6 +107,7 @@ export const ProductDetail = {
         <div v-for="m in p.moves" class="list-item small"><span>{{ datetime(m.date) }} · {{ MOVE_KIND[m.kind] }} {{ m.doc_number || m.purchase_number || m.note }}</span><b :class="m.qty > 0 ? 'pos' : 'neg'">{{ m.qty > 0 ? '+' : '' }}{{ num(m.qty) }}</b></div>
       </div>
     </div>
+    <Chatter v-if="!isNew" model="product" :record-id="p.id" style="margin-top:16px"/>
     <Modal v-if="adj" title="Inventaire / correction de stock" @close="adj = null">
       <label>Quantité réellement en stock<input v-model.number="adj.qty" type="number" step="0.01"></label>
       <label>Motif<input v-model="adj.note"></label>
@@ -123,7 +124,7 @@ export const PurchaseList = {
   },
   template: `
   <div>
-    <div class="page-head"><div><h1>Achats</h1><div class="sub">Commandes fournisseurs, réceptions et factures d'achat (pièces et frais généraux)</div></div><button class="btn primary" @click="go('/purchase/new')">+ Nouvel achat</button></div>
+    <div class="page-head"><div><h1>Achats</h1><div class="sub">Commandes fournisseurs, réceptions et factures d'achat (pièces et frais généraux)</div></div><div class="btns"><ModuleTools module="achats"/><button class="btn primary" @click="go('/purchase/new')">+ Nouvel achat</button></div></div>
     <div class="card">
       <div class="table-wrap"><table>
         <thead><tr><th>N°</th><th>Date</th><th>Fournisseur</th><th>Réf. facture</th><th>Statut</th><th class="num">Total TTC</th><th class="num">Reste à payer</th></tr></thead>
@@ -210,6 +211,7 @@ export const PurchaseEditor = {
         <template v-if="p.amount_paid"><span class="muted">Payé</span><span class="num pos">{{ money(p.amount_paid) }}</span></template>
       </div>
     </div>
+    <Chatter v-if="!isNew" model="purchase" :record-id="p.id"/>
     <PaymentModal v-if="showPay" :residual="Math.round((p.total - p.amount_paid) * 100) / 100" title="Paiement fournisseur" @close="showPay = false" @save="pay"/>
   </div>`,
 };
@@ -227,11 +229,12 @@ export const SupplierList = {
       edit.value = null; load();
     };
     const remove = async () => { await act(() => DEL('/suppliers/' + edit.value.id)); edit.value = null; load(); };
-    return { rows, edit, accounts, save, remove, money };
+    const mailTo = ref(null);
+    return { rows, edit, accounts, save, remove, money, mailTo };
   },
   template: `
   <div>
-    <div class="page-head"><h1>Fournisseurs</h1><button class="btn primary" @click="edit = {country: 'LU', default_account: '6070'}">+ Nouveau fournisseur</button></div>
+    <div class="page-head"><h1>Fournisseurs</h1><div class="btns"><ModuleTools module="achats"/><button class="btn primary" @click="edit = {country: 'LU', default_account: '6070'}">+ Nouveau fournisseur</button></div></div>
     <div class="card">
       <div class="table-wrap"><table>
         <thead><tr><th>Nom</th><th>Contact</th><th>IBAN</th><th>Compte</th><th class="num">À payer</th></tr></thead>
@@ -248,7 +251,8 @@ export const SupplierList = {
         <label>Compte de charge par défaut<select v-model="edit.default_account"><option v-for="a in accounts" :value="a.code">{{ a.code }} {{ a.name }}</option></select></label>
         <label class="full">Notes<textarea v-model="edit.notes"></textarea></label>
       </div>
-      <template #foot><button v-if="edit.id" class="btn danger" style="margin-right:auto" @click="remove">Supprimer</button><button class="btn primary" :disabled="!edit.name" @click="save">Enregistrer</button></template>
+      <template #foot><button v-if="edit.id" class="btn danger" style="margin-right:auto" @click="remove">Supprimer</button><button v-if="edit.id" class="btn" @click="mailTo = edit.id">✉️ E-mail</button><button class="btn primary" :disabled="!edit.name" @click="save">Enregistrer</button></template>
     </Modal>
+    <MailComposer v-if="mailTo" model="supplier" :record-id="mailTo" @close="mailTo = null"/>
   </div>`,
 };

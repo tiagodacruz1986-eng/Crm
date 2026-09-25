@@ -17,6 +17,8 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 | 🏦 **Banque** | Import des relevés **CAMT.053** (toutes les banques luxembourgeoises) ou CSV, dédoublonnage, **rapprochement automatique** avec les factures clients et fournisseurs, affectation en 1 clic (frais, salaires, loyer, TVA…) |
 | 📚 **Comptabilité** | Écritures automatiques (ventes, achats, banque, caisse), journal, balance, grand livre, **décompte TVA**, compte de résultat, créances clients, OD manuelles, export CSV pour la fiduciaire |
 | 🤖 **Bureau IA 3D** | 6 agents qui lisent vos vraies données : Claire (experte-comptable), Léo (marketing), Sophie (secrétariat), Marco (chef d'atelier), Maître Laurent (avocat), Alex (CIO & stratégie). Discussion, **tâches programmées** (une fois, chaque jour, lun-ven, chaque semaine, chaque mois), rapports, **réunion d'équipe** avec synthèse du CIO |
+| ✉️ **E-mails** | Bouton ✉️ sur chaque page et chaque fiche : modèles prêts (devis, facture avec QR code de paiement, relance, véhicule prêt, rappel contrôle technique, confirmation de rendez-vous, bon de commande fournisseur…), aperçu, **rédaction par l'IA**, **envoi programmé**, historique des envois |
+| ⏰ **Activités (comme Odoo)** | Sur chaque fiche et chaque module : tâches, appels, relances, commandes… avec échéance, responsable et **répétition** (jour, semaine, mois, an). Page « Activités » (en retard / aujourd'hui / à venir) et cloche dans la barre du haut. Historique de chaque fiche avec notes internes |
 | 🔍 **Recherche globale** | `Ctrl + K` : plaque, client, n° de facture, référence pièce |
 
 ## 🚀 Installation
@@ -54,6 +56,10 @@ Les données sont enregistrées dans `data/garage.db` (SQLite). **Sauvegardez ce
 Les agents utilisent le modèle Claude `claude-opus-5` (modifiable via `CLAUDE_MODEL`), peuvent consulter les données du garage (lecture seule) et faire des recherches sur le web. Les tâches programmées tournent tant que le logiciel est allumé (fuseau `Europe/Luxembourg`).
 Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est partagé avec toute l'équipe.
 
+## ✉️ Configurer les e-mails
+
+**Paramètres → E-mails** : serveur SMTP de votre messagerie (préréglages Gmail, Outlook/Microsoft 365, OVH, POST Luxembourg), adresse d'expédition et signature, puis **Tester**. Pour Gmail et Microsoft 365, utilisez un « mot de passe d'application ». Sans configuration, le bouton « Ouvrir dans ma messagerie » reste disponible.
+
 ## 🔄 Importer depuis Odoo
 
 **Paramètres → Import Odoo** : indiquez l'adresse de votre Odoo, le nom de la base, votre e-mail de connexion et une **clé API** (Odoo → votre profil → Sécurité du compte → Nouvelle clé API), puis **Tester la connexion** et **Lancer l'import**.
@@ -88,5 +94,6 @@ src/agents.js        les 6 agents + outils d'accès aux données
 src/claude.js        appels à l'API Claude, réunion d'équipe
 src/scheduler.js     tâches programmées
 src/odoo.js          import depuis Odoo (JSON-RPC)
+src/mail.js          e-mails, historique des fiches, activités planifiées
 public/              interface (Vue) + kiosque + bureau 3D
 ```

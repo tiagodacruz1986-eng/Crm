@@ -25,7 +25,7 @@ export const DocumentList = {
   <div>
     <div class="page-head">
       <h1>{{ type === 'invoice' ? 'Factures & avoirs' : type === 'quote' ? 'Devis' : 'Ordres de réparation' }}</h1>
-      <a class="btn primary" :href="'#/new/' + type">+ Nouveau {{ DOC_TYPES_SHORT[type].toLowerCase() }}</a>
+      <div class="btns"><ModuleTools :module="type === 'order' ? 'atelier' : 'ventes'"/><a class="btn primary" :href="'#/new/' + type">+ Nouveau {{ DOC_TYPES_SHORT[type].toLowerCase() }}</a></div>
     </div>
     <div class="card">
       <div class="toolbar">
@@ -321,6 +321,7 @@ export const DocumentEditor = {
           </div>
           <button v-if="locked" class="btn sm" style="margin-top:8px" @click="save()">Enregistrer les notes internes</button>
         </div>
+        <Chatter v-if="!isNew && doc.id" model="document" :record-id="doc.id"/>
       </div>
 
       <div>

@@ -50,7 +50,7 @@ export const Accounting = {
   <div>
     <div class="page-head">
       <div><h1>Comptabilité</h1><div class="sub">Les écritures sont générées automatiquement à chaque facture, achat et paiement.</div></div>
-      <div class="btns"><button class="btn" @click="newOd">+ Écriture manuelle (OD)</button><a class="btn" :href="exportUrl">⬇ Export pour la fiduciaire (CSV)</a></div>
+      <div class="btns"><ModuleTools module="comptabilite"/><button class="btn" @click="newOd">+ Écriture manuelle (OD)</button><a class="btn" :href="exportUrl">⬇ Export pour la fiduciaire (CSV)</a></div>
     </div>
     <div class="toolbar">
       <input type="date" v-model="p.from" @change="load"> → <input type="date" v-model="p.to" @change="load">

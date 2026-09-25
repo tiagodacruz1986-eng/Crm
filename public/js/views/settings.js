@@ -32,7 +32,12 @@ export const Settings = {
       await act(() => POST('/odoo/import', { options: odooOpts }));
       await loadOdoo();
     };
-    const load = async () => { loadOdoo(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
+    const mail = ref(null);
+    const loadMail = async () => { mail.value = { ...(await GET('/mail/config')), pass: '' }; };
+    const saveMail = async () => { await act(() => PUT('/mail/config', mail.value), 'Configuration e-mail enregistrée'); await loadMail(); };
+    const testMail = async () => { await saveMail(); await act(() => POST('/mail/test'), '✅ Connexion au serveur d\'e-mail réussie'); };
+    const preset = (k) => Object.assign(mail.value, { gmail: { host: 'smtp.gmail.com', port: 465, secure: true }, outlook: { host: 'smtp.office365.com', port: 587, secure: false }, ovh: { host: 'ssl0.ovh.net', port: 465, secure: true }, pt: { host: 'mail.pt.lu', port: 587, secure: false } }[k]);
+    const load = async () => { loadOdoo(); loadMail(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     onMounted(load);
     const save = async () => { store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name; };
     const saveUser = async () => {
@@ -41,13 +46,13 @@ export const Settings = {
       editUser.value = null; load();
     };
     const saveAcc = async () => { await act(() => POST('/accounting/accounts', newAcc.value), 'Compte enregistré'); newAcc.value = null; load(); };
-    return { odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
+    return { mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
   },
   template: `
   <div v-if="s">
     <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','workshop','ai'].includes(tab)" @click="save">Enregistrer</button></div>
     <div class="tabs">
-      <button v-for="[k, l] in [['company','Société'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
+      <button v-for="[k, l] in [['company','Société'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
     </div>
     <div class="card" v-if="tab==='company'">
       <div class="form-grid">
@@ -80,6 +85,24 @@ export const Settings = {
     <div class="card" v-if="tab==='accounts'">
       <div class="card-head"><div><h2 style="margin:0">Plan comptable</h2><div class="muted small">Inspiré du PCN luxembourgeois — à faire valider par votre fiduciaire.</div></div><button class="btn" @click="newAcc = {type: 'expense'}">+ Compte</button></div>
       <table><thead><tr><th>Code</th><th>Intitulé</th><th>Type</th></tr></thead><tbody><tr v-for="a in accounts" class="click" @click="newAcc = {...a}"><td><b>{{ a.code }}</b></td><td>{{ a.name }}</td><td>{{ a.type }}</td></tr></tbody></table>
+    </div>
+    <div class="card" v-if="tab==='mail' && mail">
+      <h2>✉️ Envoi des e-mails</h2>
+      <p class="muted">Les e-mails (devis, factures, relances, rappels…) partent de votre propre adresse. Renseignez les paramètres SMTP de votre messagerie.</p>
+      <div class="btns small" style="margin-bottom:10px"><span class="muted">Préréglages :</span><button class="btn sm" @click="preset('gmail')">Gmail</button><button class="btn sm" @click="preset('outlook')">Outlook / Microsoft 365</button><button class="btn sm" @click="preset('ovh')">OVH</button><button class="btn sm" @click="preset('pt')">POST Luxembourg</button></div>
+      <div class="form-grid">
+        <label>Serveur SMTP<input v-model="mail.host" placeholder="smtp.exemple.lu"></label>
+        <label>Port<input v-model.number="mail.port" type="number"></label>
+        <label class="check"><input type="checkbox" v-model="mail.secure"> Connexion SSL (port 465)</label>
+        <label>Identifiant<input v-model="mail.user" autocomplete="off"></label>
+        <label>Mot de passe {{ mail.has_pass ? '(enregistré — vide = inchangé)' : '' }}<input v-model="mail.pass" type="password" autocomplete="new-password"></label>
+        <label>Adresse d'expédition<input v-model="mail.from_email" type="email" placeholder="info@votre-garage.lu"></label>
+        <label>Nom de l'expéditeur<input v-model="mail.from_name" placeholder="Garage …"></label>
+        <label class="check"><input type="checkbox" v-model="mail.bcc_me"> Me mettre en copie cachée</label>
+        <label class="full">Signature<textarea v-model="mail.signature" placeholder="L'équipe du Garage …&#10;+352 …"></textarea></label>
+      </div>
+      <p class="muted small">Gmail / Microsoft 365 : utilisez un « mot de passe d'application » (sécurité du compte), pas votre mot de passe habituel.</p>
+      <div class="btns"><button class="btn primary" @click="saveMail">Enregistrer</button><button class="btn" @click="testMail">🔌 Tester</button><span v-if="mail.configured" class="pos">● Configuré</span></div>
     </div>
     <div class="card" v-if="tab==='odoo' && odoo">
       <h2>🔄 Importer mes données depuis Odoo</h2>

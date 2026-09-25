@@ -11,6 +11,11 @@ import {
 } from './src/business.js';
 import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, PROVIDERS } from './src/bank.js';
 import { AGENTS } from './src/agents.js';
+import {
+  MODELS, MODULES, ACTIVITY_TYPES, TEMPLATE_LABELS, publicMailConfig, saveMailConfig, testMail, compose, renderEmail, sendEmail, processScheduledEmails,
+  logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo,
+} from './src/mail.js';
+import { runAgent, friendlyError } from './src/claude.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
@@ -288,9 +293,23 @@ api.post('/documents/:id/status', wrap((req) => {
   run('UPDATE documents SET status=? WHERE id=?', req.body.status, d.id);
   return { ok: true };
 }));
-api.post('/documents/:id/convert', wrap((req) => ({ id: convertDocument(Number(req.params.id), req.body.type) })));
-api.post('/documents/:id/post', wrap((req) => ({ number: postInvoice(Number(req.params.id)) })));
-api.post('/documents/:id/payments', wrap((req) => ({ id: registerPayment({ ...req.body, document_id: Number(req.params.id) }) })));
+api.post('/documents/:id/convert', wrap((req) => {
+  const id = convertDocument(Number(req.params.id), req.body.type);
+  const n = get('SELECT type, number FROM documents WHERE id=?', id);
+  logMessage('document', Number(req.params.id), `➡️ ${{ order: 'Ordre de réparation', invoice: 'Facture', credit_note: 'Note de crédit' }[n.type]} créé(e) ${n.number || ''}`, req.user.id, 'system');
+  logMessage('document', id, `Créé(e) à partir de ${get('SELECT number FROM documents WHERE id=?', req.params.id).number || 'un brouillon'}`, req.user.id, 'system');
+  return { id };
+}));
+api.post('/documents/:id/post', wrap((req) => {
+  const number = postInvoice(Number(req.params.id));
+  logMessage('document', Number(req.params.id), `✔ Validée sous le numéro ${number}`, req.user.id, 'system');
+  return { number };
+}));
+api.post('/documents/:id/payments', wrap((req) => {
+  const id = registerPayment({ ...req.body, document_id: Number(req.params.id) });
+  logMessage('document', Number(req.params.id), `💶 Paiement enregistré : ${Number(req.body.amount).toFixed(2)} €`, req.user.id, 'system');
+  return { id };
+}));
 // QR code de paiement SEPA (EPC) imprimé sur la facture — scannable par les applis bancaires
 api.get('/documents/:id/qr.svg', wrap(async (req, res) => {
   const d = getDocument(Number(req.params.id));
@@ -453,6 +472,57 @@ api.post('/odoo/import', adminOnly, wrap((req) => {
   return odooJob;
 }));
 
+// ---------- E-mails ----------
+const checkModel = (m) => { if (m && !MODELS.includes(m)) throw new BusinessError('Type de fiche inconnu'); return m || null; };
+api.get('/mail/config', (req, res) => res.json(publicMailConfig()));
+api.put('/mail/config', adminOnly, wrap((req) => { saveMailConfig(req.body); return publicMailConfig(); }));
+api.post('/mail/test', adminOnly, wrap(() => testMail()));
+api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Number(req.query.id) || null, req.query.template)));
+api.post('/mail/preview', wrap(async (req) => {
+  const { html } = await renderEmail({ model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, intro: req.body.intro || '', include_document: req.body.include_document });
+  return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`) };
+}));
+api.post('/mail/send', wrap((req) => sendEmail({ ...req.body, model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, user_id: req.user.id })));
+api.get('/mail/outbox', (req, res) => res.json(all(`SELECT e.*, u.name AS user_name FROM emails e LEFT JOIN users u ON u.id=e.user_id ORDER BY e.id DESC LIMIT 300`)
+  .map((e) => ({ ...e, record: recordInfo(e.model, e.record_id) }))));
+api.delete('/mail/:id', wrap((req) => {
+  const e = get("SELECT * FROM emails WHERE id=? AND status='scheduled'", req.params.id);
+  if (!e) throw new BusinessError('Seul un e-mail programmé peut être annulé');
+  run("UPDATE emails SET status='cancelled' WHERE id=?", e.id);
+  logMessage(e.model, e.record_id, `🚫 E-mail programmé annulé : « ${e.subject} »`, req.user.id, 'system');
+  return { ok: true };
+}));
+// Rédaction assistée : Sophie (secrétariat) écrit le texte du mail
+api.post('/mail/draft-ai', wrap(async (req) => {
+  const info = recordInfo(checkModel(req.body.model), Number(req.body.record_id)) || {};
+  const prompt = `Rédige le texte d'un e-mail professionnel à envoyer par le garage${info.name ? ` à ${info.name}` : ''}.
+Contexte : ${info.label || 'aucune fiche liée'}. Objet prévu : ${req.body.subject || '—'}.
+Consigne du gérant : ${req.body.instruction || 'améliore et rends plus chaleureux le texte actuel'}.
+Texte actuel :
+${req.body.intro || ''}
+
+Réponds UNIQUEMENT avec le corps du message en texte brut (salutation, contenu, formule de politesse), sans objet ni commentaire. Si besoin, consulte les données avec tes outils.`;
+  try { return { intro: await runAgent('secretariat', [{ role: 'user', content: prompt }]) }; } catch (e) { throw new BusinessError(friendlyError(e)); }
+}));
+
+// ---------- Historique & activités (sur chaque fiche) ----------
+api.get('/chatter/:model/:id', wrap((req) => chatter(checkModel(req.params.model), Number(req.params.id))));
+api.post('/chatter/:model/:id/note', wrap((req) => {
+  if (!req.body.body?.trim()) throw new BusinessError('Note vide');
+  logMessage(checkModel(req.params.model), Number(req.params.id), req.body.body.trim(), req.user.id, 'note');
+  return { ok: true };
+}));
+api.get('/activities/meta', (req, res) => res.json({ modules: MODULES, types: ACTIVITY_TYPES, templates: TEMPLATE_LABELS }));
+api.get('/activities/counts', (req, res) => res.json(activityCounts(req.user.id)));
+api.get('/activities', (req, res) => res.json(listActivities({
+  user_id: req.query.mine ? req.user.id : req.query.user_id || null, module: req.query.module || null,
+  model: req.query.model || null, record_id: req.query.record_id || null, status: req.query.status || 'planned', scope: req.query.scope,
+})));
+api.post('/activities', wrap((req) => ({ id: createActivity({ ...req.body, model: checkModel(req.body.model) }, req.user.id) })));
+api.put('/activities/:id', wrap((req) => { update('activities', req.params.id, req.body, ACTIVITY_COLS.filter((c) => !['created_by', 'model', 'record_id'].includes(c))); return { ok: true }; }));
+api.post('/activities/:id/done', wrap((req) => completeActivity(Number(req.params.id), req.body.feedback, req.user.id)));
+api.delete('/activities/:id', wrap((req) => { run("UPDATE activities SET status='cancelled' WHERE id=?", req.params.id); return { ok: true }; }));
+
 // ---------- Bureau virtuel IA ----------
 api.get('/agents', (req, res) => res.json(AGENTS.map(({ prompt, ...a }) => ({
   ...a, working: running.has(a.id),
@@ -507,6 +577,7 @@ app.use((err, req, res, _next) => {
 
 const PORT = Number(process.env.PORT || 3000);
 startScheduler();
+setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
 app.listen(PORT, () => {
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);
   console.log(`🔧  Pointage atelier (tablette) : http://localhost:${PORT}/kiosk.html`);

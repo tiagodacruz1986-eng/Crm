@@ -34,6 +34,7 @@ export const Workshop = {
     <div class="page-head">
       <div><h1>Atelier</h1><div class="sub">Glissez les fiches d'une colonne à l'autre. Les mécaniciens pointent depuis le kiosque.</div></div>
       <div class="btns">
+        <ModuleTools module="atelier"/>
         <select v-model="mech" style="width:auto"><option value="">Tous les mécaniciens</option><option v-for="[id, n] in mechanics" :value="String(id)">{{ n }}</option></select>
         <a class="btn" href="#/documents/order">Liste des OR</a>
         <a class="btn primary" href="#/new/order">+ Nouvel OR</a>
@@ -72,6 +73,7 @@ export const Planning = {
     const load = async () => { appts.value = await GET(`/appointments?from=${week.value}&to=${addDays(week.value, 6)}`); };
     onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); load(); });
     const shift = (n) => { week.value = addDays(week.value, n * 7); load(); };
+    const mailAppt = ref(null);
     const thisWeek = () => { week.value = monday(today()); load(); };
     const pos = (a) => {
       const s = new Date(a.start), e = new Date(a.end);
@@ -101,13 +103,13 @@ export const Planning = {
       go('/document/' + r.id);
     };
     const hoursList = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
-    return { go, thisWeek, week, days, appts, mechanics, edit, shift, pos, dayAppts, newAt, open, onCustomer, save, remove, arrive, hoursList, date, time, today };
+    return { mailAppt, go, thisWeek, week, days, appts, mechanics, edit, shift, pos, dayAppts, newAt, open, onCustomer, save, remove, arrive, hoursList, date, time, today };
   },
   template: `
   <div>
     <div class="page-head">
       <div><h1>Planning atelier</h1><div class="sub">Semaine du {{ date(week) }} — cliquez sur un créneau pour ajouter un rendez-vous</div></div>
-      <div class="btns"><button class="btn" @click="shift(-1)">←</button><button class="btn" @click="thisWeek">Cette semaine</button><button class="btn" @click="shift(1)">→</button></div>
+      <div class="btns"><ModuleTools module="planning"/><button class="btn" @click="shift(-1)">←</button><button class="btn" @click="thisWeek">Cette semaine</button><button class="btn" @click="shift(1)">→</button></div>
     </div>
     <div class="table-wrap">
     <div class="planning" style="--days: 6">
@@ -135,10 +137,12 @@ export const Planning = {
       <label class="check"><input type="checkbox" :checked="!!edit.courtesy_car" @change="edit.courtesy_car = $event.target.checked ? 1 : 0"> Véhicule de courtoisie</label>
       <template #foot>
         <button v-if="edit.id" class="btn danger" @click="remove" style="margin-right:auto">Supprimer</button>
+        <button v-if="edit.id && edit.customer_id" class="btn" @click="mailAppt = edit.id">✉️</button>
         <button v-if="edit.document_id" class="btn" @click="go('/document/' + edit.document_id)">Voir l'OR</button>
         <button v-else-if="edit.customer_id" class="btn" @click="arrive">🚗 Véhicule arrivé → OR</button>
         <button class="btn primary" @click="save">Enregistrer</button>
       </template>
     </Modal>
+    <MailComposer v-if="mailAppt" model="appointment" :record-id="mailAppt" @close="mailAppt = null"/>
   </div>`,
 };

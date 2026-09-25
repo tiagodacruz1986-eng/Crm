@@ -8,7 +8,7 @@ export const ROUTES = [
   ['/documents/:type', 'documents'], ['/document/:id', 'document'], ['/new/:type', 'document'],
   ['/customers', 'customers'], ['/customer/:id', 'customer'], ['/vehicles', 'vehicles'], ['/vehicle/:id', 'vehicle'],
   ['/stock', 'stock'], ['/product/:id', 'product'], ['/purchases', 'purchases'], ['/purchase/:id', 'purchase'], ['/suppliers', 'suppliers'],
-  ['/accounting', 'accounting'], ['/bank', 'bank'], ['/timesheets', 'timesheets'], ['/office', 'office'], ['/settings', 'settings'],
+  ['/accounting', 'accounting'], ['/bank', 'bank'], ['/timesheets', 'timesheets'], ['/office', 'office'], ['/activities', 'activities'], ['/mail', 'mail'], ['/settings', 'settings'],
 ];
 function parseRoute() {
   const [path, qs] = (location.hash.slice(1) || '/').split('?');

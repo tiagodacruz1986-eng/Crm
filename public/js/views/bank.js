@@ -42,7 +42,7 @@ export const Bank = {
   <div>
     <div class="page-head">
       <div><h1>Banque</h1><div class="sub">Importez vos relevés (CAMT.053 ou CSV) : les paiements sont rapprochés automatiquement des factures.</div></div>
-      <div class="btns"><button class="btn" @click="auto">⚡ Rapprochement auto</button><button class="btn primary" @click="edit = {account_code: '5131', provider: 'import', opening_balance: 0}">+ Compte bancaire</button></div>
+      <div class="btns"><ModuleTools module="banque"/><button class="btn" @click="auto">⚡ Rapprochement auto</button><button class="btn primary" @click="edit = {account_code: '5131', provider: 'import', opening_balance: 0}">+ Compte bancaire</button></div>
     </div>
     <div class="grid g3">
       <div v-for="a in accounts" class="card">

@@ -16,7 +16,7 @@ export const Dashboard = {
   <div v-if="d">
     <div class="page-head">
       <div><h1>{{ hello }} {{ store.user.name.split(' ')[0] }} 👋</h1><div class="sub">{{ new Date().toLocaleDateString('fr-LU', {weekday:'long', day:'numeric', month:'long'}) }}</div></div>
-      <div class="btns"><a class="btn" href="#/office">🤖 Demander à mon équipe IA</a></div>
+      <div class="btns"><ModuleTools module="general"/><a class="btn" href="#/office">🤖 Demander à mon équipe IA</a></div>
     </div>
     <div class="grid g4">
       <div class="kpi"><div class="l">💶 CA du mois (HT)</div><div class="v">{{ money(d.salesMonth) }}</div><div class="muted small">Année : {{ money(d.salesYear) }}</div></div>

@@ -1,6 +1,7 @@
 // Les 6 agents IA du bureau virtuel et les outils (lecture seule) qui leur donnent accès aux données du garage.
 import { all, get, getSettings, today } from './db.js';
 import { dashboard, vatReport, profitAndLoss, getDocument } from './business.js';
+import { listActivities } from './mail.js';
 
 export const AGENTS = [
   {
@@ -130,6 +131,11 @@ export const TOOLS = [
     description: 'Véhicules dont le contrôle technique ou l\'entretien arrive à échéance dans N jours, avec coordonnées client (clients ayant accepté le marketing).',
     input_schema: { type: 'object', properties: { jours: { type: 'integer' } }, required: ['jours'], additionalProperties: false },
   },
+  {
+    name: 'activites',
+    description: "Activités planifiées (tâches, appels, relances…) du garage : en retard, du jour ou à venir, avec la fiche liée et la personne assignée.",
+    input_schema: { type: 'object', properties: { periode: { type: 'string', enum: ['late', 'today', 'upcoming', 'all'] } }, additionalProperties: false },
+  },
 ];
 
 export function runTool(name, input = {}) {
@@ -189,6 +195,8 @@ export function runTool(name, input = {}) {
         (v.next_inspection BETWEEN ? AND date(?, '+' || ? || ' days') OR v.next_service_date BETWEEN ? AND date(?, '+' || ? || ' days'))
         ORDER BY COALESCE(v.next_inspection, v.next_service_date)`, t, t, input.jours, t, t, input.jours);
     }
+    case 'activites':
+      return listActivities({ scope: input.periode === 'all' ? undefined : input.periode }).map((a) => ({ type: a.type, resume: a.summary, note: a.note, echeance: a.due_date, assigne: a.user_name, fiche: a.record?.label, module: a.module }));
     default:
       throw new Error(`Outil inconnu : ${name}`);
   }
