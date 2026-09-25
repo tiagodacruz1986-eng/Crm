@@ -1,5 +1,6 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
+import { route } from '../router.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
@@ -8,7 +9,7 @@ export const Settings = {
     const s = ref(null);
     const users = ref([]);
     const accounts = ref([]);
-    const tab = ref('company');
+    const tab = ref(route.query.tab || 'company');
     const editUser = ref(null);
     const newAcc = ref(null);
     const odoo = ref(null);
@@ -37,7 +38,12 @@ export const Settings = {
     const saveMail = async () => { await act(() => PUT('/mail/config', mail.value), 'Configuration e-mail enregistrée'); await loadMail(); };
     const testMail = async () => { await saveMail(); await act(() => POST('/mail/test'), '✅ Connexion au serveur d\'e-mail réussie'); };
     const preset = (k) => Object.assign(mail.value, { gmail: { host: 'smtp.gmail.com', port: 465, secure: true }, outlook: { host: 'smtp.office365.com', port: 587, secure: false }, ovh: { host: 'ssl0.ovh.net', port: 465, secure: true }, pt: { host: 'mail.pt.lu', port: 587, secure: false } }[k]);
-    const load = async () => { loadOdoo(); loadMail(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
+    const inbox = ref(null);
+    const loadInbox = async () => { inbox.value = { ...(await GET('/bills/inbox')), pass: '' }; };
+    const saveInbox = async () => { await act(() => PUT('/bills/inbox', inbox.value), 'Boîte « factures » enregistrée'); await loadInbox(); };
+    const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`✅ Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
+    const imapPreset = (k) => Object.assign(inbox.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
+    const load = async () => { loadOdoo(); loadMail(); loadInbox(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     onMounted(load);
     const save = async () => { store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name; };
     const saveUser = async () => {
@@ -46,7 +52,7 @@ export const Settings = {
       editUser.value = null; load();
     };
     const saveAcc = async () => { await act(() => POST('/accounting/accounts', newAcc.value), 'Compte enregistré'); newAcc.value = null; load(); };
-    return { mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
+    return { inbox, saveInbox, testInbox, imapPreset, mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
   },
   template: `
   <div v-if="s">
@@ -105,6 +111,25 @@ export const Settings = {
       </div>
       <p class="muted small">Gmail / Microsoft 365 : utilisez un « mot de passe d'application » (sécurité du compte), pas votre mot de passe habituel.</p>
       <div class="btns"><button class="btn primary" @click="saveMail">Enregistrer</button><button class="btn" @click="testMail">🔌 Tester</button><span v-if="mail.configured" class="pos">● Configuré</span></div>
+    </div>
+    <div class="card" v-if="tab==='mail' && inbox">
+      <h2>📥 Réception des factures fournisseurs</h2>
+      <p class="muted">Créez une adresse dédiée (ex. <b>factures@votre-garage.lu</b>) et demandez à vos fournisseurs d'y envoyer leurs factures, ou transférez-les vous-même. Le logiciel lit cette boîte, l'IA encode chaque PDF ou photo en facture fournisseur et garde l'original en pièce jointe.</p>
+      <div class="btns small" style="margin-bottom:10px"><span class="muted">Préréglages :</span><button class="btn sm" @click="imapPreset('gmail')">Gmail</button><button class="btn sm" @click="imapPreset('outlook')">Outlook / Microsoft 365</button><button class="btn sm" @click="imapPreset('ovh')">OVH</button><button class="btn sm" @click="imapPreset('pt')">POST Luxembourg</button></div>
+      <div class="form-grid">
+        <label>Serveur IMAP<input v-model="inbox.host" placeholder="imap.exemple.lu"></label>
+        <label>Port<input v-model.number="inbox.port" type="number"></label>
+        <label class="check"><input type="checkbox" v-model="inbox.secure"> SSL</label>
+        <label>Adresse / identifiant<input v-model="inbox.user" autocomplete="off" placeholder="factures@votre-garage.lu"></label>
+        <label>Mot de passe {{ inbox.has_pass ? '(enregistré — vide = inchangé)' : '' }}<input v-model="inbox.pass" type="password" autocomplete="new-password"></label>
+        <label>Dossier à lire<input v-model="inbox.folder" placeholder="INBOX"></label>
+        <label>Déplacer ensuite vers (facultatif)<input v-model="inbox.processed_folder" placeholder="Traitées"></label>
+        <label>Vérifier toutes les (minutes)<input v-model.number="inbox.interval" type="number" min="1"></label>
+        <label class="check"><input type="checkbox" v-model="inbox.enabled"> Vérification automatique</label>
+      </div>
+      <div class="btns" style="margin-top:10px"><button class="btn primary" @click="saveInbox">Enregistrer</button><button class="btn" @click="testInbox">🔌 Tester</button>
+        <span v-if="inbox.status" class="small muted">Dernière vérification : {{ datetime(inbox.status.at) }} — {{ inbox.status.error ? '⚠ ' + inbox.status.error : inbox.status.emails + ' e-mail(s), ' + inbox.status.bills + ' facture(s)' }}</span></div>
+      <p class="muted small">Seuls les e-mails non lus sont traités ; chaque e-mail n'est traité qu'une fois. Les petites images (logos de signature) sont ignorées.</p>
     </div>
     <div class="card" v-if="tab==='odoo' && odoo">
       <h2>🔄 Importer mes données depuis Odoo</h2>

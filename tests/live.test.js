@@ -37,11 +37,13 @@ test('suivi en direct d\'un OR', async () => {
   // Temps réel : le client reçoit un événement quand le mécanicien publie
   const ctrl = new AbortController();
   const events = [];
+  let connected;
+  const ready = new Promise((r) => { connected = r; });
   const sse = fetch(`${ROOT}/live-api/${cli}/events`, { signal: ctrl.signal }).then(async (r) => {
     const reader = r.body.getReader();
-    for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); }
+    for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); connected(); }
   }).catch(() => {});
-  await new Promise((r) => setTimeout(r, 200));
+  await ready; // attend que la connexion temps réel soit ouverte
 
   // Mécanicien : message public, note interne, photo, étape
   await pub('POST', `/live-api/${mech}/posts`, { body: 'Disques voilés', name: 'Paulo' });

@@ -16,6 +16,9 @@ import {
   logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo,
 } from './src/mail.js';
 import { runAgent, friendlyError } from './src/claude.js';
+import {
+  createBillFromFile, reanalyze, listAttachments, attachmentFile, deleteAttachment, saveAttachment, publicInboxConfig, saveInboxConfig, testInbox, checkInbox, startInboxPolling,
+} from './src/bills.js';
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
@@ -327,7 +330,8 @@ api.get('/documents/:id/qr.svg', wrap(async (req, res) => {
 }));
 
 // ---------- Achats ----------
-api.get('/purchases', (req, res) => res.json(all(`SELECT p.*, s.name AS supplier_name FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id ORDER BY p.id DESC LIMIT 1000`)));
+api.get('/purchases', (req, res) => res.json(all(`SELECT p.*, s.name AS supplier_name, (SELECT COUNT(*) FROM attachments a WHERE a.model='purchase' AND a.record_id=p.id) AS attachment_count
+  FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id ${req.query.review ? "WHERE p.review='to_review' AND p.posted=0" : ''} ORDER BY p.id DESC LIMIT 1000`)));
 api.get('/purchases/:id', wrap((req) => getPurchase(Number(req.params.id))));
 api.post('/purchases', wrap((req) => ({ id: savePurchase(req.body) })));
 api.put('/purchases/:id', wrap((req) => ({ id: savePurchase(req.body, Number(req.params.id)) })));
@@ -340,7 +344,32 @@ api.delete('/purchases/:id', wrap((req) => {
 }));
 api.post('/purchases/:id/order', wrap((req) => { run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", req.params.id); return { ok: true }; }));
 api.post('/purchases/:id/receive', wrap((req) => { receivePurchase(Number(req.params.id)); return { ok: true }; }));
-api.post('/purchases/:id/post', wrap((req) => { postPurchase(Number(req.params.id)); return { ok: true }; }));
+api.post('/purchases/:id/post', wrap((req) => { postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
+api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
+api.post('/purchases/:id/reanalyze', wrap((req) => reanalyze(Number(req.params.id))));
+
+// ---------- Factures fournisseurs : dépôt de fichier, boîte e-mail, pièces jointes ----------
+const rawBody = express.raw({ type: () => true, limit: '40mb' });
+const fileMeta = (req) => ({ buffer: req.body, mime: (req.headers['content-type'] || '').split(';')[0].toLowerCase(), filename: decodeURIComponent(req.headers['x-filename'] || 'document') });
+api.post('/bills/upload', rawBody, wrap((req) => createBillFromFile({ ...fileMeta(req), source: 'upload' })));
+api.get('/bills/inbox', (req, res) => res.json(publicInboxConfig()));
+api.put('/bills/inbox', adminOnly, wrap((req) => { saveInboxConfig(req.body); return publicInboxConfig(); }));
+api.post('/bills/inbox/test', adminOnly, wrap(() => testInbox()));
+api.post('/bills/inbox/check', wrap(() => checkInbox()));
+api.get('/attachments/:model/:id', (req, res) => res.json(listAttachments(req.params.model, Number(req.params.id))));
+api.post('/attachments/:model/:id', rawBody, wrap((req) => {
+  if (!['purchase', 'document', 'customer', 'vehicle', 'supplier', 'product'].includes(req.params.model)) throw new BusinessError('Type de fiche inconnu');
+  if (!req.body?.length) throw new BusinessError('Fichier vide');
+  return { id: saveAttachment(req.params.model, Number(req.params.id), { ...fileMeta(req), source: 'manual' }) };
+}));
+api.get('/attachment/:id', (req, res) => {
+  const a = attachmentFile(Number(req.params.id));
+  if (!a) return res.status(404).end();
+  res.type(a.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(a.filename)}`);
+  res.sendFile(a.full);
+});
+api.delete('/attachment/:id', wrap((req) => { deleteAttachment(Number(req.params.id)); return { ok: true }; }));
 api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...req.body, purchase_id: Number(req.params.id) }) })));
 
 // ---------- Comptabilité ----------
@@ -586,6 +615,7 @@ app.use((err, req, res, _next) => {
 
 const PORT = Number(process.env.PORT || 3000);
 startScheduler();
+startInboxPolling();
 setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
 app.listen(PORT, () => {
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);

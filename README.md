@@ -20,6 +20,7 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 | ✉️ **E-mails** | Bouton ✉️ sur chaque page et chaque fiche : modèles prêts (devis, facture avec QR code de paiement, relance, véhicule prêt, rappel contrôle technique, confirmation de rendez-vous, bon de commande fournisseur…), aperçu, **rédaction par l'IA**, **envoi programmé**, historique des envois |
 | ⏰ **Activités (comme Odoo)** | Sur chaque fiche et chaque module : tâches, appels, relances, commandes… avec échéance, responsable et **répétition** (jour, semaine, mois, an). Page « Activités » (en retard / aujourd'hui / à venir) et cloche dans la barre du haut. Historique de chaque fiche avec notes internes |
 | 📡 **Suivi en direct des OR** | Pour chaque ordre de réparation : un **lien mécanicien** (téléphone de l'atelier) pour envoyer photos, vidéos et messages, et un **lien client** avec une **jauge d'avancement en temps réel** (Véhicule reçu → Diagnostic → Accord client → Pièces → Réparation → Contrôle qualité → Prêt). Le client voit les photos et vidéos, répond, et **accepte ou refuse d'un clic les travaux supplémentaires** (ajoutés automatiquement à l'OR). Envoi du lien par e-mail, WhatsApp, SMS ou QR code |
+| 📥 **Factures fournisseurs par e-mail + IA** | Transférez les factures à une adresse dédiée (ou déposez PDF / photos) : l'IA lit le document, retrouve ou crée le fournisseur, reconnaît vos articles, propose le compte de charge et la TVA, vérifie le total et signale les doublons. Le **document original reste en pièce jointe** et s'affiche à côté de la facture pour la vérification, comme dans Odoo |
 | 🔍 **Recherche globale** | `Ctrl + K` : plaque, client, n° de facture, référence pièce |
 
 ## 🚀 Installation
@@ -60,6 +61,15 @@ Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est par
 ## ✉️ Configurer les e-mails
 
 **Paramètres → E-mails** : serveur SMTP de votre messagerie (préréglages Gmail, Outlook/Microsoft 365, OVH, POST Luxembourg), adresse d'expédition et signature, puis **Tester**. Pour Gmail et Microsoft 365, utilisez un « mot de passe d'application ». Sans configuration, le bouton « Ouvrir dans ma messagerie » reste disponible.
+
+## 📥 Factures fournisseurs automatiques
+
+1. Créez une adresse e-mail dédiée, par exemple **factures@votre-garage.lu**, et donnez-la à vos fournisseurs (ou transférez-y les factures reçues).
+2. **Paramètres → E-mails → Réception des factures fournisseurs** : serveur IMAP, identifiant, mot de passe (mot de passe d'application pour Gmail / Microsoft 365), puis **Tester** et cochez **Vérification automatique**.
+3. Toutes les X minutes, chaque PDF ou photo joint devient une **facture fournisseur en brouillon « 🤖 à vérifier »**, avec l'original en pièce jointe. Vous pouvez aussi glisser-déposer des fichiers dans **Achats**.
+4. Ouvrez la facture : le document s'affiche à droite, les lignes à gauche. Corrigez si besoin, cliquez **✔ Vérifiée** puis **Comptabiliser**.
+
+L'encodage IA nécessite la clé API Claude ; sans elle, la facture est créée en brouillon avec le document joint, à compléter à la main.
 
 ## 📡 Suivi en direct (liens mécanicien et client)
 
@@ -109,5 +119,6 @@ src/scheduler.js     tâches programmées
 src/odoo.js          import depuis Odoo (JSON-RPC)
 src/mail.js          e-mails, historique des fiches, activités planifiées
 src/live.js          suivi en direct des OR (liens, photos/vidéos, étapes, accord client)
+src/bills.js         factures fournisseurs : boîte IMAP, encodage IA, pièces jointes
 public/              interface (Vue) + kiosque + bureau 3D
 ```

@@ -1,5 +1,13 @@
-import { ref, computed, onMounted } from 'vue';
-import { GET, POST, PUT, DEL, act, money, num, date, datetime, today, TAX_RATES } from '../api.js';
+import { ref, reactive, computed, onMounted } from 'vue';
+import { GET, POST, PUT, DEL, act, toast, money, num, date, datetime, today, TAX_RATES } from '../api.js';
+
+// Envoi d'un fichier brut (PDF, photo) à l'API
+async function uploadFile(url, file) {
+  const r = await fetch('/api' + url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) }, body: file });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Envoi impossible');
+  return d;
+}
 import { route, go } from '../router.js';
 import { PaymentModal } from './documents.js';
 
@@ -119,21 +127,65 @@ export const ProductDetail = {
 export const PurchaseList = {
   setup() {
     const rows = ref([]);
-    onMounted(async () => { rows.value = await GET('/purchases'); });
-    return { rows, go, money, date };
+    const filter = ref(route.query.review ? 'review' : 'all');
+    const inbox = ref(null);
+    const drag = ref(false);
+    const busy = reactive({ on: false, text: '' });
+    const load = async () => {
+      rows.value = await GET('/purchases' + (filter.value === 'review' ? '?review=1' : ''));
+      inbox.value = await GET('/bills/inbox');
+    };
+    onMounted(load);
+    const toReview = computed(() => rows.value.filter((p) => p.review === 'to_review' && !p.posted).length);
+    const send = async (files) => {
+      files = [...files].filter((f) => /pdf|image/.test(f.type));
+      if (!files.length) return toast('Déposez des PDF ou des photos de factures', 'error');
+      busy.on = true;
+      let last;
+      try {
+        for (const [i, f] of files.entries()) {
+          busy.text = `🤖 L'IA encode ${f.name} (${i + 1}/${files.length})…`;
+          last = await act(() => uploadFile('/bills/upload', f));
+          if (last.warnings?.length) toast(last.warnings[0], last.warnings[0].startsWith('⚠') ? 'error' : 'ok');
+        }
+      } finally { busy.on = false; }
+      if (files.length === 1 && last) go('/purchase/' + last.id); else { toast(`${files.length} factures encodées`); filter.value = 'review'; load(); }
+    };
+    const drop = (e) => { drag.value = false; send(e.dataTransfer.files); };
+    const checkMail = async () => {
+      busy.on = true; busy.text = '📬 Lecture de la boîte e-mail des factures…';
+      try { const r = await act(() => POST('/bills/inbox/check')); toast(`${r.emails} e-mail(s) lu(s), ${r.bills} facture(s) encodée(s)`); filter.value = 'review'; load(); }
+      finally { busy.on = false; }
+    };
+    return { rows, filter, inbox, drag, busy, load, toReview, send, drop, checkMail, go, money, date, datetime };
   },
   template: `
   <div>
     <div class="page-head"><div><h1>Achats</h1><div class="sub">Commandes fournisseurs, réceptions et factures d'achat (pièces et frais généraux)</div></div><div class="btns"><ModuleTools module="achats"/><button class="btn primary" @click="go('/purchase/new')">+ Nouvel achat</button></div></div>
+    <div class="dropzone" :class="{drag}" @dragover.prevent="drag = true" @dragleave="drag = false" @drop.prevent="drop">
+      <div v-if="busy.on" class="dz-busy"><span class="typing"><span></span><span></span><span></span></span> {{ busy.text }}</div>
+      <template v-else>
+        <div style="font-size:30px">📥</div>
+        <div><b>Déposez ici vos factures fournisseurs</b> (PDF ou photo) — l'IA les encode et garde l'original en pièce jointe.</div>
+        <div class="btns" style="justify-content:center;margin-top:10px">
+          <label class="btn primary">📎 Choisir des fichiers<input type="file" accept="application/pdf,image/*" multiple hidden @change="send($event.target.files); $event.target.value = ''"></label>
+          <button v-if="inbox && inbox.host" class="btn" @click="checkMail">📬 Vérifier la boîte « factures »</button>
+          <a v-else class="btn" href="#/settings?tab=mail">📬 Configurer la réception par e-mail</a>
+        </div>
+        <div class="muted small" v-if="inbox && inbox.user">Transférez vos factures à <b>{{ inbox.user }}</b>{{ inbox.enabled ? ' — vérification automatique toutes les ' + inbox.interval + ' min' : '' }}<span v-if="inbox.status"> · dernière vérification {{ datetime(inbox.status.at) }}<span v-if="inbox.status.error" class="neg"> ({{ inbox.status.error }})</span></span></div>
+      </template>
+    </div>
+    <div class="tabs"><button :class="{active: filter==='all'}" @click="filter='all'; load()">Tous les achats</button><button :class="{active: filter==='review'}" @click="filter='review'; load()">🤖 À vérifier <span v-if="toReview || filter==='review'" class="badge b-orange">{{ filter==='review' ? rows.length : toReview }}</span></button></div>
     <div class="card">
       <div class="table-wrap"><table>
         <thead><tr><th>N°</th><th>Date</th><th>Fournisseur</th><th>Réf. facture</th><th>Statut</th><th class="num">Total TTC</th><th class="num">Reste à payer</th></tr></thead>
         <tbody><tr v-for="p in rows" class="click" @click="go('/purchase/' + p.id)">
-          <td><b>{{ p.number }}</b></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name }}</td><td>{{ p.supplier_ref }}</td><td><Badge :status="p.status"/></td>
+          <td><b>{{ p.number }}</b> <span v-if="p.attachment_count" title="Document joint">📎</span></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name || '—' }}</td><td>{{ p.supplier_ref }}</td>
+          <td><Badge :status="p.status"/> <span v-if="p.review === 'to_review' && !p.posted" class="badge b-orange">🤖 à vérifier</span></td>
           <td class="num">{{ money(p.total) }}</td><td class="num">{{ p.posted && p.status !== 'paid' ? money(p.total - p.amount_paid) : '' }}</td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="🛒" text="Aucun achat"/>
+      <Empty v-if="!rows.length" icon="🛒" :text="filter === 'review' ? 'Aucune facture à vérifier 👍' : 'Aucun achat'"/>
     </div>
   </div>`,
 };
@@ -146,7 +198,21 @@ export const PurchaseEditor = {
     const suppliers = ref([]);
     const accounts = ref([]);
     const showPay = ref(false);
-    const load = async () => { p.value = isNew ? { date: today(), status: 'draft', lines: [], payments: [] } : await GET('/purchases/' + route.params.id); };
+    const files = ref([]);
+    const viewer = ref(null);
+    const aiBusy = ref(false);
+    const load = async () => {
+      p.value = isNew ? { date: today(), status: 'draft', lines: [], payments: [] } : await GET('/purchases/' + route.params.id);
+      if (!isNew) { files.value = await GET('/attachments/purchase/' + route.params.id); if (!viewer.value || !files.value.some((f) => f.id === viewer.value.id)) viewer.value = files.value.find((f) => /pdf|image/.test(f.mime)) || null; }
+    };
+    const addFiles = async (e) => { for (const f of e.target.files) await act(() => uploadFile(`/attachments/purchase/${p.value.id}`, f)); e.target.value = ''; load(); };
+    const removeFile = async (f) => { if (!confirm(`Supprimer la pièce jointe ${f.filename} ?`)) return; await act(() => DEL('/attachment/' + f.id)); load(); };
+    const reviewed = async () => { await save(); await act(() => POST(`/purchases/${p.value.id}/reviewed`), 'Facture marquée comme vérifiée'); load(); };
+    const reanalyze = async () => {
+      if (!confirm('Relancer l\'IA ? Les lignes actuelles seront remplacées.')) return;
+      aiBusy.value = true;
+      try { await act(() => POST(`/purchases/${p.value.id}/reanalyze`), 'Facture ré-encodée'); await load(); } finally { aiBusy.value = false; }
+    };
     onMounted(async () => {
       suppliers.value = await GET('/suppliers');
       accounts.value = (await GET('/accounting/accounts')).filter((a) => a.type === 'expense' || a.code.startsWith('2') || a.code.startsWith('3'));
@@ -167,7 +233,7 @@ export const PurchaseEditor = {
     const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); };
     const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; load(); };
     const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); go('/purchases'); };
-    return { p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
+    return { files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
   },
   template: `
   <div v-if="p">
@@ -181,6 +247,14 @@ export const PurchaseEditor = {
         <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true">💶 Payer</button>
         <button class="btn danger" v-if="!isNew && !p.posted" @click="remove">🗑</button>
       </div>
+    </div>
+    <div :class="{'bill-layout': viewer}">
+    <div>
+    <div v-if="p.review === 'to_review' && !p.posted" class="ai-banner">
+      <div><b>🤖 Encodée automatiquement par l'IA</b>{{ p.email_from ? ' — reçue de ' + p.email_from : '' }}. Vérifiez avec le document original{{ viewer ? ' à droite' : '' }}, puis comptabilisez.</div>
+      <div v-for="w in (p.ai_notes || '').split('\\n').filter(Boolean)" class="small" :class="{neg: w.startsWith('⚠')}">{{ w }}</div>
+      <div v-if="p.ai_total != null" class="small">Total TTC lu sur la facture : <b>{{ money(p.ai_total) }}</b> <span :class="Math.abs(p.ai_total - totals.total) < 0.05 ? 'pos' : 'neg'">{{ Math.abs(p.ai_total - totals.total) < 0.05 ? '✓ identique' : '≠ total calculé ' + money(totals.total) }}</span></div>
+      <div class="btns" style="margin-top:8px"><button class="btn sm success" @click="reviewed">✔ Vérifiée</button><button class="btn sm" :disabled="aiBusy" @click="reanalyze">{{ aiBusy ? '🤖 Analyse…' : '🔄 Relancer l\\'IA' }}</button></div>
     </div>
     <div class="card">
       <div class="form-grid">
@@ -211,7 +285,21 @@ export const PurchaseEditor = {
         <template v-if="p.amount_paid"><span class="muted">Payé</span><span class="num pos">{{ money(p.amount_paid) }}</span></template>
       </div>
     </div>
+    <div class="card" v-if="!isNew">
+      <div class="card-head"><h2 style="margin:0">📎 Pièces jointes</h2><label class="btn sm">+ Ajouter<input type="file" multiple hidden @change="addFiles"></label></div>
+      <div v-for="f in files" class="list-item small">
+        <a href="#" @click.prevent="viewer = f" :class="{strong: viewer && viewer.id === f.id}">{{ /pdf/.test(f.mime) ? '📄' : /image/.test(f.mime) ? '🖼️' : '📎' }} {{ f.filename }}</a>
+        <span class="btns"><a class="btn sm" :href="'/api/attachment/' + f.id + '?download=1'">⬇</a><button class="btn sm danger" @click="removeFile(f)">✕</button></span>
+      </div>
+      <div v-if="!files.length" class="muted small">Aucun document. Ajoutez la facture originale (PDF ou photo).</div>
+    </div>
     <Chatter v-if="!isNew" model="purchase" :record-id="p.id"/>
+    </div>
+    <div v-if="viewer" class="bill-viewer">
+      <iframe v-if="/pdf/.test(viewer.mime)" :src="'/api/attachment/' + viewer.id"></iframe>
+      <img v-else :src="'/api/attachment/' + viewer.id">
+    </div>
+    </div>
     <PaymentModal v-if="showPay" :residual="Math.round((p.total - p.amount_paid) * 100) / 100" title="Paiement fournisseur" @close="showPay = false" @save="pay"/>
   </div>`,
 };
