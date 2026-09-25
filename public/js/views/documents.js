@@ -1,6 +1,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, datetime, hours, today, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS } from '../api.js';
 import { route, go } from '../router.js';
+import { LivePanel } from '../live-panel.js';
 
 export const DocumentList = {
   setup() {
@@ -115,7 +116,7 @@ export const PaymentModal = {
 
 // ---------- Éditeur de document (devis / OR / facture / avoir) ----------
 export const DocumentEditor = {
-  components: { QuickCustomer, PaymentModal },
+  components: { QuickCustomer, PaymentModal, LivePanel },
   setup() {
     const isNew = route.params.id === 'new';
     const doc = ref(null);
@@ -334,6 +335,7 @@ export const DocumentEditor = {
           </div>
           <div v-if="dirty && !locked" class="muted small" style="margin-top:10px">● Modifications non enregistrées</div>
         </div>
+        <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id"/>
         <div class="card" v-if="doc.type==='order' && !isNew">
           <h2>⏱️ Temps atelier</h2>
           <div class="totals"><span class="muted">Heures vendues</span><b>{{ hours(doc.hours_sold) }}</b><span class="muted">Heures pointées</span><b :class="doc.hours_spent > doc.hours_sold ? 'neg' : 'pos'">{{ hours(doc.hours_spent) }}</b></div>

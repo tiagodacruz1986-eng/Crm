@@ -72,6 +72,8 @@ export const Settings = {
         <label>Préfixe devis<input v-model="s.numbering.quote"></label><label>Préfixe OR<input v-model="s.numbering.order"></label>
         <label>Préfixe factures<input v-model="s.numbering.invoice"></label><label>Préfixe avoirs<input v-model="s.numbering.credit_note"></label>
         <label class="full">Pied de facture<textarea v-model="s.invoice_footer"></textarea></label>
+        <label class="full">Adresse publique du logiciel (pour les liens de suivi envoyés aux clients)<input v-model="s.public_url" placeholder="https://atelier.votre-garage.lu"></label>
+        <p class="full muted small" style="margin:0">Laissez vide si le logiciel n'est utilisé que dans le garage. Pour que vos clients ouvrent les liens depuis chez eux, le logiciel doit être accessible depuis internet (voir README → « Suivi en direct »).</p>
       </div>
     </div>
     <div class="card" v-if="tab==='users'">

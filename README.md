@@ -19,6 +19,7 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 | 🤖 **Bureau IA 3D** | 6 agents qui lisent vos vraies données : Claire (experte-comptable), Léo (marketing), Sophie (secrétariat), Marco (chef d'atelier), Maître Laurent (avocat), Alex (CIO & stratégie). Discussion, **tâches programmées** (une fois, chaque jour, lun-ven, chaque semaine, chaque mois), rapports, **réunion d'équipe** avec synthèse du CIO |
 | ✉️ **E-mails** | Bouton ✉️ sur chaque page et chaque fiche : modèles prêts (devis, facture avec QR code de paiement, relance, véhicule prêt, rappel contrôle technique, confirmation de rendez-vous, bon de commande fournisseur…), aperçu, **rédaction par l'IA**, **envoi programmé**, historique des envois |
 | ⏰ **Activités (comme Odoo)** | Sur chaque fiche et chaque module : tâches, appels, relances, commandes… avec échéance, responsable et **répétition** (jour, semaine, mois, an). Page « Activités » (en retard / aujourd'hui / à venir) et cloche dans la barre du haut. Historique de chaque fiche avec notes internes |
+| 📡 **Suivi en direct des OR** | Pour chaque ordre de réparation : un **lien mécanicien** (téléphone de l'atelier) pour envoyer photos, vidéos et messages, et un **lien client** avec une **jauge d'avancement en temps réel** (Véhicule reçu → Diagnostic → Accord client → Pièces → Réparation → Contrôle qualité → Prêt). Le client voit les photos et vidéos, répond, et **accepte ou refuse d'un clic les travaux supplémentaires** (ajoutés automatiquement à l'OR). Envoi du lien par e-mail, WhatsApp, SMS ou QR code |
 | 🔍 **Recherche globale** | `Ctrl + K` : plaque, client, n° de facture, référence pièce |
 
 ## 🚀 Installation
@@ -60,6 +61,18 @@ Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est par
 
 **Paramètres → E-mails** : serveur SMTP de votre messagerie (préréglages Gmail, Outlook/Microsoft 365, OVH, POST Luxembourg), adresse d'expédition et signature, puis **Tester**. Pour Gmail et Microsoft 365, utilisez un « mot de passe d'application ». Sans configuration, le bouton « Ouvrir dans ma messagerie » reste disponible.
 
+## 📡 Suivi en direct (liens mécanicien et client)
+
+Dans un ordre de réparation, le panneau **Suivi en direct** crée deux liens secrets :
+- **Lien mécanicien** : à ouvrir sur le téléphone de l'atelier (aussi accessible depuis le kiosque, bouton « 📷 Photos & messages »). Le mécanicien y fait avancer les étapes, coche les travaux, envoie photos et vidéos (visibles par le client ou internes) et peut **demander l'accord du client** avec un montant.
+- **Lien client** : jauge d'avancement mise à jour en temps réel, photos et vidéos, messages, boutons **J'accepte / Refuser**. Il s'envoie par e-mail, WhatsApp, SMS ou QR code, et peut être désactivé à tout moment.
+
+**Important : pour que le client ouvre le lien depuis chez lui, le logiciel doit être joignable depuis internet.** Sur le réseau Wi-Fi du garage, les liens fonctionnent tout de suite. Pour l'extérieur :
+1. **Le plus simple (gratuit)** : installez [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) et lancez `cloudflared tunnel --url http://localhost:3000` : une adresse `https://…trycloudflare.com` est créée. Pour une adresse fixe (ex. `https://atelier.votre-garage.lu`), créez un tunnel nommé avec votre domaine.
+2. Ou installez le logiciel sur un petit serveur en ligne (VPS).
+
+Indiquez ensuite cette adresse dans **Paramètres → Atelier & factures → Adresse publique**. Utilisez un mot de passe solide pour les comptes du bureau.
+
 ## 🔄 Importer depuis Odoo
 
 **Paramètres → Import Odoo** : indiquez l'adresse de votre Odoo, le nom de la base, votre e-mail de connexion et une **clé API** (Odoo → votre profil → Sécurité du compte → Nouvelle clé API), puis **Tester la connexion** et **Lancer l'import**.
@@ -95,5 +108,6 @@ src/claude.js        appels à l'API Claude, réunion d'équipe
 src/scheduler.js     tâches programmées
 src/odoo.js          import depuis Odoo (JSON-RPC)
 src/mail.js          e-mails, historique des fiches, activités planifiées
+src/live.js          suivi en direct des OR (liens, photos/vidéos, étapes, accord client)
 public/              interface (Vue) + kiosque + bureau 3D
 ```

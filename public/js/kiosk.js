@@ -70,7 +70,8 @@ const App = {
     });
     const timeStr = computed(() => new Date(now.value).toLocaleTimeString('fr-LU', { hour: '2-digit', minute: '2-digit' }));
     const h = (x) => { const m = Math.round((x || 0) * 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
-    return { users, who, pin, err, token, st, press, logout, clockAction, updateOrder, toggleLine, saveNotes, draft, open, elapsed, timeStr, h };
+    const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
+    return { openLive, users, who, pin, err, token, st, press, logout, clockAction, updateOrder, toggleLine, saveNotes, draft, open, elapsed, timeStr, h };
   },
   template: `
   <div class="k-wrap">
@@ -128,6 +129,7 @@ const App = {
           <div class="k-actions">
             <button v-if="!(st.work && st.work.document_id === o.id)" class="k-btn green sm" @click="clockAction('start', o.id)">▶ Démarrer</button>
             <button v-else class="k-btn orange sm" @click="clockAction('stop')">⏸ Pause</button>
+            <button class="k-btn blue sm" @click="openLive(o)">📷 Photos & messages</button>
             <button class="k-btn sm" @click="open = open === o.id ? null : o.id">{{ open === o.id ? '▲ Fermer' : '▼ Détails' }}</button>
           </div>
           <template v-if="open === o.id">

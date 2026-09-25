@@ -80,17 +80,17 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 export function templatesFor(model, id) {
   if (model === 'document') {
     const t = get('SELECT type, status FROM documents WHERE id=?', id)?.type;
-    return { quote: ['quote', 'generic'], order: ['order_received', 'order_ready', 'generic'], invoice: ['invoice', 'invoice_reminder', 'generic'], credit_note: ['credit_note', 'generic'] }[t] || ['generic'];
+    return { quote: ['quote', 'generic'], order: ['live_tracking', 'order_received', 'order_ready', 'generic'], invoice: ['invoice', 'invoice_reminder', 'generic'], credit_note: ['credit_note', 'generic'] }[t] || ['generic'];
   }
   return { appointment: ['appointment_confirm', 'generic'], customer: ['generic', 'overdue'], vehicle: ['ct_reminder', 'service_reminder', 'generic'], purchase: ['purchase_order', 'generic'] }[model] || ['generic'];
 }
 export const TEMPLATE_LABELS = {
-  generic: 'Message libre', quote: 'Envoi du devis', order_received: 'Prise en charge du véhicule', order_ready: 'Véhicule prêt',
+  generic: 'Message libre', live_tracking: 'Lien de suivi en direct', quote: 'Envoi du devis', order_received: 'Prise en charge du véhicule', order_ready: 'Véhicule prêt',
   invoice: 'Envoi de la facture', invoice_reminder: 'Relance de paiement', credit_note: 'Envoi de la note de crédit', overdue: 'Relevé des impayés',
   ct_reminder: 'Rappel contrôle technique', appointment_confirm: 'Confirmation de rendez-vous', service_reminder: 'Rappel entretien', purchase_order: 'Bon de commande fournisseur',
 };
 
-export function compose(model, id, template) {
+export function compose(model, id, template, base = '') {
   const s = getSettings();
   const garage = s.company.name;
   const info = recordInfo(model, id) || {};
@@ -103,6 +103,13 @@ export function compose(model, id, template) {
     include = true;
     switch (template) {
       case 'quote': subject = `Devis ${d.number} — ${garage}`; intro += `Veuillez trouver ci-dessous notre devis ${d.number} pour votre véhicule${veh}, d'un montant de ${fmt(d.total)} TTC.\n\nPour l'accepter, il vous suffit de répondre à cet e-mail ou de nous appeler.`; break;
+      case 'live_tracking': {
+        const t = get("SELECT token FROM order_links WHERE document_id=? AND role='customer' AND revoked=0", id)?.token;
+        subject = `Suivez la réparation de votre véhicule${veh} en direct`;
+        intro += `Votre véhicule${veh} est entre nos mains. Suivez l'avancement des travaux en temps réel, recevez photos et vidéos de notre atelier et validez d'un clic les éventuels travaux supplémentaires :\n\n${t ? `${base}/suivi.html?t=${t}` : '(lien à créer depuis l’OR)'}`;
+        include = false;
+        break;
+      }
       case 'order_received': subject = `Prise en charge de votre véhicule${veh}`; intro += `Nous avons bien pris en charge votre véhicule${veh}.${d.promised_at ? `\nIl devrait être prêt le ${fdate(d.promised_at)} vers ${d.promised_at.slice(11, 16)}.` : ''}\n\nNous vous contacterons en cas de travaux supplémentaires.`; break;
       case 'order_ready': subject = `Votre véhicule${veh} est prêt`; intro += `Bonne nouvelle : votre véhicule${veh} est prêt ! Vous pouvez venir le récupérer aux heures d'ouverture.`; include = false; break;
       case 'invoice': subject = `Facture ${d.number} — ${garage}`; intro += `Veuillez trouver ci-dessous votre facture ${d.number} d'un montant de ${fmt(d.total)} TTC, payable avant le ${fdate(d.due_date)}.\n\nMerci pour votre confiance.`; break;

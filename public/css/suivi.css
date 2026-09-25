@@ -1,0 +1,64 @@
+:root { --brand: #2563eb; --ok: #16a34a; --bad: #dc2626; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --bg: #f1f5f9;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+.wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 120px; }
+.head { background: linear-gradient(135deg, #1d4ed8, #0891b2); color: #fff; border-radius: 20px; padding: 20px; margin-bottom: 16px; }
+.head .garage { opacity: .85; font-size: 14px; }
+.head h1 { margin: 6px 0 2px; font-size: 22px; }
+.plate { display: inline-block; font-family: "Arial Narrow", Arial, sans-serif; font-weight: 700; letter-spacing: .06em; background: #fde047; border: 2px solid #111; border-radius: 4px; padding: 0 6px; font-size: 13px; color: #111; }
+.card { background: #fff; border-radius: 18px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
+.gauge-top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; gap: 10px; }
+.gauge-top .cur { font-size: 20px; font-weight: 800; }
+.gauge-top .pct { font-size: 34px; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
+.bar { height: 14px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
+.bar > div { height: 100%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 99px; transition: width .8s cubic-bezier(.2,.8,.2,1); position: relative; }
+.bar > div::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent); animation: shine 2s infinite; }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.steps { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 14px; }
+.step { text-align: center; font-size: 11px; color: var(--muted); }
+.step .dot { width: 38px; height: 38px; margin: 0 auto 4px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; background: #f1f5f9; border: 2px solid #e2e8f0; transition: all .3s; }
+.step.done .dot { background: #dcfce7; border-color: var(--ok); }
+.step.cur .dot { background: var(--brand); border-color: var(--brand); box-shadow: 0 0 0 5px rgba(37,99,235,.2); animation: pulse 1.6s infinite; }
+.step.cur { color: var(--ink); font-weight: 700; }
+.step.clickable { cursor: pointer; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 9px rgba(37,99,235,.08); } }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #bbf7d0; }
+.live::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #4ade80; animation: blink 1.2s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+.post { display: flex; gap: 10px; margin-bottom: 14px; }
+.post.mine { flex-direction: row-reverse; }
+.post .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #cbd5e1; color: #fff; font-weight: 700; flex-shrink: 0; font-size: 14px; }
+.post.garage .av { background: var(--brand); } .post.customer .av { background: #f59e0b; }
+.bubble { background: #fff; border-radius: 16px; padding: 10px 12px; max-width: 82%; box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow-wrap: anywhere; }
+.post.mine .bubble { background: #dbeafe; }
+.bubble .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.bubble img, .bubble video { width: 100%; max-width: 420px; border-radius: 12px; display: block; margin-top: 4px; background: #000; }
+.bubble.private { border: 2px dashed #f59e0b; }
+.sys { text-align: center; font-size: 12px; color: var(--muted); margin: 10px 0; }
+.sys span { background: #e2e8f0; border-radius: 99px; padding: 4px 10px; }
+.approval { border: 2px solid #f59e0b; background: #fffbeb; }
+.approval .amt { font-size: 22px; font-weight: 800; margin: 6px 0; }
+.btn { border: 0; border-radius: 12px; padding: 12px 16px; font: inherit; font-weight: 700; cursor: pointer; background: #e2e8f0; color: var(--ink); }
+.btn.primary { background: var(--brand); color: #fff; } .btn.ok { background: var(--ok); color: #fff; } .btn.no { background: #fee2e2; color: var(--bad); }
+.btn:disabled { opacity: .5; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.composer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid var(--line); padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+.composer .inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.composer .row { display: flex; gap: 8px; align-items: flex-end; }
+textarea, input { font: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 100%; background: #fff; }
+textarea { resize: none; min-height: 44px; max-height: 120px; }
+.icon-btn { width: 46px; height: 46px; border-radius: 12px; border: 0; background: #f1f5f9; font-size: 22px; cursor: pointer; flex-shrink: 0; display: grid; place-items: center; }
+.icon-btn.send { background: var(--brand); color: #fff; }
+.opts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; align-items: center; }
+.opts label { display: flex; gap: 6px; align-items: center; }
+.opts input[type=checkbox] { width: auto; }
+.progress { height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; } .progress div { height: 100%; background: var(--brand); }
+.error { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 12px; margin-bottom: 12px; }
+.checklist div { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; align-items: center; }
+.checklist .box { width: 26px; height: 26px; border: 2px solid #94a3b8; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; }
+.checklist .done .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+.checklist .done span:last-child { text-decoration: line-through; color: var(--muted); }
+.center { text-align: center; padding: 60px 16px; }
+@media (max-width: 480px) { .step .dot { width: 32px; height: 32px; font-size: 15px; } .step { font-size: 9px; } .gauge-top .pct { font-size: 28px; } }

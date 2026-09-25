@@ -6,6 +6,9 @@ const COLS = [
   ['open', 'À faire', '#94a3b8'], ['in_progress', 'En cours', '#3b82f6'], ['waiting_parts', 'Attente pièces', '#f59e0b'], ['done', 'Terminé — à facturer', '#16a34a'],
 ];
 
+const STAGE_KEYS = ['received', 'diagnosis', 'approval', 'parts', 'repair', 'quality', 'ready'];
+const STAGE_LABEL = { received: '🚗 Véhicule reçu', diagnosis: '🔍 Diagnostic', approval: '✍️ Accord client', parts: '📦 Pièces', repair: '🔧 Réparation', quality: '✅ Contrôle qualité', ready: '🎉 Prêt' };
+
 export const Workshop = {
   setup() {
     const orders = ref([]);
@@ -27,7 +30,7 @@ export const Workshop = {
       load();
     };
     const isLate = (o) => o.promised_at && new Date(o.promised_at) < new Date() && o.status !== 'done';
-    return { COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
+    return { STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
   },
   template: `
   <div>
@@ -53,6 +56,8 @@ export const Workshop = {
             <span :class="isLate(o) ? 'late' : 'muted'" v-if="o.promised_at">⏰ {{ date(o.promised_at) }} {{ time(o.promised_at) }}</span>
           </div>
           <div class="row small muted" style="margin-top:4px"><span>{{ o.hours_sold ? hours(o.hours_sold) + ' vendues' : '' }}</span><span>{{ money(o.total) }}</span></div>
+          <div class="mini-gauge" :title="STAGE_LABEL[o.stage || 'received']"><div :style="{width: (100 * STAGE_KEYS.indexOf(o.stage || 'received') / 6) + '%'}"></div></div>
+          <div class="small muted">{{ STAGE_LABEL[o.stage || 'received'] }}</div>
         </div>
       </div>
     </div>

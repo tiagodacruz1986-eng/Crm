@@ -16,11 +16,13 @@ import {
   logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo,
 } from './src/mail.js';
 import { runAgent, friendlyError } from './src/claude.js';
+import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json({ limit: '20mb' }));
 app.use(express.text({ type: ['text/*', 'application/xml'], limit: '20mb' }));
 
@@ -130,9 +132,12 @@ api.post('/kiosk/orders/:id', mech, wrap((req) => {
   if (status && ['in_progress', 'waiting_parts', 'done'].includes(status)) {
     run('UPDATE documents SET status=? WHERE id=?', status, id);
     if (status === 'done') run("UPDATE time_entries SET end=? WHERE document_id=? AND kind='work' AND end IS NULL", localDateTime(), id);
-  }
+    stageFromStatus(id, status);
+  } else if (line_id !== undefined) livePublish(id);
   return kioskState(req.user.id);
 }));
+// Lien "photos & messages" du mécanicien pour un OR
+api.post('/kiosk/orders/:id/live', mech, wrap((req) => ({ url: `/suivi.html?t=${ensureLink(Number(req.params.id), 'mechanic')}` })));
 
 // ---------- Tout le reste nécessite une connexion bureau ----------
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : staff(req, res, next)));
@@ -265,7 +270,7 @@ api.get('/documents', (req, res) => {
   if (req.query.overdue) { where.push("d.status IN ('posted','partial') AND d.due_date<?"); p.push(today()); }
   if (req.query.q) { const q = `%${req.query.q}%`; where.push('(d.number LIKE ? OR c.name LIKE ? OR v.plate LIKE ?)'); p.push(q, q, q); }
   res.json(all(`SELECT d.id, d.type, d.number, d.status, d.date, d.due_date, d.subtotal, d.total, d.amount_paid, d.promised_at, d.customer_complaint,
-      d.mechanic_id, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
+      d.mechanic_id, d.stage, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
       (SELECT ROUND(SUM(quantity),2) FROM document_lines WHERE document_id=d.id AND kind='labor') AS hours_sold,
       (SELECT COUNT(*) FROM time_entries WHERE document_id=d.id AND end IS NULL AND kind='work') AS active_workers
     FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id LEFT JOIN users u ON u.id=d.mechanic_id
@@ -291,6 +296,7 @@ api.post('/documents/:id/status', wrap((req) => {
   if (!allowed[d?.type]?.includes(req.body.status)) throw new BusinessError('Statut invalide');
   if (d.status === 'invoiced') throw new BusinessError('OR déjà facturé');
   run('UPDATE documents SET status=? WHERE id=?', req.body.status, d.id);
+  if (d.type === 'order') stageFromStatus(d.id, req.body.status);
   return { ok: true };
 }));
 api.post('/documents/:id/convert', wrap((req) => {
@@ -457,7 +463,7 @@ api.put('/users/:id', adminOnly, wrap((req) => {
 api.get('/me', (req, res) => res.json(req.user));
 api.get('/settings', (req, res) => { const { odoo, ...s } = getSettings(); res.json(s); });
 api.put('/settings', adminOnly, wrap((req) => {
-  for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
+  for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai', 'public_url']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
   const { odoo, ...s } = getSettings();
   return s;
 }));
@@ -472,12 +478,15 @@ api.post('/odoo/import', adminOnly, wrap((req) => {
   return odooJob;
 }));
 
+mountLive(app, api);
+
 // ---------- E-mails ----------
 const checkModel = (m) => { if (m && !MODELS.includes(m)) throw new BusinessError('Type de fiche inconnu'); return m || null; };
 api.get('/mail/config', (req, res) => res.json(publicMailConfig()));
 api.put('/mail/config', adminOnly, wrap((req) => { saveMailConfig(req.body); return publicMailConfig(); }));
 api.post('/mail/test', adminOnly, wrap(() => testMail()));
-api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Number(req.query.id) || null, req.query.template)));
+api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Number(req.query.id) || null, req.query.template, publicUrl(req))));
+api.get('/qr.svg', wrap(async (req, res) => res.type('image/svg+xml').send(await QRCode.toString(String(req.query.text || '').slice(0, 500), { type: 'svg', margin: 1 }))));
 api.post('/mail/preview', wrap(async (req) => {
   const { html } = await renderEmail({ model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, intro: req.body.intro || '', include_document: req.body.include_document });
   return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`) };
