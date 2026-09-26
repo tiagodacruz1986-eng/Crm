@@ -8,21 +8,30 @@ const md = (s) => DOMPurify.sanitize(marked.parse(s || ''));
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const voiceSupported = Boolean(SR);
 
-// Lecture à voix haute (sans le Markdown)
-export function speak(text) {
-  if (!('speechSynthesis' in window) || !text) return;
+// Lecture à voix haute (sans le Markdown). `opts` : { pitch, rate, voice (index parmi les voix françaises), onStart, onEnd, onBoundary }
+export function speak(text, opts = {}) {
+  if (!('speechSynthesis' in window) || !text) { opts.onEnd?.(); return; }
   speechSynthesis.cancel();
-  const clean = text.replace(/[#*_`>|]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/\n+/g, '. ').slice(0, 1500);
+  const clean = text.replace(/[#*_`>|]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').replace(/\p{Extended_Pictographic}/gu, '').replace(/\n+/g, '. ').slice(0, 1500);
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = 'fr-FR';
-  u.rate = 1.05;
-  const v = speechSynthesis.getVoices().find((x) => x.lang?.startsWith('fr') && /Google|Amélie|Thomas|Denise|Hortense|Premium|Enhanced/i.test(x.name)) || speechSynthesis.getVoices().find((x) => x.lang?.startsWith('fr'));
+  u.rate = opts.rate ?? 1.05;
+  u.pitch = opts.pitch ?? 1;
+  const fr = speechSynthesis.getVoices().filter((x) => x.lang?.startsWith('fr'));
+  const nice = fr.filter((x) => /Google|Amélie|Thomas|Denise|Hortense|Henri|Eloise|Premium|Enhanced|Natural/i.test(x.name));
+  const pool = nice.length ? nice : fr;
+  const v = opts.voice != null && pool.length ? pool[opts.voice % pool.length] : pool[0];
   if (v) u.voice = v;
+  u.onstart = () => opts.onStart?.();
+  u.onend = () => opts.onEnd?.();
+  u.onerror = () => opts.onEnd?.();
+  u.onboundary = () => opts.onBoundary?.();
   speechSynthesis.speak(u);
 }
+export const stopSpeaking = () => { try { speechSynthesis.cancel(); } catch { /* indisponible */ } };
 
 // Reconnaissance vocale : une phrase (commande) ou écoute continue (journal)
-function createRecognizer({ continuous, onText, onInterim, onEnd }) {
+export function createRecognizer({ continuous, onText, onInterim, onEnd, onError }) {
   const r = new SR();
   r.lang = 'fr-FR';
   r.continuous = continuous;
@@ -35,7 +44,7 @@ function createRecognizer({ continuous, onText, onInterim, onEnd }) {
     }
     onInterim?.(interim);
   };
-  r.onerror = (e) => { if (e.error === 'not-allowed') toast('Autorisez le micro dans le navigateur pour parler à Nova', 'error'); };
+  r.onerror = (e) => { if (e.error === 'not-allowed') toast('Autorisez le micro dans le navigateur pour parler', 'error'); onError?.(e.error); };
   r.onend = () => onEnd?.();
   return r;
 }

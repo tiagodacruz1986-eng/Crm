@@ -1,4 +1,5 @@
-// Bureau virtuel 3D (Three.js) : 6 postes de travail, un personnage par agent IA.
+// Bureau IA « Neural Core » (Three.js) : cerveau holographique en particules posé sur une puce,
+// filaments d'énergie, et les 6 agents en nœuds lumineux reliés au cerveau par des faisceaux.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -7,8 +8,15 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-const SKIN = ['#f1c27d', '#e0ac69', '#c68642', '#ffdbac', '#8d5524', '#f1c27d'];
-const HAIR = ['#2d1b0e', '#b5651d', '#111111', '#6b4423', '#1a1a1a', '#d4a373'];
+const BRAIN_Y = 3.7;
+const RING = 7.2;
+const CYAN = new THREE.Color('#7dd3fc');
+
+// Générateur pseudo-aléatoire stable (même cerveau à chaque ouverture)
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
 
 function canvasTexture(w, h, draw) {
   const c = document.createElement('canvas');
@@ -19,211 +27,358 @@ function canvasTexture(w, h, draw) {
   return t;
 }
 
-const mat = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.05, ...opts });
-function box(w, h, d, material, x = 0, y = 0, z = 0) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  m.position.set(x, y, z);
-  m.castShadow = true; m.receiveShadow = true;
-  return m;
+const glowTexture = () => canvasTexture(64, 64, (ctx, w) => {
+  const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, w);
+});
+
+// ---------- Forme du cerveau : deux hémisphères plissés + cervelet + tronc ----------
+function brainPoints(count, rand) {
+  const pts = [];
+  const folds = (x, y, z) => 1 + 0.07 * Math.sin(x * 7.1 + Math.sin(z * 5.3) * 1.6) * Math.cos(y * 6.2 + z * 2.1) + 0.035 * Math.sin(z * 13 + y * 9);
+  while (pts.length < count) {
+    const u = rand() * 2 - 1, th = rand() * Math.PI * 2;
+    const r = Math.sqrt(1 - u * u);
+    let dx = r * Math.cos(th), dy = u, dz = r * Math.sin(th);
+    const part = rand();
+    let p;
+    if (part < 0.86) {
+      // Hémisphères (axe avant-arrière = z), scissure centrale
+      const side = dx >= 0 ? 1 : -1;
+      if (Math.abs(dx) < 0.12) continue;
+      const f = folds(dx, dy, dz);
+      const depth = 0.82 + rand() * 0.18; // quelques points à l'intérieur pour le volume
+      p = new THREE.Vector3(side * 0.07 + dx * 0.95 * f * depth, dy * 0.92 * f * depth, dz * 1.35 * f * depth);
+      if (p.y < -0.45) p.y = -0.45 + (p.y + 0.45) * 0.35; // base aplatie
+      p.y += 0.12 * Math.cos(dz * 1.2);
+    } else if (part < 0.96) {
+      // Cervelet
+      const f = 1 + 0.05 * Math.sin(dy * 30);
+      p = new THREE.Vector3(dx * 0.62 * f, -0.55 + dy * 0.3 * f, -0.95 + dz * 0.45 * f);
+    } else {
+      // Tronc cérébral
+      const h = rand();
+      const a = rand() * Math.PI * 2;
+      const rr = 0.2 - h * 0.06;
+      p = new THREE.Vector3(Math.cos(a) * rr, -0.5 - h * 1.05, -0.35 - h * 0.15 + Math.sin(a) * rr);
+    }
+    pts.push(p);
+  }
+  return pts;
 }
 
-function buildDesk(color) {
-  const g = new THREE.Group();
-  const wood = mat('#1b2336', { roughness: 0.35, metalness: 0.4 });
-  const metal = mat('#475569', { metalness: 0.6, roughness: 0.4 });
-  g.add(box(2.6, 0.1, 1.3, wood, 0, 1.05, 0));
-  // Liseré lumineux du bureau (couleur de l'agent)
-  const edge = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.025, 0.025), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.2 }));
-  edge.position.set(0, 1.1, 0.66); g.add(edge);
-  for (const [x, z] of [[-1.2, -0.55], [1.2, -0.55], [-1.2, 0.55], [1.2, 0.55]]) g.add(box(0.08, 1.0, 0.08, metal, x, 0.5, z));
-  // Écran
-  g.add(box(0.1, 0.45, 0.1, metal, 0, 1.3, -0.35));
-  g.add(box(1.3, 0.8, 0.06, mat('#0f172a'), 0, 1.75, -0.4));
-  const screenMat = new THREE.MeshStandardMaterial({ color: '#0b1220', emissive: new THREE.Color(color), emissiveIntensity: 0.25 });
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.7), screenMat);
-  screen.position.set(0, 1.75, -0.365);
-  g.add(screen);
-  // Clavier, tasse, dossiers
-  g.add(box(0.8, 0.03, 0.28, mat('#1e293b'), 0, 1.12, 0.05));
-  const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.16, 16), mat(color));
-  mug.position.set(0.9, 1.18, 0.1); mug.castShadow = true; g.add(mug);
-  g.add(box(0.35, 0.12, 0.45, mat('#e2e8f0'), -0.95, 1.16, -0.1));
-  // Chaise
-  const chair = new THREE.Group();
-  const fabric = mat('#1f2937');
-  chair.add(box(0.8, 0.1, 0.8, fabric, 0, 0.6, 0));
-  chair.add(box(0.8, 0.9, 0.1, fabric, 0, 1.05, 0.4));
-  chair.add(box(0.08, 0.55, 0.08, metal, 0, 0.3, 0));
-  chair.position.set(0, 0, 1.05);
-  g.add(chair);
-  return { group: g, screen: screenMat };
+// Réseau « plexus » : relie les points proches
+function plexus(points, maxDist, maxLinks) {
+  const pos = [];
+  const links = new Array(points.length).fill(0);
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length && links[i] < maxLinks; j++) {
+      if (links[j] >= maxLinks) continue;
+      if (points[i].distanceToSquared(points[j]) < maxDist * maxDist) {
+        pos.push(points[i].x, points[i].y, points[i].z, points[j].x, points[j].y, points[j].z);
+        links[i]++; links[j]++;
+      }
+    }
+  }
+  return new Float32Array(pos);
 }
 
-function buildPerson(color, i) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.55, 6, 16), mat(color, { roughness: 0.5 }));
-  body.position.y = 1.35; body.castShadow = true;
-  const head = new THREE.Group();
-  const skin = new THREE.Mesh(new THREE.SphereGeometry(0.27, 24, 24), mat(SKIN[i % SKIN.length], { roughness: 0.8 }));
-  skin.castShadow = true;
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.285, 24, 24, 0, Math.PI * 2, 0, Math.PI / 2.1), mat(HAIR[i % HAIR.length]));
-  hair.rotation.x = 0.25;
-  const eyeMat = mat('#0f172a');
-  const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), eyeMat); e1.position.set(-0.09, 0.03, -0.24);
-  const e2 = e1.clone(); e2.position.x = 0.09;
-  head.add(skin, hair, e1, e2);
-  head.position.y = 2.05;
-  const armMat = mat(color, { roughness: 0.5 });
-  const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.45, 4, 8), armMat);
-  armL.position.set(-0.38, 1.45, -0.15); armL.rotation.x = -1.1; armL.castShadow = true;
-  const armR = armL.clone(); armR.position.x = 0.38;
-  g.add(body, head, armL, armR);
-  return { group: g, head, armL, armR, body };
-}
+const POINT_VS = `
+  attribute float aRand;
+  uniform float uTime, uSize, uPulse, uPixel;
+  varying float vRand; varying float vWave; varying float vY;
+  void main() {
+    vRand = aRand; vY = position.y;
+    vWave = sin(position.y * 3.0 + position.z * 1.5 - uTime * 2.2 + aRand * 6.2831);
+    vec4 mv = modelViewMatrix * vec4(position * (1.0 + uPulse * 0.035 * vWave), 1.0);
+    gl_PointSize = uSize * (0.55 + aRand * 0.9) * (1.0 + uPulse * 0.6 * max(vWave, 0.0)) * uPixel * (22.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }`;
+const POINT_FS = `
+  uniform sampler2D uTex; uniform vec3 uColor, uAccent; uniform float uMix, uTime, uScan;
+  varying float vRand; varying float vWave; varying float vY;
+  void main() {
+    vec4 t = texture2D(uTex, gl_PointCoord);
+    float scan = smoothstep(0.12, 0.0, abs(vY - uScan));
+    vec3 c = mix(uColor, uAccent, uMix * (0.45 + 0.55 * vWave));
+    float tw = 0.55 + 0.45 * sin(uTime * (1.0 + vRand * 3.0) + vRand * 40.0);
+    gl_FragColor = vec4(c * (0.75 + scan * 1.8), t.a * (0.22 + 0.5 * tw));
+  }`;
 
-export function createOffice(container, agents, { onSelect, companyName = 'Mon Garage' } = {}) {
+// Faisceau agent → cerveau : impulsions qui circulent
+const BEAM_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+const BEAM_FS = `
+  uniform float uTime, uActive; uniform vec3 uColor; varying vec2 vUv;
+  void main() {
+    float f = fract(vUv.x * 2.0 - uTime * (0.35 + uActive * 1.4));
+    float pulse = smoothstep(0.0, 0.08, f) * smoothstep(0.3, 0.08, f);
+    float a = 0.10 + pulse * (0.35 + uActive * 0.9);
+    gl_FragColor = vec4(uColor * (1.0 + uActive * 1.5), a);
+  }`;
+
+// Colonne de lumière entre la puce et le cerveau
+const COLUMN_FS = `
+  uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
+  void main() {
+    float a = pow(vUv.y, 1.8) * 0.22 * (0.8 + 0.2 * sin(uTime * 3.0 + vUv.y * 20.0));
+    gl_FragColor = vec4(uColor * 1.4, a);
+  }`;
+
+export function createOffice(container, agents, { onSelect } = {}) {
   const width = () => container.clientWidth;
   const height = () => container.clientHeight;
-
   const small = Math.min(window.innerWidth, window.innerHeight) < 700;
+  const rand = rng(20260926);
+
   const renderer = new THREE.WebGLRenderer({ antialias: !small, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, small ? 1.5 : 2)); // plus léger sur téléphone
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, small ? 1.5 : 2));
   renderer.setSize(width(), height());
-  renderer.shadowMap.enabled = true;
-  let composer = null;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMappingExposure = 0.95;
   container.appendChild(renderer.domElement);
 
   const labelRenderer = new CSS2DRenderer();
   labelRenderer.setSize(width(), height());
-  Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none' });
+  Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none', zIndex: '2' });
   container.appendChild(labelRenderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#05070e');
-  scene.fog = new THREE.Fog('#05070e', 32, 64);
+  scene.background = new THREE.Color('#02040b');
+  scene.fog = new THREE.FogExp2('#02040b', 0.028);
 
-  const camera = new THREE.PerspectiveCamera(45, width() / height(), 0.1, 200);
-  // Plus l'écran est étroit (téléphone en portrait), plus la caméra recule pour voir tout le bureau
-  const HOME_BASE = new THREE.Vector3(0, 15, 19);
-  const HOME = { pos: HOME_BASE.clone(), target: new THREE.Vector3(0, 0.8, 0) };
-  const fitHome = () => HOME.pos.copy(HOME_BASE).multiplyScalar(Math.max(1, Math.min(2.2, 1.35 / camera.aspect)));
+  const camera = new THREE.PerspectiveCamera(42, width() / height(), 0.1, 200);
+  const HOME = { pos: new THREE.Vector3(0, 6.2, 17), target: new THREE.Vector3(0, 2.6, 0) };
+  const fitHome = () => {
+    const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
+    // En portrait (téléphone) on accepte que l'anneau déborde un peu : le cerveau reste lisible
+    const reach = camera.aspect < 0.8 ? RING * 0.62 : RING + 2.6;
+    const dist = Math.max(camera.aspect < 0.8 ? 13 : 17, reach / Math.tan(hfov / 2));
+    HOME.pos.set(0, 6.2 * dist / 17, dist);
+  };
   fitHome();
-  let focused = null;
   camera.position.copy(HOME.pos);
+
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.copy(HOME.target);
   controls.enableDamping = true;
-  controls.maxPolarAngle = Math.PI / 2.2;
-  controls.minDistance = 5; controls.maxDistance = 50;
+  controls.minDistance = 5;
+  controls.maxDistance = 40;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.35;
+  controls.addEventListener('start', () => { controls.autoRotate = false; });
 
-  // Lumières
-  scene.add(new THREE.HemisphereLight('#a5b4fc', '#0b1020', 0.7));
-  const sun = new THREE.DirectionalLight('#e0e7ff', 1.6);
-  sun.position.set(8, 16, 10);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16 });
-  scene.add(sun);
-  const warm = new THREE.PointLight('#818cf8', 30, 22); warm.position.set(0, 6, 0); scene.add(warm);
-  const cyan = new THREE.PointLight('#22d3ee', 22, 26); cyan.position.set(-10, 4, -8); scene.add(cyan);
-  const pink = new THREE.PointLight('#e879f9', 18, 26); pink.position.set(10, 4, 6); scene.add(pink);
+  scene.add(new THREE.AmbientLight('#1e293b', 1.5));
+  const key = new THREE.PointLight('#60a5fa', 40, 30); key.position.set(0, BRAIN_Y, 0); scene.add(key);
 
-  // Sol sombre et brillant avec grille lumineuse
-  const floorTex = canvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#0a0e1a'; ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)'; ctx.lineWidth = 2;
-    for (let i = 0; i <= 8; i++) { ctx.beginPath(); ctx.moveTo(i * 64, 0); ctx.lineTo(i * 64, h); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * 64); ctx.lineTo(w, i * 64); ctx.stroke(); }
+  const tex = glowTexture();
+  const disposables = [tex];
+
+  // ---------- Poussière d'étoiles ----------
+  {
+    const n = small ? 700 : 1800;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const r = 14 + rand() * 50, a = rand() * Math.PI * 2;
+      pos.set([Math.cos(a) * r, rand() * 30 - 4, Math.sin(a) * r], i * 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.12, map: tex, color: '#93c5fd', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+  }
+
+  // ---------- Sol : circuits imprimés lumineux ----------
+  const circuits = canvasTexture(1024, 1024, (ctx, w) => {
+    const c = w / 2;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 220; i++) {
+      let x = c + (rand() - 0.5) * 180, y = c + (rand() - 0.5) * 180;
+      const ang = Math.floor(rand() * 8) * Math.PI / 4;
+      ctx.strokeStyle = rand() < 0.8 ? 'rgba(56,189,248,.9)' : 'rgba(251,191,36,.8)';
+      ctx.lineWidth = rand() < 0.2 ? 2.4 : 1.2;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      let a = ang;
+      for (let s = 0; s < 4; s++) {
+        const len = 30 + rand() * 120;
+        x += Math.cos(a) * len; y += Math.sin(a) * len;
+        ctx.lineTo(x, y);
+        a += (rand() < 0.5 ? 1 : -1) * Math.PI / 4;
+      }
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'destination-in';
+    const m = ctx.createRadialGradient(c, c, 60, c, c, c);
+    m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = m; ctx.fillRect(0, 0, w, w);
   });
-  floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-  floorTex.repeat.set(4, 3);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 24), new THREE.MeshStandardMaterial({ map: floorTex, emissive: '#ffffff', emissiveMap: floorTex, emissiveIntensity: 0.35, roughness: 0.25, metalness: 0.6 }));
-  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+  disposables.push(circuits);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(36, 36), new THREE.MeshBasicMaterial({ map: circuits, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
+  floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
-  // Plateforme centrale : disque et anneaux néon
-  const rug = new THREE.Mesh(new THREE.CircleGeometry(3.6, 64), mat('#0d1326', { roughness: 0.3, metalness: 0.5 }));
-  rug.rotation.x = -Math.PI / 2; rug.position.y = 0.01; rug.receiveShadow = true;
-  scene.add(rug);
-  const ringMat = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.4 });
-  const ring1 = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.04, 8, 96), ringMat('#22d3ee')); ring1.rotation.x = Math.PI / 2; ring1.position.y = 0.03; scene.add(ring1);
-  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.025, 8, 96), ringMat('#e879f9')); ring2.rotation.x = Math.PI / 2; ring2.position.y = 0.03; scene.add(ring2);
+  const floorGrid = new THREE.PolarGridHelper(16, 24, 10, 96, '#0c2a44', '#0a1c30');
+  floorGrid.position.y = -0.01;
+  scene.add(floorGrid);
 
-  // Murs + fenêtres + écran d'entreprise
-  const wallMat = mat('#0e1426', { roughness: 0.5, metalness: 0.3 });
-  const back = box(30, 5, 0.3, wallMat, 0, 2.5, -12); scene.add(back);
-  const left = box(0.3, 5, 24, wallMat, -15, 2.5, 0); scene.add(left);
-  // Bandeaux lumineux en haut des murs
-  const strip = (w, h, d, c, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ringMat(c)); m.position.set(x, y, z); scene.add(m); };
-  strip(30, 0.06, 0.06, '#818cf8', 0, 4.9, -11.8); strip(0.06, 0.06, 24, '#22d3ee', -14.8, 4.9, 0);
-  strip(30, 0.04, 0.04, '#22d3ee', 0, 0.06, -11.8); strip(0.04, 0.04, 24, '#e879f9', -14.8, 0.06, 0);
-  const glass = new THREE.MeshStandardMaterial({ color: '#1e3a8a', emissive: '#38bdf8', emissiveIntensity: 0.55, transparent: true, opacity: 0.8 });
-  for (const z of [-7, -1, 5]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.4), glass); w.position.set(-14.8, 2.8, z); w.rotation.y = Math.PI / 2; scene.add(w); }
-  const brandTex = canvasTexture(1024, 256, (ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, '#0e7490'); g.addColorStop(0.5, '#4f46e5'); g.addColorStop(1, '#a21caf');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 84px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(companyName, w / 2, h / 2 - 20);
-    ctx.font = '36px system-ui, sans-serif'; ctx.globalAlpha = 0.8; ctx.fillText('Bureau virtuel · Équipe IA', w / 2, h / 2 + 60);
+  // ---------- La puce ----------
+  const chip = new THREE.Group();
+  const chipTop = canvasTexture(256, 256, (ctx, w) => {
+    ctx.fillStyle = '#060b16'; ctx.fillRect(0, 0, w, w);
+    for (let x = 18; x < w - 10; x += 12) for (let y = 18; y < w - 10; y += 12) {
+      ctx.fillStyle = rand() < 0.18 ? 'rgba(125,211,252,.95)' : 'rgba(56,189,248,.28)';
+      ctx.fillRect(x, y, 3, 3);
+    }
   });
-  const brand = new THREE.Mesh(new THREE.PlaneGeometry(10, 2.5), new THREE.MeshStandardMaterial({ map: brandTex, emissive: '#ffffff', emissiveMap: brandTex, emissiveIntensity: 0.5 }));
-  brand.position.set(0, 3, -11.84); scene.add(brand);
+  disposables.push(chipTop);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.28, 2.6), [
+    ...Array(2).fill(new THREE.MeshStandardMaterial({ color: '#0b1222', metalness: 0.8, roughness: 0.3 })),
+    new THREE.MeshBasicMaterial({ map: chipTop }),
+    ...Array(3).fill(new THREE.MeshStandardMaterial({ color: '#0b1222', metalness: 0.8, roughness: 0.3 })),
+  ]);
+  body.position.y = 0.3;
+  chip.add(body);
+  const edgeGold = new THREE.MeshBasicMaterial({ color: '#fbbf24' });
+  const edgeBlue = new THREE.MeshBasicMaterial({ color: '#e0f2fe' });
+  for (const [w, d, x, z] of [[2.7, 0.05, 0, 1.33], [2.7, 0.05, 0, -1.33], [0.05, 2.7, 1.33, 0], [0.05, 2.7, -1.33, 0]]) {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), edgeGold); e.position.set(x, 0.18, z); chip.add(e);
+    const e2 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.98, 0.03, d * 0.98), edgeBlue); e2.position.set(x * 0.98, 0.46, z * 0.98); chip.add(e2);
+  }
+  // Broches
+  const pin = new THREE.BoxGeometry(0.06, 0.04, 0.3);
+  const pinMat = new THREE.MeshBasicMaterial({ color: '#38bdf8' });
+  for (let i = -8; i <= 8; i++) for (const s of [-1, 1]) {
+    const a = new THREE.Mesh(pin, pinMat); a.position.set(i * 0.15, 0.1, s * 1.5); chip.add(a);
+    const b = new THREE.Mesh(pin, pinMat); b.rotation.y = Math.PI / 2; b.position.set(s * 1.5, 0.1, i * 0.15); chip.add(b);
+  }
+  const chipGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#38bdf8', transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }));
+  chipGlow.scale.set(5, 5, 1); chipGlow.position.y = 0.4;
+  chip.add(chipGlow);
+  scene.add(chip);
 
-  // Table de réunion
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.1, 64), new THREE.MeshPhysicalMaterial({ color: '#a5b4fc', roughness: 0.05, metalness: 0.1, transmission: 0.6, thickness: 0.4, transparent: true, opacity: 0.75 }));
-  table.position.y = 1; table.castShadow = true; table.receiveShadow = true; scene.add(table);
-  const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.5, 1, 16), mat('#334155')); foot.position.y = 0.5; scene.add(foot);
-  const holo = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 1), new THREE.MeshStandardMaterial({ color: '#22d3ee', emissive: '#06b6d4', emissiveIntensity: 1.2, wireframe: true }));
-  holo.position.y = 1.9; scene.add(holo);
+  // Colonne de lumière + particules qui montent vers le cerveau
+  const columnMat = new THREE.ShaderMaterial({ vertexShader: BEAM_VS, fragmentShader: COLUMN_FS, uniforms: { uTime: { value: 0 }, uColor: { value: CYAN.clone() } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.75, BRAIN_Y - 1.4, 40, 1, true), columnMat);
+  column.position.y = 0.45 + (BRAIN_Y - 1.4) / 2;
+  scene.add(column);
+  const riseN = small ? 120 : 320;
+  const risePos = new Float32Array(riseN * 3);
+  const riseSeed = [];
+  for (let i = 0; i < riseN; i++) { const a = rand() * Math.PI * 2, r = rand() * 0.9; riseSeed.push([a, r, rand()]); }
+  const riseGeo = new THREE.BufferGeometry(); riseGeo.setAttribute('position', new THREE.BufferAttribute(risePos, 3));
+  const rise = new THREE.Points(riseGeo, new THREE.PointsMaterial({ size: 0.09, map: tex, color: '#bae6fd', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  scene.add(rise);
 
-  // Plantes
-  const plant = (x, z) => {
-    const g = new THREE.Group();
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.28, 0.6, 16), mat('#f1f5f9')); pot.position.y = 0.3;
-    const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 1), mat('#16a34a', { flatShading: true })); leaves.position.y = 1.2; leaves.scale.y = 1.3;
-    pot.castShadow = leaves.castShadow = true;
-    g.add(pot, leaves); g.position.set(x, 0, z); scene.add(g);
+  // ---------- Le cerveau ----------
+  const brain = new THREE.Group();
+  brain.position.y = BRAIN_Y;
+  brain.scale.setScalar(1.7);
+  scene.add(brain);
+  const pts = brainPoints(small ? 3200 : 7000, rand);
+  const bGeo = new THREE.BufferGeometry().setFromPoints(pts);
+  bGeo.setAttribute('aRand', new THREE.BufferAttribute(new Float32Array(pts.map(() => rand())), 1));
+  const brainUniforms = {
+    uTime: { value: 0 }, uSize: { value: small ? 1.7 : 0.85 }, uPulse: { value: 0 }, uPixel: { value: renderer.getPixelRatio() },
+    uTex: { value: tex }, uColor: { value: new THREE.Color('#6cc4ff') }, uAccent: { value: new THREE.Color('#e879f9') }, uMix: { value: 0 }, uScan: { value: 0 },
   };
-  plant(-13, -10); plant(13, -10); plant(-13, 10); plant(13, 10);
-  // Machine à café
-  scene.add(box(0.9, 1.1, 0.7, mat('#334155'), 12.5, 0.55, -4), box(0.6, 0.6, 0.5, mat('#111827'), 12.5, 1.4, -4));
+  brain.add(new THREE.Points(bGeo, new THREE.ShaderMaterial({ vertexShader: POINT_VS, fragmentShader: POINT_FS, uniforms: brainUniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  // Réseau de neurones à la surface
+  const nodes = pts.filter(() => rand() < (small ? 0.07 : 0.06));
+  const lineMat = new THREE.LineBasicMaterial({ color: '#60a5fa', transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false });
+  const lGeo = new THREE.BufferGeometry(); lGeo.setAttribute('position', new THREE.BufferAttribute(plexus(nodes, 0.42, 3), 3));
+  brain.add(new THREE.LineSegments(lGeo, lineMat));
+  // Maillage extérieur (le filet qui enveloppe le cerveau)
+  const shell = [];
+  for (let i = 0; i < (small ? 90 : 170); i++) {
+    const u = rand() * 2 - 1, th = rand() * Math.PI * 2, r = Math.sqrt(1 - u * u), k = 1.25 + rand() * 0.55;
+    shell.push(new THREE.Vector3(r * Math.cos(th) * 1.25 * k, u * 1.1 * k - 0.1, r * Math.sin(th) * 1.5 * k));
+  }
+  const shellMat = new THREE.LineBasicMaterial({ color: '#bae6fd', transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false });
+  const sGeo = new THREE.BufferGeometry(); sGeo.setAttribute('position', new THREE.BufferAttribute(plexus(shell, 0.95, 4), 3));
+  const shellLines = new THREE.LineSegments(sGeo, shellMat);
+  brain.add(shellLines);
+  const sPts = new THREE.BufferGeometry().setFromPoints(shell);
+  brain.add(new THREE.Points(sPts, new THREE.PointsMaterial({ size: 0.1, map: tex, color: '#e0f2fe', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#1d4ed8', transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false }));
+  halo.scale.set(6.5, 5, 1);
+  brain.add(halo);
 
-  // Agents
-  const clickables = [];
+  // ---------- Filaments d'énergie (boucles cyan → ambre) ----------
+  const filaments = new THREE.Group();
+  filaments.position.y = BRAIN_Y;
+  scene.add(filaments);
+  const fil = [];
+  for (let i = 0; i < (small ? 10 : 18); i++) {
+    const r = 2.8 + rand() * 1.8, ex = 0.5 + rand() * 0.6, wob = rand() * 0.4, ph = rand() * 6.28;
+    const curve = [];
+    for (let s = 0; s <= 160; s++) {
+      const a = (s / 160) * Math.PI * 2;
+      const rr = r * (1 + wob * Math.sin(a * 3 + ph) * 0.3);
+      curve.push(new THREE.Vector3(Math.cos(a) * rr, Math.sin(a * 2 + ph) * 0.35, Math.sin(a) * rr * ex));
+    }
+    const g = new THREE.BufferGeometry().setFromPoints(curve);
+    const colors = new Float32Array(curve.length * 3);
+    const c1 = new THREE.Color(rand() < 0.5 ? '#22d3ee' : '#2dd4bf'), c2 = new THREE.Color(rand() < 0.6 ? '#fbbf24' : '#e879f9'), c = new THREE.Color();
+    curve.forEach((_, k) => { c.lerpColors(c1, c2, 0.5 + 0.5 * Math.sin((k / curve.length) * Math.PI * 2 + ph)); colors.set([c.r, c.g, c.b], k * 3); });
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.07 + rand() * 0.16, blending: THREE.AdditiveBlending, depthWrite: false }));
+    line.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
+    filaments.add(line);
+    fil.push({ line, sx: (rand() - 0.5) * 0.25, sy: (rand() - 0.5) * 0.3 });
+  }
+  // Traînée de lumière horizontale
+  const streak = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#fde68a', transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }));
+  streak.scale.set(22, 0.35, 1); streak.position.y = BRAIN_Y - 0.1;
+  scene.add(streak);
+
+  // ---------- Les agents ----------
   const agentObjs = {};
+  const clickables = [];
+  const n = agents.length;
   agents.forEach((a, i) => {
-    // Repère local : +z pointe vers le centre de la pièce. Le bureau est côté centre,
-    // l'agent assis derrière regarde son écran (et donc le centre).
+    const ang = (i / n) * Math.PI * 2 + Math.PI / 2 + Math.PI / n;
     const group = new THREE.Group();
-    group.position.set(a.desk.x, 0, a.desk.z);
-    group.lookAt(0, 0, 0);
-    const desk = buildDesk(a.color);
-    desk.group.rotation.y = Math.PI;
-    desk.group.position.z = 0.6;
-    const person = buildPerson(a.color, i);
-    person.group.rotation.y = Math.PI;
-    person.group.position.z = -0.45;
-    group.add(desk.group, person.group);
-    // Anneau de statut au sol
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.05, 8, 64), new THREE.MeshStandardMaterial({ color: a.color, emissive: a.color, emissiveIntensity: 0.6 }));
-    ring.rotation.x = Math.PI / 2; ring.position.y = 0.03;
-    group.add(ring);
-    // Étiquette HTML
+    group.position.set(Math.cos(ang) * RING, 1.6, Math.sin(ang) * RING);
+    const color = new THREE.Color(a.color);
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 2), new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(0.9) }));
+    const cage = new THREE.Mesh(new THREE.IcosahedronGeometry(0.78, 1), new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const orbit = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.015, 6, 96), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending }));
+    orbit.rotation.x = Math.PI / 2.4;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.set(2.3, 2.3, 1);
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
+    group.add(core, cage, orbit, glow, hit);
+    // Socle lumineux au sol
+    const pad = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 64), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+    pad.rotation.x = -Math.PI / 2; pad.position.set(group.position.x, 0.02, group.position.z);
+    const padGlow = new THREE.Mesh(new THREE.CircleGeometry(1.6, 48), new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }));
+    padGlow.rotation.x = -Math.PI / 2; padGlow.position.set(group.position.x, 0.015, group.position.z);
+    scene.add(pad, padGlow);
+    // Faisceau courbe vers le cerveau
+    const start = group.position.clone();
+    const end = new THREE.Vector3(0, BRAIN_Y - 0.2, 0).add(start.clone().setY(0).normalize().multiplyScalar(1.6));
+    const mid = start.clone().lerp(end, 0.5).setY(Math.max(start.y, end.y) + 1.6);
+    const beamMat = new THREE.ShaderMaterial({ vertexShader: BEAM_VS, fragmentShader: BEAM_FS, uniforms: { uTime: { value: 0 }, uActive: { value: 0 }, uColor: { value: color } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const beam = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(start, mid, end), 64, 0.035, 6, false), beamMat);
+    scene.add(beam);
+    // Étiquette
     const el = document.createElement('div');
-    el.className = 'office-label';
+    el.className = 'node-label';
     el.style.setProperty('--c', a.color);
-    el.innerHTML = `<div class="bubble" hidden>💭 réfléchit…</div><div class="n">${a.emoji} ${a.name}<span class="dot" hidden></span></div><div class="r">${a.role}</div>`;
+    el.innerHTML = `<div class="state" hidden></div><div class="n"><span class="e">${a.emoji}</span>${a.name}<span class="dot" hidden></span></div><div class="r">${a.role}</div>`;
     el.addEventListener('click', () => onSelect?.(a.id));
     const label = new CSS2DObject(el);
-    label.position.set(0, 3.1, 0);
+    label.position.set(0, 1.55, 0);
     group.add(label);
     scene.add(group);
-    group.traverse((o) => { if (o.isMesh) { o.userData.agentId = a.id; clickables.push(o); } });
-    agentObjs[a.id] = { group, person, desk, ring, el, working: false, phase: i * 1.3 };
+    hit.userData.agentId = a.id;
+    clickables.push(hit);
+    agentObjs[a.id] = { group, core, cage, orbit, glow, pad, beamMat, el, color, working: false, mode: null, phase: i * 1.1, baseY: 1.6, hover: 0 };
   });
 
-  // Interaction
+  // ---------- Interaction ----------
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let hovered = null;
@@ -234,58 +389,101 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
     return raycaster.intersectObjects(clickables, false)[0]?.object.userData.agentId || null;
   };
   let downAt = null;
-  renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
-  renderer.domElement.addEventListener('pointerup', (e) => {
+  const onDown = (e) => { downAt = [e.clientX, e.clientY]; };
+  const onUp = (e) => {
     if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 6) { const id = pick(e); if (id) onSelect?.(id); }
     downAt = null;
-  });
-  renderer.domElement.addEventListener('pointermove', (e) => {
-    const id = pick(e);
-    if (id !== hovered) {
-      if (hovered) agentObjs[hovered].person.body.material.emissive.set('#000000');
-      hovered = id;
-      if (id) agentObjs[id].person.body.material.emissive.set('#333333');
-      renderer.domElement.style.cursor = id ? 'pointer' : 'grab';
-    }
-  });
+  };
+  const onMove = (e) => {
+    if (e.pointerType === 'touch') return;
+    hovered = pick(e);
+    renderer.domElement.style.cursor = hovered ? 'pointer' : 'grab';
+  };
+  renderer.domElement.addEventListener('pointerdown', onDown);
+  renderer.domElement.addEventListener('pointerup', onUp);
+  renderer.domElement.addEventListener('pointermove', onMove);
 
-  // Caméra animée
+  // ---------- Caméra ----------
+  let focused = null;
   let camAnim = null;
   const flyTo = (pos, target) => { camAnim = { t: 0, fromPos: camera.position.clone(), fromTarget: controls.target.clone(), pos, target }; };
   const focus = (id) => {
     focused = id;
-    if (!id) return flyTo(HOME.pos.clone(), HOME.target.clone());
-    const g = agentObjs[id].group.position;
-    const dir = g.clone().setY(0).normalize();
-    flyTo(g.clone().add(dir.multiplyScalar(-5.5)).setY(5.5).add(new THREE.Vector3(3, 0, 0)), g.clone().setY(1.6).add(new THREE.Vector3(2, 0, 0)));
+    if (!id) { controls.autoRotate = true; return flyTo(HOME.pos.clone(), HOME.target.clone()); }
+    controls.autoRotate = false;
+    const p = agentObjs[id].group.position;
+    const out = p.clone().setY(0).normalize();
+    const side = new THREE.Vector3(-out.z, 0, out.x); // décale pour laisser la place au panneau de droite
+    const narrow = width() < 760;
+    // Vue depuis l'extérieur : l'agent au premier plan, le cerveau derrière lui
+    const target = p.clone().lerp(new THREE.Vector3(0, BRAIN_Y - 0.4, 0), 0.6).add(side.clone().multiplyScalar(narrow ? 0 : -2.6));
+    flyTo(p.clone().add(out.multiplyScalar(narrow ? 11 : 9.5)).setY(5.2).add(side.multiplyScalar(narrow ? 0 : -1.2)), target);
   };
 
+  let composer = null;
   if (!small) {
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    composer.addPass(new UnrealBloomPass(new THREE.Vector2(width(), height()), 0.55, 0.6, 0.82));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(width(), height()), 0.62, 0.45, 0.22));
     composer.addPass(new OutputPass());
   }
+
+  // Activité : un agent écoute, réfléchit ou parle → le cerveau prend sa couleur et s'anime
+  let activity = { id: null, mode: null };
+  let level = 0;
+  const accent = new THREE.Color('#e879f9');
+
   const clock = new THREE.Clock();
   let raf;
   const tick = () => {
     raf = requestAnimationFrame(tick);
-    const t = clock.getElapsedTime();
-    holo.rotation.y = t * 0.6; holo.rotation.x = t * 0.3;
-    holo.position.y = 1.9 + Math.sin(t * 1.5) * 0.08;
-    for (const o of Object.values(agentObjs)) {
-      const p = o.person;
-      const speed = o.working ? 14 : 1.6;
-      p.head.rotation.y = Math.sin(t * 0.5 + o.phase) * (o.working ? 0.05 : 0.35);
-      p.head.position.y = 2.05 + Math.sin(t * 2 + o.phase) * 0.02;
-      p.armL.rotation.x = -1.1 + Math.sin(t * speed + o.phase) * (o.working ? 0.12 : 0.03);
-      p.armR.rotation.x = -1.1 + Math.cos(t * speed + o.phase) * (o.working ? 0.12 : 0.03);
-      o.desk.screen.emissiveIntensity = o.working ? 0.8 + Math.sin(t * 10) * 0.3 : 0.25;
-      o.ring.material.emissiveIntensity = o.working ? 1 + Math.sin(t * 5) * 0.6 : 0.4;
-      o.ring.scale.setScalar(o.working ? 1 + Math.sin(t * 5) * 0.03 : 1);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+    const busy = activity.mode || Object.values(agentObjs).some((o) => o.working);
+    const target = activity.mode === 'speaking' ? 0.7 + level * 0.8 + Math.max(0, Math.sin(t * 9)) * 0.4 : activity.mode === 'listening' ? 0.35 + level * 1.2 : busy ? 0.55 : 0.12;
+    brainUniforms.uPulse.value += (target - brainUniforms.uPulse.value) * 0.08;
+    brainUniforms.uTime.value = t;
+    brainUniforms.uScan.value = Math.sin(t * 0.8) * 1.2;
+    const mixTarget = activity.id ? 0.85 : busy ? 0.4 : 0;
+    brainUniforms.uMix.value += (mixTarget - brainUniforms.uMix.value) * 0.05;
+    if (activity.id && agentObjs[activity.id]) accent.lerp(agentObjs[activity.id].color, 0.06); else accent.lerp(new THREE.Color('#e879f9'), 0.02);
+    brainUniforms.uAccent.value.copy(accent);
+    brain.rotation.y = Math.PI / 2 + Math.sin(t * (busy ? 0.6 : 0.18)) * 0.7; // profil, léger balancement
+    brain.position.y = BRAIN_Y + Math.sin(t * 0.9) * 0.08;
+    shellLines.rotation.y = -t * 0.05;
+    halo.material.opacity = 0.1 + brainUniforms.uPulse.value * 0.22;
+    key.intensity = 30 + brainUniforms.uPulse.value * 40;
+    filaments.rotation.y = t * 0.08;
+    for (const f of fil) { f.line.rotation.x += f.sx * dt; f.line.rotation.z += f.sy * dt; }
+    streak.material.opacity = 0.14 + Math.sin(t * 1.3) * 0.05 + brainUniforms.uPulse.value * 0.12;
+    columnMat.uniforms.uTime.value = t;
+    chipGlow.material.opacity = 0.2 + Math.sin(t * 2) * 0.05 + brainUniforms.uPulse.value * 0.15;
+    const rp = rise.geometry.attributes.position;
+    riseSeed.forEach(([a, r, off], i) => {
+      const k = (off + t * (0.18 + brainUniforms.uPulse.value * 0.3)) % 1;
+      const rr = r * (1 - k * 0.75);
+      rp.setXYZ(i, Math.cos(a + t * 0.5) * rr, 0.5 + k * (BRAIN_Y - 1.6), Math.sin(a + t * 0.5) * rr);
+    });
+    rp.needsUpdate = true;
+    for (const [id, o] of Object.entries(agentObjs)) {
+      const active = o.working || activity.id === id;
+      const hover = hovered === id || focused === id;
+      o.hover += ((hover ? 1 : 0) - o.hover) * 0.12;
+      o.group.position.y = o.baseY + Math.sin(t * 1.2 + o.phase) * 0.12;
+      o.cage.rotation.y = t * (active ? 1.6 : 0.4) + o.phase;
+      o.cage.rotation.x = t * 0.3;
+      o.orbit.rotation.z = t * (active ? 2.5 : 0.8);
+      const s = 1 + o.hover * 0.18 + (active ? Math.sin(t * 6) * 0.06 : 0);
+      o.core.scale.setScalar(s);
+      o.cage.scale.setScalar(s);
+      o.glow.material.opacity = 0.32 + o.hover * 0.3 + (active ? 0.2 + Math.sin(t * 6) * 0.12 : 0);
+      o.pad.material.opacity = 0.5 + o.hover * 0.5;
+      o.beamMat.uniforms.uTime.value = t + o.phase;
+      const act = active ? 1 : o.hover * 0.5;
+      o.beamMat.uniforms.uActive.value += (act - o.beamMat.uniforms.uActive.value) * 0.08;
     }
     if (camAnim) {
-      camAnim.t = Math.min(1, camAnim.t + 0.025);
+      camAnim.t = Math.min(1, camAnim.t + 0.022);
       const k = 1 - Math.pow(1 - camAnim.t, 3);
       camera.position.lerpVectors(camAnim.fromPos, camAnim.pos, k);
       controls.target.lerpVectors(camAnim.fromTarget, camAnim.target, k);
@@ -298,6 +496,7 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   tick();
 
   const ro = new ResizeObserver(() => {
+    if (!width() || !height()) return;
     camera.aspect = width() / height();
     camera.updateProjectionMatrix();
     fitHome();
@@ -308,25 +507,49 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   });
   ro.observe(container);
 
+  const STATE_TEXT = { listening: '🎙️ écoute…', thinking: '💭 réfléchit…', speaking: '🔊 parle…' };
+  const refreshLabel = (id) => {
+    const o = agentObjs[id];
+    const mode = activity.id === id && activity.mode ? activity.mode : o.working ? 'thinking' : null;
+    const st = o.el.querySelector('.state');
+    st.hidden = !mode;
+    st.textContent = STATE_TEXT[mode] || '';
+    o.el.classList.toggle('active', Boolean(mode));
+    o.el.classList.toggle('focused', focused === id);
+  };
+
   return {
     update(states) {
       for (const s of states) {
         const o = agentObjs[s.id];
         if (!o) continue;
-        o.working = !!s.working;
-        o.el.querySelector('.bubble').hidden = !s.working;
+        o.working = Boolean(s.working);
         const dot = o.el.querySelector('.dot');
         dot.hidden = !s.unread;
         dot.textContent = s.unread || '';
+        refreshLabel(s.id);
       }
     },
-    focus,
+    focus(id) { focus(id); Object.keys(agentObjs).forEach(refreshLabel); },
+    /** mode : 'listening' | 'thinking' | 'speaking' | null */
+    setActivity(id, mode) {
+      const prev = activity.id;
+      activity = { id: mode ? id : null, mode: mode || null };
+      [prev, id].filter((x) => x && agentObjs[x]).forEach(refreshLabel);
+    },
+    /** Niveau sonore 0..1 (micro ou voix) pour faire vibrer le cerveau */
+    setLevel(v) { level = Math.max(0, Math.min(1, v)); },
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
+      renderer.domElement.removeEventListener('pointerdown', onDown);
+      renderer.domElement.removeEventListener('pointerup', onUp);
+      renderer.domElement.removeEventListener('pointermove', onMove);
+      composer?.dispose?.();
       renderer.dispose();
-      scene.traverse((o) => { o.geometry?.dispose(); if (o.material) [].concat(o.material).forEach((m) => { m.map?.dispose(); m.dispose(); }); });
+      scene.traverse((o) => { o.geometry?.dispose(); if (o.material) [].concat(o.material).forEach((m) => m.dispose()); });
+      disposables.forEach((d) => d.dispose());
       container.innerHTML = '';
     },
   };

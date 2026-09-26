@@ -2,6 +2,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AGENTS, TOOLS, getAgent, runTool, systemPrompt } from './agents.js';
 import { all, run, insert } from './db.js';
+import { ensureConversation, addMessage, historyOf } from './conversations.js';
 
 const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5';
 let client = null;
@@ -76,10 +77,12 @@ export function friendlyError(e) {
   return e.message || String(e);
 }
 
-// Conversation persistante avec un agent
-export async function chat(agentId, userText) {
-  insert('agent_messages', { agent_id: agentId, role: 'user', content: userText }, ['agent_id', 'role', 'content']);
-  const history = all('SELECT role, content FROM agent_messages WHERE agent_id=? ORDER BY id DESC LIMIT 30', agentId).reverse();
+// Conversation persistante avec un agent (rangée dans l'historique)
+export async function chat(agentId, userText, conversationId = null) {
+  if (!getAgent(agentId)) throw new Error('Agent inconnu');
+  const cid = ensureConversation(agentId, conversationId, userText);
+  addMessage(cid, agentId, 'user', userText);
+  const history = historyOf(cid);
   while (history.length && history[0].role !== 'user') history.shift();
   let reply;
   try {
@@ -87,8 +90,8 @@ export async function chat(agentId, userText) {
   } catch (e) {
     reply = `❌ ${friendlyError(e)}`;
   }
-  insert('agent_messages', { agent_id: agentId, role: 'assistant', content: reply }, ['agent_id', 'role', 'content']);
-  return reply;
+  addMessage(cid, agentId, 'assistant', reply);
+  return { reply, conversation_id: cid };
 }
 
 // Réunion : tous les agents répondent, puis le CIO fait la synthèse
@@ -111,4 +114,5 @@ export async function meeting(question) {
 
 export function clearHistory(agentId) {
   run('DELETE FROM agent_messages WHERE agent_id=?', agentId);
+  run('DELETE FROM agent_conversations WHERE agent_id=?', agentId);
 }

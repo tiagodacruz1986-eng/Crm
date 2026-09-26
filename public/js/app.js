@@ -22,7 +22,7 @@ const NAV = [
   { section: 'Pilotage' },
   { to: '/', icon: 'layout-dashboard', label: 'Tableau de bord', match: 'dashboard' },
   { to: '/copilot', icon: 'sparkles', label: 'Nova — copilote', match: 'copilot' },
-  { to: '/office', icon: 'bot', label: 'Bureau IA', match: 'office' },
+  { to: '/office', icon: 'brain', label: 'Bureau IA', match: 'office' },
   { to: '/activities', icon: 'alarm-clock', label: 'Activités', match: 'activities' },
   { to: '/mail', icon: 'mail', label: 'E-mails', match: 'mail' },
   { section: 'Atelier' },

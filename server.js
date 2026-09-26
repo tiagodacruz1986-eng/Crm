@@ -26,6 +26,7 @@ import {
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
+import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation } from './src/conversations.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
 const app = express();
@@ -42,12 +43,12 @@ app.use('/vendor/three', express.static(nm('three')));
 app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
-const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet'];
+const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain'];
 let iconModule = null;
 app.get('/vendor/icons.js', async (req, res) => {
   if (!iconModule) {
     const lucide = await import('lucide');
-    const map = Object.fromEntries(ICONS.filter((n) => lucide[n]).map((n) => [n.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase(), lucide[n]]));
+    const map = Object.fromEntries(ICONS.filter((n) => lucide[n]).map((n) => [n.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([a-z])([0-9])/g, '$1-$2').toLowerCase(), lucide[n]]));
     iconModule = `export default ${JSON.stringify(map)};`;
   }
   res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
@@ -602,13 +603,26 @@ api.get('/agents', (req, res) => res.json(AGENTS.map(({ prompt, ...a }) => ({
   unread: get('SELECT COUNT(*) n FROM agent_results WHERE agent_id=? AND read=0', a.id).n,
   tasks: get('SELECT COUNT(*) n FROM agent_tasks WHERE agent_id=? AND active=1', a.id).n,
 }))));
-api.get('/agents/:id/messages', (req, res) => res.json(all('SELECT * FROM agent_messages WHERE agent_id=? ORDER BY id DESC LIMIT 100', req.params.id).reverse()));
+api.get('/agents/:id/messages', (req, res) => {
+  const c = listConversations({ agent: req.params.id, limit: 1 })[0];
+  res.json(c ? conversationMessages(c.id) : []);
+});
 api.delete('/agents/:id/messages', (req, res) => { clearHistory(req.params.id); res.json({ ok: true }); });
 api.post('/agents/:id/chat', wrap(async (req) => {
   if (!req.body.message?.trim()) throw new BusinessError('Message vide');
+  if (!AGENTS.some((a) => a.id === req.params.id)) throw new BusinessError('Agent inconnu', 404);
   running.add(req.params.id);
-  try { return { reply: await chat(req.params.id, req.body.message.trim()) }; } finally { running.delete(req.params.id); }
+  try { return await chat(req.params.id, req.body.message.trim(), Number(req.body.conversation_id) || null); } finally { running.delete(req.params.id); }
 }));
+// Historique des conversations (consultable, recherche plein texte)
+api.get('/agent-conversations', (req, res) => res.json(listConversations({ agent: req.query.agent, q: req.query.q, limit: Math.min(Number(req.query.limit) || 60, 200) })));
+api.get('/agent-conversations/:cid', wrap((req) => {
+  const c = getConversation(req.params.cid);
+  if (!c) throw new BusinessError('Conversation introuvable', 404);
+  return { ...c, messages: conversationMessages(c.id) };
+}));
+api.put('/agent-conversations/:cid', wrap((req) => { updateConversation(req.params.cid, req.body); return { ok: true }; }));
+api.delete('/agent-conversations/:cid', wrap((req) => { deleteConversation(req.params.cid); return { ok: true }; }));
 api.post('/agents/meeting', wrap(async (req) => {
   if (!req.body.question?.trim()) throw new BusinessError('Question vide');
   AGENTS.forEach((a) => running.add(a.id));
