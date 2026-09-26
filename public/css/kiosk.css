@@ -71,3 +71,24 @@ body.kiosk::before, body.kiosk::after { display: none; }
 @keyframes k-wave { 50% { transform: rotate(18deg) scale(1.1); } }
 .k-fade-enter-active, .k-fade-leave-active { transition: opacity .3s; } .k-fade-enter-from, .k-fade-leave-to { opacity: 0; }
 @media (max-width: 600px) { .k-top { grid-template-columns: 1fr auto; } .k-when { display: none; } .k-hero h1 { font-size: 32px; } .k-big { width: 160px; height: 160px; } }
+
+/* Thème clair du kiosque (suit le choix « Apparence » du logiciel sur cet appareil) */
+[data-theme="light"] body.kiosk { background: radial-gradient(60vmax 60vmax at 10% 0%, rgba(34, 211, 238, .18), transparent 60%), radial-gradient(60vmax 60vmax at 100% 100%, rgba(232, 121, 249, .14), transparent 60%), #eef2fb; color: #0b1224; }
+[data-theme="light"] .k-user, [data-theme="light"] .k-att, [data-theme="light"] .k-status, [data-theme="light"] .k-order { background: #fff; border-color: #dbe3f1; color: #0b1224; box-shadow: 0 8px 24px rgba(30, 50, 100, .08); }
+[data-theme="light"] .k-user b, [data-theme="light"] .k-order h3 { color: #0b1224; }
+[data-theme="light"] .k-muted, [data-theme="light"] .k-user small, [data-theme="light"] .k-hero p, [data-theme="light"] .k-stats { color: #5f6d8a; }
+[data-theme="light"] .k-user.present small { color: #059669; }
+[data-theme="light"] .k-avatar i { box-shadow: 0 0 0 3px #fff; }
+[data-theme="light"] .k-hero h1 { background: linear-gradient(90deg, #0891b2, #6366f1, #c026d3); -webkit-background-clip: text; background-clip: text; }
+[data-theme="light"] .k-pad button { background: #fff; color: #0b1224; box-shadow: 0 3px 10px rgba(30, 50, 100, .1); }
+[data-theme="light"] .k-pad button.ok { color: #fff; }
+[data-theme="light"] .k-dots span { border-color: #94a3b8; }
+[data-theme="light"] .k-stats div { background: #f1f5fb; }
+[data-theme="light"] .k-stats b { color: #0b1224; }
+[data-theme="light"] .k-btn { background: #e2e8f0; color: #0b1224; }
+[data-theme="light"] .k-btn.green, [data-theme="light"] .k-btn.red, [data-theme="light"] .k-btn.blue, [data-theme="light"] .k-btn.orange { color: #fff; }
+[data-theme="light"] .k-line { border-color: #e2e8f0; }
+[data-theme="light"] .k-order .complaint { color: #334155; }
+[data-theme="light"] .k-order textarea, [data-theme="light"] .k-order input, [data-theme="light"] .k-search { background: #f8fafc; border-color: #cbd5e1; color: #0b1224; }
+[data-theme="light"] .k-err { color: #dc2626; }
+[data-theme="light"] .k-user.present .k-avatar i { box-shadow: 0 0 0 3px #fff, 0 0 10px #22c55e; }

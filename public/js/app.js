@@ -5,6 +5,7 @@ import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 
 import { route, go } from './router.js';
 import { APPS, visibleApps, currentApp, can } from './apps.js';
+import { theme, toggleTheme, setTheme, ThemePicker } from './theme.js';
 
 const lazy = (file, name) => defineAsyncComponent(() => import(`./views/${file}.js`).then((m) => m[name]));
 const VIEWS = {
@@ -61,10 +62,11 @@ const Login = {
         await boot();
       } catch (e) { err.value = e.message; }
     };
-    return { f, err, submit };
+    return { f, err, submit, theme, toggleTheme };
   },
   template: `
   <div class="login-bg">
+    <button type="button" class="btn login-theme" @click="toggleTheme" :title="theme.active === 'dark' ? 'Thème clair' : 'Thème sombre'"><Icon :name="theme.active === 'dark' ? 'sun' : 'moon'"/> {{ theme.active === 'dark' ? 'Clair' : 'Sombre' }}</button>
     <form class="login-card" @submit.prevent="submit">
       <div class="login-logo"><Icon name="wrench" size="34"/></div>
       <h1>{{ setup ? 'Bienvenue !' : 'Connexion' }}</h1>
@@ -147,7 +149,7 @@ const GlobalSearch = {
 };
 
 const Root = {
-  components: { Login, Invite, GlobalSearch, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
+  components: { Login, Invite, GlobalSearch, ThemePicker, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
   setup() {
     const searchOpen = ref(false);
     const menuOpen = ref(false);
@@ -158,12 +160,7 @@ const Root = {
     const isActive = (n) => n.match === route.name && (!n.type || n.type === route.params.type);
     const logout = async () => { await POST('/auth/logout'); store.user = null; };
     const plusOpen = ref(false);
-    const theme = ref(document.documentElement.dataset.theme || 'dark');
-    const toggleTheme = () => {
-      theme.value = theme.value === 'dark' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = theme.value;
-      try { localStorage.setItem('garage_theme', theme.value); } catch { /* navigation privée */ }
-    };
+    const appearance = ref(false);
     const devices = ref(null);
     const openDevices = async () => { devices.value = await GET('/network'); };
     // Installation comme application (Chrome, Edge, Android)
@@ -194,7 +191,7 @@ const Root = {
     const canQuote = computed(() => can('ventes', 'user'));
     const canOrder = computed(() => can('atelier', 'user'));
     const ROLE_LABEL = { admin: 'Administrateur', office: 'Utilisateur', mechanic: 'Mécanicien' };
-    return { theme, toggleTheme, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
+    return { theme, toggleTheme, appearance, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
       navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL };
   },
   template: `
@@ -228,7 +225,7 @@ const Root = {
         </template>
         <button class="search-trigger" :class="{ compact: navMode === 'apps' }" @click="searchOpen = true"><span style="display:flex;gap:8px;align-items:center"><Icon name="search"/> <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
         <div class="quick">
-          <button class="btn theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Thème clair' : 'Thème sombre'"><Icon :name="theme === 'dark' ? 'sun' : 'moon'"/></button>
+          <button class="btn theme-toggle" @click="toggleTheme" :title="theme.active === 'dark' ? 'Passer au thème clair' : 'Passer au thème sombre'"><Icon :name="theme.active === 'dark' ? 'sun' : 'moon'"/></button>
           <div class="att-sys">
             <button class="btn att-sys-btn" :class="{ on: att.present }" @click="openAtt" :title="att.present ? 'Présent — cliquer pour pointer le départ' : 'Pointer mon arrivée'"><i></i><Icon name="clock"/></button>
             <div v-if="attOpen" class="dropdown att-pop">
@@ -246,7 +243,7 @@ const Root = {
             <div v-if="userOpen" class="dropdown user-drop" @click="userOpen = false">
               <div class="ud-head"><b>{{ store.user.name }}</b><small>{{ store.user.job_title || ROLE_LABEL[store.user.role] }} · {{ store.user.email }}</small></div>
               <a href="#/attendance"><Icon name="user-check"/> Mes présences</a>
-              <a href="#" @click.prevent="toggleTheme"><Icon :name="theme === 'dark' ? 'sun' : 'moon'"/> {{ theme === 'dark' ? 'Thème clair' : 'Thème sombre' }}</a>
+              <a href="#" @click.prevent="appearance = true"><Icon :name="theme.active === 'dark' ? 'moon' : 'sun'"/> Apparence : {{ { dark: 'sombre', light: 'claire', auto: 'automatique' }[theme.pref] }}</a>
               <a href="#" @click.prevent="setNav(navMode === 'apps' ? 'sidebar' : 'apps')"><Icon :name="navMode === 'apps' ? 'panel-left' : 'layout-grid'"/> {{ navMode === 'apps' ? 'Menu en barre latérale' : 'Menu des applications (Odoo)' }}</a>
               <a href="/kiosk.html" target="_blank"><Icon name="tablet"/> Kiosque de pointage</a>
               <a href="#" @click.prevent="openDevices"><Icon name="monitor-smartphone"/> Sur téléphone / tablette</a>
@@ -282,6 +279,10 @@ const Root = {
       </div>
       <p v-if="!devices.urls.length" class="error">Aucune adresse réseau trouvée : vérifiez que le PC est connecté au Wi-Fi ou au câble.</p>
       <p class="muted small">Ensuite, dans le navigateur du téléphone : <b>Partager → Sur l'écran d'accueil</b> (iPhone) ou <b>⋮ → Ajouter à l'écran d'accueil</b> (Android) pour avoir l'icône comme une vraie application. Kiosque des mécaniciens : ajoutez <b>/kiosk.html</b> à l'adresse.</p>
+    </Modal>
+    <Modal v-if="appearance" title="Apparence" wide @close="appearance = false">
+      <p class="muted" style="margin-top:0">Choisissez le thème du logiciel. Le choix est gardé sur cet appareil.</p>
+      <ThemePicker/>
     </Modal>
     <GlobalSearch v-if="searchOpen" @close="searchOpen = false"/>
     <Copilot/>
