@@ -111,7 +111,7 @@ export function feed(docId, role) {
   const out = {
     order: role === 'customer' ? { ...d, diagnosis: undefined, mechanic_name: d.mechanic_name?.split(' ')[0] } : d,
     stages: STAGES, stage_index: Math.max(0, stageIndex(d.stage || 'received')), posts,
-    garage: { name: s.company.name, phone: s.company.phone, email: s.company.email, address: [s.company.address, [s.company.zip, s.company.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') },
+    garage: { name: s.company.name, logo: s.layout?.logo_version && s.layout.show_logo !== false ? `/logo?v=${s.layout.logo_version}` : null, phone: s.company.phone, email: s.company.email, address: [s.company.address, [s.company.zip, s.company.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') },
     role,
   };
   if (role !== 'customer') out.lines = all("SELECT id, kind, description, quantity, done FROM document_lines WHERE document_id=? AND kind!='text' ORDER BY sequence", docId);

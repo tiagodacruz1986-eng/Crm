@@ -409,14 +409,156 @@ table.lines { min-width: 780px; }
   .print-only { display: block; }
   .card { box-shadow: none; border: 0; padding: 0; background: #fff; backdrop-filter: none; }
 }
-.invoice-print { font-size: 12px; color: #111; background: #fff; }
-.invoice-print .ip-head { display: flex; justify-content: space-between; margin-bottom: 28px; }
-.invoice-print .ip-title { font-size: 26px; font-weight: 800; }
-.invoice-print .ip-client { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; min-width: 260px; }
-.invoice-print table th { background: #f3f4f6; color: #333; }
-.invoice-print td { border-color: #e5e7eb; }
-.invoice-print .ip-foot { margin-top: 30px; display: flex; justify-content: space-between; gap: 20px; font-size: 11px; color: #444; border-top: 1px solid #ddd; padding-top: 12px; }
-.invoice-print .qr { width: 110px; height: 110px; }
+/* ---------- Documents imprimés (6 modèles, couleurs et police réglables) ---------- */
+.ip { --p-soft: color-mix(in srgb, var(--p) 8%, #fff); --p-mid: color-mix(in srgb, var(--p) 22%, #fff);
+  position: relative; width: var(--pw, 210mm); min-height: var(--ph, 297mm); padding: 14mm 14mm 12mm; background: #fff; color: #1f2937;
+  font-family: var(--font); font-size: 10.5pt; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; color-scheme: light; }
+.ip * { box-sizing: border-box; }
+.ip-band { display: none; }
+.ip-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 9mm; position: relative; }
+.ip-brand { min-width: 0; }
+.ip-logo { display: block; max-width: 70mm; object-fit: contain; object-position: left center; }
+.ip-logo-s .ip-logo { max-height: 12mm; } .ip-logo-m .ip-logo { max-height: 19mm; } .ip-logo-l .ip-logo { max-height: 28mm; max-width: 90mm; }
+.ip-name { font-size: 20pt; font-weight: 800; color: var(--p); letter-spacing: -.01em; line-height: 1.1; }
+.ip-tagline { font-size: 9pt; color: #6b7280; margin-top: 3px; }
+.ip-company { text-align: right; font-size: 8.8pt; color: #4b5563; line-height: 1.5; }
+.ip-company b { color: #111827; font-size: 10pt; }
+.ip-note { font-size: 9pt; color: #374151; background: var(--p-soft); border-left: 3px solid var(--p); padding: 6px 10px; margin: -4mm 0 6mm; white-space: pre-wrap; }
+.ip-parties { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 6mm; }
+.ip-doctype { font-size: 20pt; font-weight: 750; color: var(--p); line-height: 1.1; }
+.ip-number { font-size: 11pt; font-weight: 650; color: #111827; margin-top: 2px; }
+.ip-meta dl { display: grid; grid-template-columns: auto auto; gap: 1px 14px; margin: 8px 0 0; font-size: 9pt; }
+.ip-meta dt { color: #6b7280; } .ip-meta dd { margin: 0; font-weight: 600; }
+.ip-client { min-width: 72mm; max-width: 90mm; font-size: 9.8pt; line-height: 1.5; }
+.ip-client small { display: block; font-size: 7.8pt; text-transform: uppercase; letter-spacing: .08em; color: #6b7280; margin-bottom: 2px; }
+.ip-client b { font-size: 11pt; color: #111827; }
+.ip-vehicle { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 5mm; font-size: 9.5pt; }
+.ip-plate { display: inline-block; background: #f7d117; color: #111; font-family: 'Arial Narrow', Arial, sans-serif; font-weight: 800; font-size: 11pt; letter-spacing: .06em; padding: 3px 10px; border: 1.5px solid #111; border-radius: 4px; white-space: nowrap; }
+.ip-sub { color: #6b7280; font-size: 8.5pt; }
+.ip-text { margin: 0 0 3mm; font-size: 9.5pt; }
+.ip-lines { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 9.5pt; }
+.ip-lines th { text-align: left; font-size: 8pt; text-transform: uppercase; letter-spacing: .05em; color: var(--p); padding: 6px 7px; border-bottom: 2px solid var(--p); background: transparent; }
+.ip-lines td { padding: 6px 7px; border-bottom: 1px solid #eef0f3; vertical-align: top; color: #1f2937; }
+.ip-lines .n { text-align: right; white-space: nowrap; }
+.ip-lines tr.section td { font-weight: 700; color: #111827; padding-top: 9px; background: transparent; }
+.ip-lines td small { color: #6b7280; }
+.ip-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; break-inside: avoid; }
+.ip-pay { flex: 1; font-size: 9pt; color: #374151; }
+.ip-notes { white-space: pre-wrap; margin: 0 0 4mm; }
+.ip-qr { display: flex; gap: 10px; align-items: center; }
+.ip-qr img { width: 27mm; height: 27mm; flex-shrink: 0; }
+.ip-bank { font-size: 9pt; }
+.ip-totals { min-width: 72mm; font-size: 10pt; }
+.ip-totals > div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px; }
+.ip-totals small { color: #6b7280; font-size: 7.8pt; }
+.ip-totals .grand { margin-top: 3px; padding: 8px; font-size: 12.5pt; font-weight: 800; color: #fff; background: var(--p); border-radius: 5px; }
+.ip-totals .due { font-weight: 700; color: var(--p); }
+.ip-sign { display: flex; justify-content: space-between; gap: 30px; margin-top: 10mm; font-size: 9pt; color: #4b5563; }
+.ip-sign div { flex: 1; border-top: 1px solid #9ca3af; padding-top: 4px; height: 22mm; } .ip-sign div:last-child { flex: .4; }
+.ip-stamp { position: absolute; top: 88mm; right: 20mm; transform: rotate(-14deg); border: 3px solid #16a34a; color: #16a34a; font-size: 26pt; font-weight: 900; letter-spacing: .12em; padding: 2px 16px; border-radius: 8px; opacity: .75; }
+.ip-footer { margin-top: auto; padding-top: 5mm; border-top: 1px solid #e5e7eb; font-size: 7.8pt; color: #6b7280; text-align: center; line-height: 1.6; }
+.ip-footer-text { color: #374151; font-size: 8.5pt; margin-bottom: 2px; }
+.ip-terms-page h3 { color: var(--p); font-size: 13pt; margin: 0 0 5mm; }
+.ip-terms { white-space: pre-wrap; font-size: 8pt; line-height: 1.5; column-count: 2; column-gap: 8mm; color: #374151; }
+.ip-doc > .ip + .ip { margin-top: 8mm; }
+
+/* Encadré */
+.ip-encadre .ip-header { border: 1.5px solid var(--s); border-radius: 6px; padding: 5mm; }
+.ip-encadre .ip-client { border: 1.5px solid var(--s); border-radius: 6px; padding: 4mm 5mm; }
+.ip-encadre .ip-doctype { color: var(--s); }
+.ip-encadre .ip-lines { border: 1.5px solid var(--s); }
+.ip-encadre .ip-lines th { background: var(--s); color: #fff; border: 0; }
+.ip-encadre .ip-lines td { border: 1px solid #d1d5db; }
+.ip-encadre .ip-totals { border: 1.5px solid var(--s); border-radius: 6px; overflow: hidden; }
+.ip-encadre .ip-totals .grand { border-radius: 0; margin: 0; }
+.ip-encadre .ip-vehicle { border: 1.5px solid var(--s); }
+
+/* Audacieux */
+.ip-audacieux .ip-band { display: block; position: absolute; left: 0; right: 0; top: 0; height: 44mm; background: linear-gradient(120deg, var(--p), color-mix(in srgb, var(--p) 55%, var(--s))); }
+.ip-audacieux .ip-header { color: #fff; min-height: 22mm; margin-bottom: 16mm; }
+.ip-audacieux .ip-company, .ip-audacieux .ip-company b, .ip-audacieux .ip-tagline { color: rgba(255, 255, 255, .92); }
+.ip-audacieux .ip-name { color: #fff; }
+.ip-audacieux .ip-logo { background: #fff; padding: 2.5mm 4mm; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
+.ip-audacieux .ip-doctype { font-size: 28pt; font-weight: 900; color: var(--s); text-transform: uppercase; letter-spacing: -.01em; }
+.ip-audacieux .ip-lines th { background: var(--s); color: #fff; border: 0; }
+.ip-audacieux .ip-lines th:first-child { border-radius: 5px 0 0 5px; } .ip-audacieux .ip-lines th:last-child { border-radius: 0 5px 5px 0; }
+.ip-audacieux .ip-totals .grand { font-size: 15pt; background: var(--s); }
+.ip-audacieux .ip-footer { border: 0; background: var(--p-soft); margin: auto -14mm -12mm; padding: 5mm 14mm; }
+
+/* Rayé */
+.ip-raye { border-left: 7mm solid var(--p); padding-left: 12mm; }
+.ip-raye .ip-header { border-bottom: 1px solid var(--p-mid); padding-bottom: 5mm; }
+.ip-raye .ip-lines th { background: var(--p); color: #fff; border: 0; }
+.ip-raye .ip-lines tbody tr:nth-child(even) td { background: var(--p-soft); }
+.ip-raye .ip-lines td { border-bottom: 0; }
+.ip-raye .ip-totals > div:nth-child(odd):not(.grand) { background: var(--p-soft); }
+.ip-raye .ip-vehicle { background: var(--p-soft); border: 0; }
+
+/* Classique */
+.ip-classique .ip-header { flex-direction: column; align-items: center; text-align: center; border-bottom: 3px double var(--s); padding-bottom: 5mm; gap: 6px; }
+.ip-classique .ip-logo { object-position: center; margin: 0 auto; }
+.ip-classique .ip-company { text-align: center; }
+.ip-classique .ip-company div { display: inline; } .ip-classique .ip-company div + div::before { content: ' · '; }
+.ip-classique .ip-company b { display: block; }
+.ip-classique .ip-doctype { color: var(--s); text-transform: uppercase; letter-spacing: .18em; font-size: 15pt; font-weight: 700; }
+.ip-classique .ip-lines th { color: var(--s); border-bottom: 1px solid var(--s); border-top: 1px solid var(--s); }
+.ip-classique .ip-totals .grand { background: transparent; color: var(--s); border-top: 3px double var(--s); border-radius: 0; }
+.ip-classique .ip-name { color: var(--s); }
+
+/* Atelier */
+.ip-atelier .ip-band { display: block; position: absolute; left: 0; right: 0; top: 0; height: 3.5mm; background: repeating-linear-gradient(-45deg, var(--p) 0 6mm, var(--s) 6mm 12mm); }
+.ip-atelier .ip-header { padding-top: 2mm; }
+.ip-atelier .ip-doctype { color: var(--s); font-weight: 900; text-transform: uppercase; font-size: 17pt; }
+.ip-atelier .ip-number { color: var(--p); font-size: 13pt; }
+.ip-atelier .ip-vehicle { background: var(--s); color: #fff; border: 0; border-radius: 8px; padding: 4mm 5mm; font-size: 11pt; }
+.ip-atelier .ip-vehicle .ip-sub { color: rgba(255, 255, 255, .75); }
+.ip-atelier .ip-plate { font-size: 14pt; }
+.ip-atelier .ip-lines th { color: var(--s); border-bottom: 2px solid var(--s); }
+.ip-atelier .ip-totals .grand { background: var(--s); }
+.ip-atelier .ip-totals .grand span:last-child { color: color-mix(in srgb, var(--p) 60%, #fff); }
+
+/* Dans le logiciel : le document n'apparaît qu'à l'impression */
+.print-only .ip-doc { display: block; }
+@media print {
+  body, .content, .layout, main { padding: 0 !important; margin: 0 !important; }
+  .print-only .ip-doc .ip { width: auto; min-height: calc(var(--ph) - 1mm); break-after: page; }
+  .print-only .ip-doc .ip:last-child { break-after: auto; }
+  .ip-lines tr { break-inside: avoid; }
+}
+
+/* ---------- Paramètres : mise en page des documents ---------- */
+.layout-editor { display: grid; grid-template-columns: minmax(340px, 440px) 1fr; gap: 20px; align-items: start; }
+.le-section { margin-bottom: 22px; }
+.le-section h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+.tpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tpl { border: 1px solid var(--line); border-radius: 12px; padding: 6px; cursor: pointer; background: var(--panel-2); transition: all .15s; text-align: left; font: inherit; color: inherit; }
+.tpl:hover { border-color: var(--line-strong); }
+.tpl.on { border-color: var(--brand); box-shadow: var(--glow); }
+.tpl-thumb { position: relative; width: 100%; aspect-ratio: 210 / 297; overflow: hidden; border-radius: 6px; background: #fff; }
+.tpl b { display: block; font-size: 12.5px; margin-top: 6px; } .tpl small { color: var(--muted); font-size: 11px; }
+.logo-drop { display: flex; gap: 14px; align-items: center; border: 1.5px dashed var(--line-strong); border-radius: 14px; padding: 12px; cursor: pointer; transition: all .15s; }
+.logo-drop:hover, .logo-drop.over { border-color: var(--brand); background: var(--brand-soft); }
+.logo-box { width: 120px; height: 70px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; overflow: hidden;
+  background: repeating-conic-gradient(#e5e7eb 0 25%, #fff 0 50%) 0 0 / 14px 14px; color: #6b7280; font-size: 11px; text-align: center; }
+.logo-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+.seg button.on { background: var(--brand-soft); color: var(--ink); font-weight: 650; }
+.colors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.color-field { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 5px 8px; background: var(--panel-2); }
+.color-field input[type=color] { width: 34px; height: 30px; border: 0; padding: 0; background: none; cursor: pointer; flex-shrink: 0; }
+.color-field input[type=text] { border: 0; background: transparent; padding: 4px; font-family: ui-monospace, monospace; box-shadow: none; }
+.color-field small { display: block; color: var(--muted); font-size: 10.5px; }
+.palettes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.palette { width: 34px; height: 34px; border-radius: 50%; cursor: pointer; border: 2px solid var(--line); padding: 0; overflow: hidden; display: flex; transform: rotate(45deg); }
+.palette span { flex: 1; } .palette:hover { border-color: var(--ink); }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.le-preview { position: sticky; top: 84px; }
+.le-preview-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.le-paper { position: relative; overflow: hidden; border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, .35); background: #fff; }
+@media (max-width: 1100px) { .layout-editor { grid-template-columns: 1fr; } .le-preview { position: static; } }
+@media (max-width: 700px) { .tpl-grid { grid-template-columns: repeat(2, 1fr); } .colors, .toggles { grid-template-columns: 1fr; } }
 
 /* ---------- Activités, historique, e-mails ---------- */
 .bell { position: relative; }

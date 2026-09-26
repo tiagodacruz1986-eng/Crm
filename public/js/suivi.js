@@ -118,7 +118,7 @@ const App = {
     <div v-else-if="!d" class="center muted">Chargement…</div>
     <template v-else>
       <div class="head">
-        <div class="garage">{{ d.garage.name }} <span class="live" v-if="live" style="float:right">en direct</span></div>
+        <div class="garage"><img v-if="d.garage.logo" :src="d.garage.logo" :alt="d.garage.name" class="garage-logo"><template v-else>{{ d.garage.name }}</template> <span class="live" v-if="live" style="float:right">en direct</span></div>
         <h1>{{ isMech ? '🔧 ' : '' }}{{ d.order.make }} {{ d.order.model }}</h1>
         <div><span class="plate" v-if="d.order.plate">{{ d.order.plate }}</span> <span style="opacity:.85">· {{ d.order.number }}</span></div>
         <div v-if="promised" style="margin-top:8px;font-size:14px">⏰ Prévu : {{ promised }}</div>

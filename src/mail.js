@@ -3,6 +3,7 @@
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { db, all, get, run, insert, getSettings, setSetting, round2, localDateTime, today } from './db.js';
+import { logoFile } from './branding.js';
 import { getDocument, getPurchase, BusinessError } from './business.js';
 
 db.exec(`
@@ -184,7 +185,12 @@ export async function renderEmail({ model, record_id, intro, include_document })
   const attachments = [];
   const block = include_document ? await documentBlock(model, record_id, attachments) : '';
   const c = s.company;
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:640px">
+  const L = s.layout || {};
+  const logo = L.show_logo !== false ? logoFile() : null;
+  if (logo) attachments.push({ filename: 'logo.' + logo.ext, path: logo.file, cid: 'garagelogo' });
+  const accent = /^#[0-9a-f]{6}$/i.test(L.primary || '') ? L.primary : '#2563eb';
+  const head = `<div style="border-bottom:3px solid ${accent};padding-bottom:10px;margin-bottom:16px">${logo ? `<img src="cid:garagelogo" alt="${esc(c.name)}" style="max-height:56px;max-width:220px">` : `<b style="font-size:18px;color:${accent}">${esc(c.name)}</b>`}${L.tagline ? `<div style="font-size:12px;color:#666;margin-top:4px">${esc(L.tagline)}</div>` : ''}</div>`;
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#111;max-width:640px">${head}
     <div style="font-size:14px;line-height:1.55">${esc(intro).replace(/\n/g, '<br>')}</div>${block}
     <hr style="border:0;border-top:1px solid #ddd;margin:24px 0 10px">
     <div style="font-size:11px;color:#777">${esc(c.name)} · ${esc([c.address, [c.zip, c.city].filter(Boolean).join(' ')].filter(Boolean).join(', '))}${c.phone ? ` · ${esc(c.phone)}` : ''}${c.vat_number && c.vat_number !== 'LU' ? ` · TVA ${esc(c.vat_number)}` : ''}</div></div>`;

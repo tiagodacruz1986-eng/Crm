@@ -2,6 +2,7 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, datetime, hours, today, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS } from '../api.js';
 import { route, go } from '../router.js';
 import { LivePanel } from '../live-panel.js';
+import { DocPrint } from '../doc-print.js';
 
 export const DocumentList = {
   setup() {
@@ -116,7 +117,7 @@ export const PaymentModal = {
 
 // ---------- Éditeur de document (devis / OR / facture / avoir) ----------
 export const DocumentEditor = {
-  components: { QuickCustomer, PaymentModal, LivePanel },
+  components: { QuickCustomer, PaymentModal, LivePanel, DocPrint },
   setup() {
     const isNew = route.params.id === 'new';
     const doc = ref(null);
@@ -351,49 +352,8 @@ export const DocumentEditor = {
       </div>
     </div>
 
-    <!-- Version imprimable -->
-    <div class="print-only invoice-print">
-      <div class="ip-head">
-        <div>
-          <div class="ip-title">{{ store.settings.company.name }}</div>
-          <div>{{ store.settings.company.address }}<br>{{ store.settings.company.zip }} {{ store.settings.company.city }}</div>
-          <div>{{ store.settings.company.phone }} · {{ store.settings.company.email }}</div>
-          <div>TVA {{ store.settings.company.vat_number }} · RCS {{ store.settings.company.rcs }}</div>
-        </div>
-        <div class="ip-client">
-          <b>{{ doc.customer_company || doc.customer_name }}</b><div v-if="doc.customer_company">{{ doc.customer_name }}</div>
-          <div>{{ doc.customer_address }}</div><div>{{ doc.customer_zip }} {{ doc.customer_city }}</div>
-          <div v-if="doc.customer_vat">TVA : {{ doc.customer_vat }}</div>
-        </div>
-      </div>
-      <h2>{{ doc.type === 'order' ? 'Fiche de travail' : DOC_TYPES[doc.type] }} {{ doc.number }}</h2>
-      <p>Date : {{ date(doc.date) }} <span v-if="doc.due_date && doc.type==='invoice'"> · Échéance : {{ date(doc.due_date) }}</span>
-        <span v-if="doc.plate"> · Véhicule : {{ doc.plate }} {{ doc.make }} {{ doc.model }}</span><span v-if="doc.vin"> · VIN {{ doc.vin }}</span><span v-if="doc.mileage"> · {{ doc.mileage }} km</span></p>
-      <p v-if="doc.customer_complaint"><b>Demande :</b> {{ doc.customer_complaint }}</p>
-      <p v-if="doc.type==='order' && doc.diagnosis"><b>Diagnostic :</b> {{ doc.diagnosis }}</p>
-      <table>
-        <thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">P.U. HT</th><th class="num">Rem.</th><th class="num">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'">✓</th></tr></thead>
-        <tbody><tr v-for="l in doc.lines"><td :colspan="l.kind==='text' ? 6 : 1"><i v-if="l.kind==='text'">{{ l.description }}</i><template v-else>{{ l.description }}</template></td>
-          <template v-if="l.kind!=='text'"><td class="num">{{ l.quantity }}</td><td class="num">{{ money(l.unit_price) }}</td><td class="num">{{ l.discount ? l.discount + '%' : '' }}</td><td class="num">{{ l.tax_rate }}%</td><td class="num">{{ money(lineTotal(l)) }}</td></template>
-          <td v-if="doc.type==='order'">{{ l.done ? '✓' : '☐' }}</td></tr></tbody>
-      </table>
-      <div style="display:flex;justify-content:space-between;margin-top:16px;gap:20px">
-        <div>
-          <p v-if="doc.notes" style="white-space:pre-wrap">{{ doc.notes }}</p>
-          <div v-if="doc.type==='invoice' && doc.status !== 'paid' && store.settings.company.iban" style="display:flex;gap:10px;align-items:center">
-            <img class="qr" :src="'/api/documents/' + doc.id + '/qr.svg'" alt="QR paiement">
-            <div class="small">Scannez avec votre appli bancaire<br>pour payer ce montant.<br>IBAN {{ store.settings.company.iban }}<br>BIC {{ store.settings.company.bic }}<br>Communication : {{ doc.number }}</div>
-          </div>
-        </div>
-        <div class="totals" style="min-width:260px">
-          <span>Total HT</span><b class="num">{{ money(totals.sub) }}</b>
-          <template v-for="t in totals.taxes"><span>TVA {{ t.rate }}%</span><span class="num">{{ money(t.amount) }}</span></template>
-          <span class="grand">Total TTC</span><span class="grand num">{{ money(totals.total) }}</span>
-        </div>
-      </div>
-      <div v-if="doc.type==='quote' || doc.type==='order'" style="margin-top:40px;display:flex;justify-content:space-between"><span>Signature client (bon pour accord) :</span><span>Date :</span></div>
-      <div class="ip-foot"><div>{{ store.settings.invoice_footer }}</div><div>{{ store.settings.company.bank_name }} {{ store.settings.company.iban }}</div></div>
-    </div>
+    <!-- Version imprimable (mise en page choisie dans Paramètres → Mise en page) -->
+    <div class="print-only"><DocPrint :doc="doc"/></div>
 
     <QuickCustomer v-if="showCustomer" @close="showCustomer = false" @saved="onQuickCustomer"/>
     <PaymentModal v-if="showPay" :residual="Math.round((doc.total - doc.amount_paid) * 100) / 100" :title="doc.type === 'credit_note' ? 'Remboursement au client' : 'Encaissement'" @close="showPay = false" @save="pay"/>

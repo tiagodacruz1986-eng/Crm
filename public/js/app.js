@@ -215,7 +215,7 @@ app.mount('#app');
 function labelTables(root = document) {
   for (const t of root.querySelectorAll('.content table')) {
     const heads = [...t.querySelectorAll(':scope > thead th')].map((th) => th.textContent.trim());
-    if (!heads.length) continue;
+    if (!heads.length || t.closest('.ip')) continue; // les documents imprimés gardent leur tableau
     t.classList.add('stackable');
     for (const tr of t.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr')) {
       [...tr.children].forEach((td, i) => { if (heads[i] && td.dataset.label !== heads[i]) td.dataset.label = heads[i]; });

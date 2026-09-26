@@ -1,10 +1,12 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
 import { route } from '../router.js';
+import { LayoutEditor } from './layout-editor.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
 export const Settings = {
+  components: { LayoutEditor },
   setup() {
     const s = ref(null);
     const users = ref([]);
@@ -56,9 +58,9 @@ export const Settings = {
   },
   template: `
   <div v-if="s">
-    <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','workshop','ai'].includes(tab)" @click="save">Enregistrer</button></div>
+    <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','workshop','layout','ai'].includes(tab)" @click="save">Enregistrer</button></div>
     <div class="tabs">
-      <button v-for="[k, l] in [['company','Société'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
+      <button v-for="[k, l] in [['company','Société'],['layout','Mise en page des documents'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
     </div>
     <div class="card" v-if="tab==='company'">
       <div class="form-grid">
@@ -69,6 +71,7 @@ export const Settings = {
         <label>Banque<input v-model="s.company.bank_name"></label><label>IBAN (imprimé + QR code de paiement)<input v-model="s.company.iban"></label><label>BIC<input v-model="s.company.bic"></label>
       </div>
     </div>
+    <LayoutEditor v-if="tab==='layout'" :s="s"/>
     <div class="card" v-if="tab==='workshop'">
       <div class="form-grid">
         <label>Taux horaire M.O. (HT)<input type="number" v-model.number="s.workshop.labor_rate"></label>
@@ -77,7 +80,7 @@ export const Settings = {
         <label>Nombre de ponts<input type="number" v-model.number="s.workshop.bays"></label>
         <label>Préfixe devis<input v-model="s.numbering.quote"></label><label>Préfixe OR<input v-model="s.numbering.order"></label>
         <label>Préfixe factures<input v-model="s.numbering.invoice"></label><label>Préfixe avoirs<input v-model="s.numbering.credit_note"></label>
-        <label class="full">Pied de facture<textarea v-model="s.invoice_footer"></textarea></label>
+        <p class="full muted small" style="margin:0">Logo, modèle, couleurs, pied de page et conditions générales des factures : onglet « Mise en page des documents ».</p>
         <label class="full">Adresse publique du logiciel (pour les liens de suivi envoyés aux clients)<input v-model="s.public_url" placeholder="https://atelier.votre-garage.lu"></label>
         <p class="full muted small" style="margin:0">Laissez vide si le logiciel n'est utilisé que dans le garage. Pour que vos clients ouvrent les liens depuis chez eux, le logiciel doit être accessible depuis internet (voir README → « Suivi en direct »).</p>
       </div>

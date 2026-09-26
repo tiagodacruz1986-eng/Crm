@@ -26,6 +26,7 @@ import {
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
+import { saveLogo, deleteLogo, logoFile, cleanLayout } from './src/branding.js';
 import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation } from './src/conversations.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
@@ -52,6 +53,12 @@ app.get('/vendor/icons.js', async (req, res) => {
     iconModule = `export default ${JSON.stringify(map)};`;
   }
   res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
+});
+// Logo public (affiché sur les factures, les e-mails et la page de suivi client)
+app.get('/logo', (req, res) => {
+  const l = logoFile();
+  if (!l) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=300').set('X-Content-Type-Options', 'nosniff').type(l.type).sendFile(l.file);
 });
 app.use(express.static(path.resolve('public')));
 
@@ -520,6 +527,7 @@ api.get('/me', (req, res) => res.json(req.user));
 api.get('/settings', (req, res) => { const { odoo, ...s } = getSettings(); res.json(s); });
 api.put('/settings', adminOnly, wrap((req) => {
   for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai', 'public_url']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
+  if (req.body.layout) setSetting('layout', cleanLayout(req.body.layout));
   const { odoo, ...s } = getSettings();
   return s;
 }));
@@ -542,10 +550,13 @@ api.get('/mail/config', (req, res) => res.json(publicMailConfig()));
 api.put('/mail/config', adminOnly, wrap((req) => { saveMailConfig(req.body); return publicMailConfig(); }));
 api.post('/mail/test', adminOnly, wrap(() => testMail()));
 api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Number(req.query.id) || null, req.query.template, publicUrl(req))));
+// Logo du garage (documents, e-mails, suivi client)
+api.post('/settings/logo', adminOnly, rawBody, wrap((req) => saveLogo(Buffer.isBuffer(req.body) ? req.body : null)));
+api.delete('/settings/logo', adminOnly, wrap(() => deleteLogo()));
 api.get('/qr.svg', wrap(async (req, res) => res.type('image/svg+xml').send(await QRCode.toString(String(req.query.text || '').slice(0, 500), { type: 'svg', margin: 1 }))));
 api.post('/mail/preview', wrap(async (req) => {
   const { html } = await renderEmail({ model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, intro: req.body.intro || '', include_document: req.body.include_document });
-  return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`) };
+  return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`).replace('cid:garagelogo', '/logo') };
 }));
 api.post('/mail/send', wrap((req) => sendEmail({ ...req.body, model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, user_id: req.user.id })));
 api.get('/mail/outbox', (req, res) => res.json(all(`SELECT e.*, u.name AS user_name FROM emails e LEFT JOIN users u ON u.id=e.user_id ORDER BY e.id DESC LIMIT 300`)

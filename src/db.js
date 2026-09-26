@@ -6,6 +6,7 @@ import path from 'node:path';
 const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
+export const dataDir = DATA_DIR;
 export const db = new DatabaseSync(path.join(DATA_DIR, process.env.DB_FILE || 'garage.db'));
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
@@ -216,6 +217,12 @@ export const DEFAULT_SETTINGS = {
   numbering: { quote: 'D', order: 'OR', invoice: 'F', credit_note: 'NC', purchase: 'A' },
   invoice_footer: 'Merci pour votre confiance. Paiement par virement en mentionnant le numéro de facture.',
   ai: { garage_context: '' },
+  // Mise en page des documents (devis, OR, factures, avoirs) — comme « Configurer la mise en page » d'Odoo
+  layout: {
+    template: 'moderne', font: 'inter', primary: '#2563eb', secondary: '#0f172a', paper: 'A4', logo_size: 'm', logo_version: null,
+    tagline: '', header_note: '', terms: '',
+    show_logo: true, show_qr: true, show_bank: true, show_vehicle: true, show_signature: true, show_paid_stamp: true, show_discount: true,
+  },
 };
 
 export function getSettings() {

@@ -5,6 +5,7 @@ body { margin: 0; background: var(--bg); }
 .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 120px; }
 .head { background: linear-gradient(135deg, #1d4ed8, #0891b2); color: #fff; border-radius: 20px; padding: 20px; margin-bottom: 16px; }
 .head .garage { opacity: .85; font-size: 14px; }
+.head .garage-logo { max-height: 34px; max-width: 170px; background: #fff; padding: 4px 8px; border-radius: 8px; vertical-align: middle; }
 .head h1 { margin: 6px 0 2px; font-size: 22px; }
 .plate { display: inline-block; font-family: "Arial Narrow", Arial, sans-serif; font-weight: 700; letter-spacing: .06em; background: #fde047; border: 2px solid #111; border-radius: 4px; padding: 0 6px; font-size: 13px; color: #111; }
 .card { background: #fff; border-radius: 18px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(15,23,42,.06); }
