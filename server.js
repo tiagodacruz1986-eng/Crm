@@ -18,6 +18,9 @@ import {
 } from './src/mail.js';
 import { runAgent, friendlyError } from './src/claude.js';
 import {
+  copilotConfig, saveCopilotConfig, addJournal, journalOf, copilotChat, generateBrief, listBriefs, dayStats, startCopilotScheduler,
+} from './src/copilot.js';
+import {
   createBillFromFile, reanalyze, listAttachments, attachmentFile, deleteAttachment, saveAttachment, publicInboxConfig, saveInboxConfig, testInbox, checkInbox, startInboxPolling,
 } from './src/bills.js';
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
@@ -36,6 +39,19 @@ app.use('/vendor/vue.js', express.static(nm('vue/dist/vue.esm-browser.prod.js'))
 app.use('/vendor/marked.js', express.static(nm('marked/lib/marked.esm.js')));
 app.use('/vendor/purify.js', express.static(nm('dompurify/dist/purify.es.mjs')));
 app.use('/vendor/three', express.static(nm('three')));
+app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')));
+app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
+// Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
+const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet'];
+let iconModule = null;
+app.get('/vendor/icons.js', async (req, res) => {
+  if (!iconModule) {
+    const lucide = await import('lucide');
+    const map = Object.fromEntries(ICONS.filter((n) => lucide[n]).map((n) => [n.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase(), lucide[n]]));
+    iconModule = `export default ${JSON.stringify(map)};`;
+  }
+  res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
+});
 app.use(express.static(path.resolve('public')));
 
 const api = express.Router();
@@ -571,6 +587,15 @@ api.put('/activities/:id', wrap((req) => { update('activities', req.params.id, r
 api.post('/activities/:id/done', wrap((req) => completeActivity(Number(req.params.id), req.body.feedback, req.user.id)));
 api.delete('/activities/:id', wrap((req) => { run("UPDATE activities SET status='cancelled' WHERE id=?", req.params.id); return { ok: true }; }));
 
+// ---------- Copilote Nova : écoute, journal, résumé de fin de journée ----------
+api.get('/copilot', (req, res) => res.json({ config: copilotConfig(), journal: journalOf(req.query.date || today()), briefs: listBriefs(Number(req.query.limit) || 14), ai: aiConfigured() }));
+api.put('/copilot/config', adminOnly, wrap((req) => { saveCopilotConfig(req.body); return copilotConfig(); }));
+api.post('/copilot/journal', wrap((req) => ({ id: addJournal(req.body.text, req.user.id, req.body.source === 'voice' ? 'voice' : 'text') })));
+api.delete('/copilot/journal/:id', wrap((req) => { run('DELETE FROM journal WHERE id=?', req.params.id); return { ok: true }; }));
+api.post('/copilot/chat', wrap((req) => copilotChat(req.user, req.body.message, req.body.history || [])));
+api.post('/copilot/brief', wrap((req) => generateBrief({ date: req.body.date || today(), force: true })));
+api.get('/copilot/stats', (req, res) => res.json(dayStats(req.query.date || today())));
+
 // ---------- Bureau virtuel IA ----------
 api.get('/agents', (req, res) => res.json(AGENTS.map(({ prompt, ...a }) => ({
   ...a, working: running.has(a.id),
@@ -626,6 +651,7 @@ app.use((err, req, res, _next) => {
 const PORT = Number(process.env.PORT || 3000);
 startScheduler();
 startInboxPolling();
+startCopilotScheduler();
 setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
 app.listen(PORT, () => {
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);

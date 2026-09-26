@@ -204,8 +204,8 @@ export const ModuleTools = {
   },
   template: `
   <span class="btns module-tools">
-    <button class="btn" @click="open = 'mail'" title="Envoyer un e-mail">✉️</button>
-    <button class="btn" @click="open = 'list'" title="Activités de ce module">⏰ <span class="badge" :class="late ? 'b-red' : 'b-gray'" v-if="list.length">{{ list.length }}</span></button>
+    <button class="btn" @click="open = 'mail'" title="Envoyer un e-mail"><Icon name="mail"/></button>
+    <button class="btn" @click="open = 'list'" title="Activités de ce module"><Icon name="alarm-clock"/> <span class="badge" :class="late ? 'b-red' : 'b-gray'" v-if="list.length">{{ list.length }}</span></button>
     <MailComposer v-if="open === 'mail'" @close="open = null"/>
     <Modal v-if="open === 'list'" :title="'⏰ Activités — ' + (meta.modules[module] || module)" @close="open = null">
       <button class="btn primary" @click="open = 'new'">+ Nouvelle activité</button>
@@ -226,5 +226,5 @@ export const ActivityBell = {
     watch(() => bus.tick, load);
     return { c, go };
   },
-  template: `<button class="btn bell" @click="go('/activities')" :title="c.late + ' en retard, ' + c.today + ' aujourd\\'hui'">⏰<span v-if="c.late + c.today" class="badge" :class="c.late ? 'b-red' : 'b-orange'">{{ c.late + c.today }}</span></button>`,
+  template: `<button class="btn bell" @click="go('/activities')" :title="c.late + ' en retard, ' + c.today + ' aujourd\\'hui'"><Icon name="bell"/><span v-if="c.late + c.today" class="badge" :class="c.late ? 'b-red' : 'b-orange'">{{ c.late + c.today }}</span></button>`,
 };

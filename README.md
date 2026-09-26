@@ -22,6 +22,8 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 | 📡 **Suivi en direct des OR** | Pour chaque ordre de réparation : un **lien mécanicien** (téléphone de l'atelier) pour envoyer photos, vidéos et messages, et un **lien client** avec une **jauge d'avancement en temps réel** (Véhicule reçu → Diagnostic → Accord client → Pièces → Réparation → Contrôle qualité → Prêt). Le client voit les photos et vidéos, répond, et **accepte ou refuse d'un clic les travaux supplémentaires** (ajoutés automatiquement à l'OR). Envoi du lien par e-mail, WhatsApp, SMS ou QR code |
 | 📥 **Factures fournisseurs par e-mail + IA** | Transférez les factures à une adresse dédiée (ou déposez PDF / photos) : l'IA lit le document, retrouve ou crée le fournisseur, reconnaît vos articles, propose le compte de charge et la TVA, vérifie le total et signale les doublons. Le **document original reste en pièce jointe** et s'affiche à côté de la facture pour la vérification, comme dans Odoo |
 | 📱 **PC, tablette et téléphone** | Interface adaptée à chaque écran : menu à icônes sur tablette, barre de navigation en bas et bouton ＋ sur téléphone, listes en fiches, planning jour par jour, déplacement des OR au doigt. **Installable comme une application** (icône sur l'écran d'accueil). Menu « 📱 Sur téléphone / tablette » : QR code pour ouvrir le logiciel sur le réseau du garage |
+| 🧠 **Nova — copilote IA qui écoute** | Bouton lumineux en bas à droite, sur toutes les pages. **Parlez-lui** (micro) ou écrivez : « rappelle-moi demain 9h d'appeler le fournisseur », « mets Muller jeudi 14h pour les pneus », « combien j'ai encaissé cette semaine ? » — elle **agit** (activités, rendez-vous, notes) avec vos vraies données et **répond à voix haute**. Mode **« écoute de la journée »** : tout ce que vous dites est noté dans le journal (dites « Nova, … » pour lui donner un ordre). Chaque soir (18:30 par défaut) elle fait le **résumé de fin de journée** (argent, atelier, mécaniciens, clients, stock, ce que vous avez dit) et **planifie automatiquement les priorités** du lendemain en activités 🧠. Résumé aussi envoyé par e-mail si souhaité |
+| 🎨 **Design « Neon Glass »** | Interface sombre futuriste (verre dépoli, dégradés cyan → violet → rose, icônes fines), **mode clair** d'un clic (☀️ en haut), bureau 3D néon avec effet lumineux sur PC |
 | 🔍 **Recherche globale** | `Ctrl + K` : plaque, client, n° de facture, référence pièce |
 
 ## 🚀 Installation
@@ -92,6 +94,12 @@ Dans un ordre de réparation, le panneau **Suivi en direct** crée deux liens se
 2. Ou installez le logiciel sur un petit serveur en ligne (VPS).
 
 Indiquez ensuite cette adresse dans **Paramètres → Atelier & factures → Adresse publique**. Utilisez un mot de passe solide pour les comptes du bureau.
+
+## 🧠 Nova, le copilote
+
+- **Parler** : cliquez sur le micro dans la fenêtre de Nova (Chrome, Edge ou Safari ; autorisez le micro). La réponse est lue à voix haute (désactivable).
+- **Écoute de la journée** : bouton 📝 dans la fenêtre de Nova. Chaque phrase est notée dans le **journal** (page « Nova — copilote »). Rien n'est envoyé à l'IA avant le résumé du soir.
+- **Résumé de fin de journée** : automatique à l'heure choisie (page « Nova — copilote » → réglages), ou bouton « Résumer ma journée » sur le tableau de bord. Les priorités deviennent des activités 🧠 (sans doublons). Sans clé IA, un résumé chiffré et des priorités par règles sont quand même produits.
 
 ## 🔄 Importer depuis Odoo
 

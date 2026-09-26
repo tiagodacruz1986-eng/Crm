@@ -2,6 +2,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const SKIN = ['#f1c27d', '#e0ac69', '#c68642', '#ffdbac', '#8d5524', '#f1c27d'];
 const HAIR = ['#2d1b0e', '#b5651d', '#111111', '#6b4423', '#1a1a1a', '#d4a373'];
@@ -25,9 +29,12 @@ function box(w, h, d, material, x = 0, y = 0, z = 0) {
 
 function buildDesk(color) {
   const g = new THREE.Group();
-  const wood = mat('#c8a27a', { roughness: 0.6 });
+  const wood = mat('#1b2336', { roughness: 0.35, metalness: 0.4 });
   const metal = mat('#475569', { metalness: 0.6, roughness: 0.4 });
   g.add(box(2.6, 0.1, 1.3, wood, 0, 1.05, 0));
+  // Liseré lumineux du bureau (couleur de l'agent)
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.025, 0.025), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.2 }));
+  edge.position.set(0, 1.1, 0.66); g.add(edge);
   for (const [x, z] of [[-1.2, -0.55], [1.2, -0.55], [-1.2, 0.55], [1.2, 0.55]]) g.add(box(0.08, 1.0, 0.08, metal, x, 0.5, z));
   // Écran
   g.add(box(0.1, 0.45, 0.1, metal, 0, 1.3, -0.35));
@@ -83,6 +90,7 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, small ? 1.5 : 2)); // plus léger sur téléphone
   renderer.setSize(width(), height());
   renderer.shadowMap.enabled = true;
+  let composer = null;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -94,8 +102,8 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   container.appendChild(labelRenderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#0f172a');
-  scene.fog = new THREE.Fog('#0f172a', 30, 60);
+  scene.background = new THREE.Color('#05070e');
+  scene.fog = new THREE.Fog('#05070e', 32, 64);
 
   const camera = new THREE.PerspectiveCamera(45, width() / height(), 0.1, 200);
   // Plus l'écran est étroit (téléphone en portrait), plus la caméra recule pour voir tout le bureau
@@ -112,52 +120,58 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
   controls.minDistance = 5; controls.maxDistance = 50;
 
   // Lumières
-  scene.add(new THREE.HemisphereLight('#dbeafe', '#1e293b', 0.9));
-  const sun = new THREE.DirectionalLight('#fff7ed', 2.2);
+  scene.add(new THREE.HemisphereLight('#a5b4fc', '#0b1020', 0.7));
+  const sun = new THREE.DirectionalLight('#e0e7ff', 1.6);
   sun.position.set(8, 16, 10);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16 });
   scene.add(sun);
-  const warm = new THREE.PointLight('#fbbf24', 12, 20); warm.position.set(0, 6, 0); scene.add(warm);
+  const warm = new THREE.PointLight('#818cf8', 30, 22); warm.position.set(0, 6, 0); scene.add(warm);
+  const cyan = new THREE.PointLight('#22d3ee', 22, 26); cyan.position.set(-10, 4, -8); scene.add(cyan);
+  const pink = new THREE.PointLight('#e879f9', 18, 26); pink.position.set(10, 4, 6); scene.add(pink);
 
-  // Sol parquet
+  // Sol sombre et brillant avec grille lumineuse
   const floorTex = canvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#8b6b4a'; ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 4; x++) {
-      const l = 40 + Math.random() * 14;
-      ctx.fillStyle = `hsl(28, 35%, ${l}%)`;
-      ctx.fillRect(x * 128 + (y % 2) * 64, y * 32, 126, 30);
-    }
+    ctx.fillStyle = '#0a0e1a'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)'; ctx.lineWidth = 2;
+    for (let i = 0; i <= 8; i++) { ctx.beginPath(); ctx.moveTo(i * 64, 0); ctx.lineTo(i * 64, h); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * 64); ctx.lineTo(w, i * 64); ctx.stroke(); }
   });
   floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
   floorTex.repeat.set(4, 3);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 24), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.8 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 24), new THREE.MeshStandardMaterial({ map: floorTex, emissive: '#ffffff', emissiveMap: floorTex, emissiveIntensity: 0.35, roughness: 0.25, metalness: 0.6 }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
   scene.add(floor);
-  // Tapis central
-  const rug = new THREE.Mesh(new THREE.CircleGeometry(3.6, 48), mat('#1e3a8a', { roughness: 1 }));
+  // Plateforme centrale : disque et anneaux néon
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(3.6, 64), mat('#0d1326', { roughness: 0.3, metalness: 0.5 }));
   rug.rotation.x = -Math.PI / 2; rug.position.y = 0.01; rug.receiveShadow = true;
   scene.add(rug);
+  const ringMat = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.4 });
+  const ring1 = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.04, 8, 96), ringMat('#22d3ee')); ring1.rotation.x = Math.PI / 2; ring1.position.y = 0.03; scene.add(ring1);
+  const ring2 = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.025, 8, 96), ringMat('#e879f9')); ring2.rotation.x = Math.PI / 2; ring2.position.y = 0.03; scene.add(ring2);
 
   // Murs + fenêtres + écran d'entreprise
-  const wallMat = mat('#e2e8f0');
+  const wallMat = mat('#0e1426', { roughness: 0.5, metalness: 0.3 });
   const back = box(30, 5, 0.3, wallMat, 0, 2.5, -12); scene.add(back);
   const left = box(0.3, 5, 24, wallMat, -15, 2.5, 0); scene.add(left);
-  const glass = new THREE.MeshStandardMaterial({ color: '#93c5fd', emissive: '#60a5fa', emissiveIntensity: 0.6, transparent: true, opacity: 0.85 });
+  // Bandeaux lumineux en haut des murs
+  const strip = (w, h, d, c, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ringMat(c)); m.position.set(x, y, z); scene.add(m); };
+  strip(30, 0.06, 0.06, '#818cf8', 0, 4.9, -11.8); strip(0.06, 0.06, 24, '#22d3ee', -14.8, 4.9, 0);
+  strip(30, 0.04, 0.04, '#22d3ee', 0, 0.06, -11.8); strip(0.04, 0.04, 24, '#e879f9', -14.8, 0.06, 0);
+  const glass = new THREE.MeshStandardMaterial({ color: '#1e3a8a', emissive: '#38bdf8', emissiveIntensity: 0.55, transparent: true, opacity: 0.8 });
   for (const z of [-7, -1, 5]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.4), glass); w.position.set(-14.8, 2.8, z); w.rotation.y = Math.PI / 2; scene.add(w); }
   const brandTex = canvasTexture(1024, 256, (ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, '#1d4ed8'); g.addColorStop(1, '#0891b2');
+    const g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, '#0e7490'); g.addColorStop(0.5, '#4f46e5'); g.addColorStop(1, '#a21caf');
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 84px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(`🔧 ${companyName}`, w / 2, h / 2 - 20);
+    ctx.fillText(companyName, w / 2, h / 2 - 20);
     ctx.font = '36px system-ui, sans-serif'; ctx.globalAlpha = 0.8; ctx.fillText('Bureau virtuel · Équipe IA', w / 2, h / 2 + 60);
   });
   const brand = new THREE.Mesh(new THREE.PlaneGeometry(10, 2.5), new THREE.MeshStandardMaterial({ map: brandTex, emissive: '#ffffff', emissiveMap: brandTex, emissiveIntensity: 0.5 }));
   brand.position.set(0, 3, -11.84); scene.add(brand);
 
   // Table de réunion
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.1, 48), mat('#f8fafc', { roughness: 0.3 }));
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.1, 64), new THREE.MeshPhysicalMaterial({ color: '#a5b4fc', roughness: 0.05, metalness: 0.1, transmission: 0.6, thickness: 0.4, transparent: true, opacity: 0.75 }));
   table.position.y = 1; table.castShadow = true; table.receiveShadow = true; scene.add(table);
   const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.5, 1, 16), mat('#334155')); foot.position.y = 0.5; scene.add(foot);
   const holo = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 1), new THREE.MeshStandardMaterial({ color: '#22d3ee', emissive: '#06b6d4', emissiveIntensity: 1.2, wireframe: true }));
@@ -246,6 +260,12 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
     flyTo(g.clone().add(dir.multiplyScalar(-5.5)).setY(5.5).add(new THREE.Vector3(3, 0, 0)), g.clone().setY(1.6).add(new THREE.Vector3(2, 0, 0)));
   };
 
+  if (!small) {
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(width(), height()), 0.55, 0.6, 0.82));
+    composer.addPass(new OutputPass());
+  }
   const clock = new THREE.Clock();
   let raf;
   const tick = () => {
@@ -272,7 +292,7 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
       if (camAnim.t >= 1) camAnim = null;
     }
     controls.update();
-    renderer.render(scene, camera);
+    if (composer) composer.render(); else renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
   };
   tick();
@@ -283,6 +303,7 @@ export function createOffice(container, agents, { onSelect, companyName = 'Mon G
     fitHome();
     if (!focused && !camAnim) camera.position.copy(HOME.pos);
     renderer.setSize(width(), height());
+    composer?.setSize(width(), height());
     labelRenderer.setSize(width(), height());
   });
   ro.observe(container);

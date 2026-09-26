@@ -12,49 +12,36 @@ export const aiConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY || proce
 const WEB_SEARCH = { type: 'web_search_20260209', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'LU', city: 'Luxembourg', timezone: 'Europe/Luxembourg' } };
 
 /**
- * Fait travailler un agent sur une conversation. `messages` : [{role, content: string}]
- * Retourne le texte final de la réponse.
+ * Boucle d'appel à Claude avec outils : exécute les outils demandés jusqu'à la réponse finale.
+ * `execTool(name, input)` exécute un outil local ; `webSearch` ajoute la recherche web.
  */
-export async function runAgent(agentId, messages, { onStatus } = {}) {
-  const agent = getAgent(agentId);
-  if (!agent) throw new Error('Agent inconnu');
-  if (!aiConfigured()) {
-    return `⚠️ **Mode démo** — aucune clé API Claude n'est configurée.\n\nPour activer ${agent.name}, ajoutez \`ANTHROPIC_API_KEY=...\` dans le fichier \`.env\` puis redémarrez le logiciel (voir README).`;
-  }
+export async function runLoop({ system, messages, tools, execTool, webSearch = true, onStatus, onTool }) {
   const convo = messages.map((m) => ({ role: m.role, content: m.content }));
-  const system = [{ type: 'text', text: systemPrompt(agent), cache_control: { type: 'ephemeral' } }];
+  const sys = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
   const texts = [];
-
   for (let i = 0; i < 12; i++) {
     const response = await getClient().beta.messages.create({
       model: MODEL,
       max_tokens: 16000,
-      system,
-      tools: [...TOOLS, WEB_SEARCH],
+      system: sys,
+      tools: webSearch ? [...tools, WEB_SEARCH] : tools,
       messages: convo,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
     });
-
-    if (response.stop_reason === 'refusal') {
-      return "Je ne peux pas traiter cette demande telle quelle. Pouvez-vous la reformuler ?";
-    }
+    if (response.stop_reason === 'refusal') return 'Je ne peux pas traiter cette demande telle quelle. Pouvez-vous la reformuler ?';
     for (const b of response.content) if (b.type === 'text' && b.text.trim()) texts.push(b.text);
-
-    if (response.stop_reason === 'pause_turn') {
-      convo.push({ role: 'assistant', content: response.content });
-      continue;
-    }
+    if (response.stop_reason === 'pause_turn') { convo.push({ role: 'assistant', content: response.content }); continue; }
     if (response.stop_reason !== 'tool_use') break;
-
     convo.push({ role: 'assistant', content: response.content });
     const results = [];
     for (const b of response.content) {
       if (b.type !== 'tool_use') continue;
       onStatus?.(`Consulte : ${b.name}`);
       try {
-        const out = runTool(b.name, b.input || {});
-        results.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out).slice(0, 60000) });
+        const out = await execTool(b.name, b.input || {});
+        onTool?.(b.name, b.input || {}, out);
+        results.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out ?? null).slice(0, 60000) });
       } catch (e) {
         results.push({ type: 'tool_result', tool_use_id: b.id, content: `Erreur : ${e.message}`, is_error: true });
       }
@@ -64,6 +51,22 @@ export async function runAgent(agentId, messages, { onStatus } = {}) {
   }
   return texts.join('\n\n').trim() || '(pas de réponse)';
 }
+
+/**
+ * Fait travailler un agent sur une conversation. `messages` : [{role, content: string}]
+ * Retourne le texte final de la réponse.
+ */
+export async function runAgent(agentId, messages, { onStatus } = {}) {
+  const agent = getAgent(agentId);
+  if (!agent) throw new Error('Agent inconnu');
+  if (!aiConfigured()) {
+    return `⚠️ **Mode démo** — aucune clé API Claude n'est configurée.\n\nPour activer ${agent.name}, ajoutez \`ANTHROPIC_API_KEY=...\` dans le fichier \`.env\` puis redémarrez le logiciel (voir README).`;
+  }
+  return runLoop({ system: systemPrompt(agent), messages, tools: TOOLS, execTool: (n, i) => runTool(n, i), onStatus });
+}
+
+export const claudeClient = getClient;
+export const CLAUDE_MODEL = MODEL;
 
 export function friendlyError(e) {
   if (e instanceof Anthropic.AuthenticationError) return 'Clé API Claude invalide. Vérifiez ANTHROPIC_API_KEY dans le fichier .env.';

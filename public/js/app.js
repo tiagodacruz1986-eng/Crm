@@ -1,6 +1,6 @@
 import { createApp, reactive, computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue';
 import { store, GET, POST, money, DOC_TYPES_SHORT } from './api.js';
-import { Badge, Modal, Picker, BarChart, Empty } from './components.js';
+import { Badge, Modal, Picker, BarChart, Empty, Icon } from './components.js';
 import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 
 import { route, go } from './router.js';
@@ -15,33 +15,34 @@ const VIEWS = {
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
   accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'),
-  office: lazy('office', 'Office'), activities: lazy('activities', 'Activities'), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
+  office: lazy('office', 'Office'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
 const NAV = [
   { section: 'Pilotage' },
-  { to: '/', icon: '🏠', label: 'Tableau de bord', match: 'dashboard' },
-  { to: '/office', icon: '🤖', label: 'Bureau IA', match: 'office' },
-  { to: '/activities', icon: '⏰', label: 'Activités', match: 'activities' },
-  { to: '/mail', icon: '✉️', label: 'E-mails', match: 'mail' },
+  { to: '/', icon: 'layout-dashboard', label: 'Tableau de bord', match: 'dashboard' },
+  { to: '/copilot', icon: 'sparkles', label: 'Nova — copilote', match: 'copilot' },
+  { to: '/office', icon: 'bot', label: 'Bureau IA', match: 'office' },
+  { to: '/activities', icon: 'alarm-clock', label: 'Activités', match: 'activities' },
+  { to: '/mail', icon: 'mail', label: 'E-mails', match: 'mail' },
   { section: 'Atelier' },
-  { to: '/workshop', icon: '🔧', label: 'Atelier (OR)', match: 'workshop' },
-  { to: '/planning', icon: '📅', label: 'Planning', match: 'planning' },
-  { to: '/timesheets', icon: '⏱️', label: 'Pointage', match: 'timesheets' },
+  { to: '/workshop', icon: 'wrench', label: 'Atelier (OR)', match: 'workshop' },
+  { to: '/planning', icon: 'calendar-days', label: 'Planning', match: 'planning' },
+  { to: '/timesheets', icon: 'timer', label: 'Pointage', match: 'timesheets' },
   { section: 'Ventes' },
-  { to: '/documents/quote', icon: '📝', label: 'Devis', match: 'documents', type: 'quote' },
-  { to: '/documents/invoice', icon: '🧾', label: 'Factures', match: 'documents', type: 'invoice' },
-  { to: '/customers', icon: '👥', label: 'Clients', match: 'customers' },
-  { to: '/vehicles', icon: '🚗', label: 'Véhicules', match: 'vehicles' },
+  { to: '/documents/quote', icon: 'file-text', label: 'Devis', match: 'documents', type: 'quote' },
+  { to: '/documents/invoice', icon: 'receipt', label: 'Factures', match: 'documents', type: 'invoice' },
+  { to: '/customers', icon: 'users', label: 'Clients', match: 'customers' },
+  { to: '/vehicles', icon: 'car', label: 'Véhicules', match: 'vehicles' },
   { section: 'Stock & achats' },
-  { to: '/stock', icon: '📦', label: 'Articles & stock', match: 'stock' },
-  { to: '/purchases', icon: '🛒', label: 'Achats', match: 'purchases' },
-  { to: '/suppliers', icon: '🏭', label: 'Fournisseurs', match: 'suppliers' },
+  { to: '/stock', icon: 'package', label: 'Articles & stock', match: 'stock' },
+  { to: '/purchases', icon: 'shopping-cart', label: 'Achats', match: 'purchases' },
+  { to: '/suppliers', icon: 'factory', label: 'Fournisseurs', match: 'suppliers' },
   { section: 'Finance' },
-  { to: '/bank', icon: '🏦', label: 'Banque', match: 'bank' },
-  { to: '/accounting', icon: '📚', label: 'Comptabilité', match: 'accounting' },
+  { to: '/bank', icon: 'landmark', label: 'Banque', match: 'bank' },
+  { to: '/accounting', icon: 'book-open', label: 'Comptabilité', match: 'accounting' },
   { section: '' },
-  { to: '/settings', icon: '⚙️', label: 'Paramètres', match: 'settings' },
+  { to: '/settings', icon: 'settings', label: 'Paramètres', match: 'settings' },
 ];
 
 // ---------- Connexion / première configuration ----------
@@ -62,7 +63,7 @@ const Login = {
   template: `
   <div class="login-bg">
     <form class="login-card" @submit.prevent="submit">
-      <div class="login-logo">🔧</div>
+      <div class="login-logo"><Icon name="wrench" size="34"/></div>
       <h1>{{ setup ? 'Bienvenue !' : 'Connexion' }}</h1>
       <p class="muted" v-if="setup">Créez le compte du gérant pour démarrer votre logiciel de garage.</p>
       <label v-if="setup">Nom du garage<input v-model="f.company" placeholder="Garage …" required></label>
@@ -107,7 +108,7 @@ const GlobalSearch = {
 };
 
 const Root = {
-  components: { Login, GlobalSearch },
+  components: { Login, GlobalSearch, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
   setup() {
     const searchOpen = ref(false);
     const menuOpen = ref(false);
@@ -118,6 +119,12 @@ const Root = {
     const isActive = (n) => n.match === route.name && (!n.type || n.type === route.params.type);
     const logout = async () => { await POST('/auth/logout'); store.user = null; };
     const plusOpen = ref(false);
+    const theme = ref(document.documentElement.dataset.theme || 'dark');
+    const toggleTheme = () => {
+      theme.value = theme.value === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = theme.value;
+      try { localStorage.setItem('garage_theme', theme.value); } catch { /* navigation privée */ }
+    };
     const devices = ref(null);
     const openDevices = async () => { devices.value = await GET('/network'); };
     // Installation comme application (Chrome, Edge, Android)
@@ -126,32 +133,33 @@ const Root = {
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; installable.value = true; });
     const install = async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice; deferred = null; installable.value = false; };
     watch(() => route.path, () => { menuOpen.value = false; plusOpen.value = false; });
-    return { store, route, NAV, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent };
+    return { theme, toggleTheme, store, route, NAV, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent };
   },
   template: `
   <div v-if="store.loading" class="boot">🔧</div>
   <Login v-else-if="!store.user" :setup="store.needsSetup"/>
   <div v-else class="layout" :class="{'menu-open': menuOpen}">
     <aside class="sidebar" @click="menuOpen = false">
-      <div class="brand"><span class="brand-logo">🔧</span><div><b>{{ store.company }}</b><small>Garage Manager</small></div></div>
+      <div class="brand"><span class="brand-logo"><Icon name="wrench"/></span><div><b>{{ store.company }}</b><small>Garage OS</small></div></div>
       <nav>
         <template v-for="n in NAV">
           <div v-if="n.section !== undefined" class="nav-section">{{ n.section }}</div>
-          <a v-else :href="'#' + n.to" :class="{active: isActive(n)}" :title="n.label"><span>{{ n.icon }}</span><span class="nav-label">{{ n.label }}</span></a>
+          <a v-else :href="'#' + n.to" :class="{active: isActive(n)}" :title="n.label"><Icon :name="n.icon"/><span class="nav-label">{{ n.label }}</span></a>
         </template>
       </nav>
       <div class="sidebar-foot">
-        <a href="/kiosk.html" target="_blank" title="Kiosque atelier">📟 <span class="nav-label">Ouvrir le kiosque atelier</span></a>
-        <a href="#" @click.prevent="openDevices" title="Téléphone / tablette">📱 <span class="nav-label">Sur téléphone / tablette</span></a>
-        <a href="#" v-if="installable" @click.prevent="install" title="Installer">⬇ <span class="nav-label">Installer l'application</span></a>
+        <a href="/kiosk.html" target="_blank" title="Kiosque atelier"><Icon name="tablet"/><span class="nav-label">Kiosque atelier</span></a>
+        <a href="#" @click.prevent="openDevices" title="Téléphone / tablette"><Icon name="monitor-smartphone"/><span class="nav-label">Sur téléphone / tablette</span></a>
+        <a href="#" v-if="installable" @click.prevent="install" title="Installer"><Icon name="download"/><span class="nav-label">Installer l'application</span></a>
         <div class="me">{{ store.user.name }} <button class="link" @click="logout">Déconnexion</button></div>
       </div>
     </aside>
     <main>
       <header class="topbar">
         <button class="icon-btn burger" @click="menuOpen = !menuOpen">☰</button>
-        <button class="search-trigger" @click="searchOpen = true"><span>🔍 <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
+        <button class="search-trigger" @click="searchOpen = true"><span style="display:flex;gap:8px;align-items:center"><Icon name="search"/> <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
         <div class="quick">
+          <button class="btn theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Thème clair' : 'Thème sombre'"><Icon :name="theme === 'dark' ? 'sun' : 'moon'"/></button>
           <ActivityBell/>
           <a class="btn hide-phone" href="#/new/quote">+ Devis</a>
           <a class="btn primary hide-phone" href="#/new/order">+ <span class="long">Ordre de réparation</span><span class="short">OR</span></a>
@@ -160,11 +168,11 @@ const Root = {
       <div class="content"><component :is="view" :key="route.path"/></div>
     </main>
     <nav class="bottom-nav">
-      <a href="#/" :class="{active: route.name === 'dashboard'}"><span>🏠</span>Accueil</a>
-      <a href="#/workshop" :class="{active: route.name === 'workshop'}"><span>🔧</span>Atelier</a>
-      <a href="#" class="plus" @click.prevent="plusOpen = !plusOpen"><span>＋</span></a>
-      <a href="#/planning" :class="{active: route.name === 'planning'}"><span>📅</span>Planning</a>
-      <a href="#" @click.prevent="menuOpen = true"><span>☰</span>Menu</a>
+      <a href="#/" :class="{active: route.name === 'dashboard'}"><Icon name="home"/>Accueil</a>
+      <a href="#/workshop" :class="{active: route.name === 'workshop'}"><Icon name="wrench"/>Atelier</a>
+      <a href="#" class="plus" @click.prevent="plusOpen = !plusOpen"><span class="plus-btn"><Icon name="plus"/></span></a>
+      <a href="#/planning" :class="{active: route.name === 'planning'}"><Icon name="calendar-days"/>Planning</a>
+      <a href="#" @click.prevent="menuOpen = true"><Icon name="menu"/>Menu</a>
     </nav>
     <div v-if="plusOpen" class="plus-menu" @click="plusOpen = false">
       <div>
@@ -182,6 +190,7 @@ const Root = {
       <p class="muted small">Ensuite, dans le navigateur du téléphone : <b>Partager → Sur l'écran d'accueil</b> (iPhone) ou <b>⋮ → Ajouter à l'écran d'accueil</b> (Android) pour avoir l'icône comme une vraie application. Kiosque des mécaniciens : ajoutez <b>/kiosk.html</b> à l'adresse.</p>
     </Modal>
     <GlobalSearch v-if="searchOpen" @close="searchOpen = false"/>
+    <Copilot/>
   </div>
   <div class="toasts"><div v-for="t in store.toasts" :key="t.id" class="toast" :class="t.type">{{ t.msg }}</div></div>`,
 };
@@ -198,7 +207,7 @@ async function boot() {
 }
 
 const app = createApp(Root);
-Object.entries({ Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
+Object.entries({ Icon, Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;
 app.mount('#app');
 
