@@ -212,6 +212,9 @@ function ml(account_code, customerId, label, signedAmount) {
 }
 
 export function createMove(move, lines) {
+  // Date de verrouillage (option Comptabilité) : aucune écriture avant ou à cette date
+  const lock = getSettings().options?.comptabilite?.lock_date;
+  if (lock && move.date && move.date <= lock) throw new BusinessError(`Période clôturée : aucune écriture possible au ${move.date.split('-').reverse().join('/')} (verrouillage au ${lock.split('-').reverse().join('/')}).`);
   const debit = round2(lines.reduce((s, l) => s + (l.debit || 0), 0));
   const credit = round2(lines.reduce((s, l) => s + (l.credit || 0), 0));
   if (Math.abs(debit - credit) > 0.009) throw new BusinessError(`Écriture déséquilibrée (${debit} / ${credit})`);
@@ -279,6 +282,11 @@ export function registerPayment({ document_id, purchase_id, amount, date = today
 
 // ---------- Stock ----------
 export function addStockMove({ product_id, qty, kind, unit_cost, document_id, purchase_id, note, user_id }) {
+  // Option Inventaire : interdire le stock négatif lors d'une vente
+  if (qty < 0 && kind === 'sale' && getSettings().options?.inventaire?.allow_negative === false) {
+    const p = get('SELECT ref, name, qty_on_hand FROM products WHERE id=?', product_id);
+    if (p && p.qty_on_hand + qty < -0.0001) throw new BusinessError(`Stock insuffisant pour ${p.ref ? p.ref + ' ' : ''}${p.name} : ${p.qty_on_hand} en stock, ${-qty} demandé(s).`);
+  }
   insert('stock_moves', { product_id, qty, kind, unit_cost, document_id, purchase_id, note, user_id, date: new Date().toISOString() },
     ['product_id', 'qty', 'kind', 'unit_cost', 'document_id', 'purchase_id', 'note', 'user_id', 'date']);
   run('UPDATE products SET qty_on_hand = qty_on_hand + ? WHERE id=?', qty, product_id);

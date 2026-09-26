@@ -17,9 +17,9 @@ function sniff(buf) {
   return null;
 }
 
-export function logoFile() {
+export function logoFile(name = 'logo') {
   for (const ext of Object.keys(TYPES)) {
-    const f = path.join(DIR, 'logo.' + ext);
+    const f = path.join(DIR, name + '.' + ext);
     if (fs.existsSync(f)) return { file: f, type: TYPES[ext], ext };
   }
   return null;
@@ -62,4 +62,24 @@ export function cleanLayout(input = {}) {
   for (const k of ['show_logo', 'show_qr', 'show_bank', 'show_vehicle', 'show_signature', 'show_paid_stamp', 'show_discount']) if (k in input) out[k] = Boolean(input[k]);
   out.logo_version = cur.logo_version; // géré uniquement par l'envoi du logo
   return out;
+}
+
+// Fond d'écran du menu d'accueil des applications (comme Odoo)
+export function saveBackground(buf) {
+  if (!buf?.length) throw Object.assign(new Error('Fichier vide'), { status: 400 });
+  if (buf.length > 8 * 1024 * 1024) throw Object.assign(new Error('Image trop lourde (8 Mo maximum)'), { status: 400 });
+  const ext = sniff(buf);
+  if (!ext) throw Object.assign(new Error('Format non pris en charge : utilisez un PNG, JPEG ou WebP'), { status: 400 });
+  fs.mkdirSync(DIR, { recursive: true });
+  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, 'home.' + e), { force: true });
+  fs.writeFileSync(path.join(DIR, 'home.' + ext), buf);
+  const home = { ...(getSettings().home || {}), background_version: Date.now() };
+  setSetting('home', home);
+  return home;
+}
+export function deleteBackground() {
+  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, 'home.' + e), { force: true });
+  const home = { ...(getSettings().home || {}), background_version: null };
+  setSetting('home', home);
+  return home;
 }

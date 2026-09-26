@@ -1,17 +1,20 @@
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue';
 import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
 import { route } from '../router.js';
 import { LayoutEditor } from './layout-editor.js';
+import { UsersAdmin } from './users-admin.js';
+import { ConfigPanel } from './config.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
 export const Settings = {
-  components: { LayoutEditor },
+  components: { LayoutEditor, UsersAdmin, ConfigPanel },
   setup() {
     const s = ref(null);
     const users = ref([]);
     const accounts = ref([]);
     const tab = ref(route.query.tab || 'company');
+    watch(() => route.query.tab, (t) => { if (t) tab.value = t; });
     const editUser = ref(null);
     const newAcc = ref(null);
     const odoo = ref(null);
@@ -58,9 +61,9 @@ export const Settings = {
   },
   template: `
   <div v-if="s">
-    <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','workshop','layout','ai'].includes(tab)" @click="save">Enregistrer</button></div>
+    <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','config','workshop','layout','ai'].includes(tab)" @click="save">Enregistrer</button></div>
     <div class="tabs">
-      <button v-for="[k, l] in [['company','Société'],['layout','Mise en page des documents'],['workshop','Atelier & factures'],['users','Utilisateurs & mécaniciens'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
+      <button v-for="[k, l] in [['company','Société'],['config','Configuration'],['users','Utilisateurs & accès'],['layout','Mise en page des documents'],['workshop','Atelier & factures'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
     </div>
     <div class="card" v-if="tab==='company'">
       <div class="form-grid">
@@ -85,14 +88,8 @@ export const Settings = {
         <p class="full muted small" style="margin:0">Laissez vide si le logiciel n'est utilisé que dans le garage. Pour que vos clients ouvrent les liens depuis chez eux, le logiciel doit être accessible depuis internet (voir README → « Suivi en direct »).</p>
       </div>
     </div>
-    <div class="card" v-if="tab==='users'">
-      <div class="card-head"><h2>Équipe</h2><button class="btn primary" @click="editUser = {role: 'mechanic', color: '#3b82f6', active: 1}">+ Ajouter</button></div>
-      <table><thead><tr><th>Nom</th><th>Rôle</th><th>Identifiant</th><th>Coût horaire</th><th>Statut</th></tr></thead>
-        <tbody><tr v-for="u in users" class="click" @click="editUser = {...u}">
-          <td><span class="avatar" :style="{background: u.color}">{{ u.name[0] }}</span> {{ u.name }}</td><td>{{ ROLE[u.role] }}</td>
-          <td class="small">{{ u.role === 'mechanic' ? (u.has_pin ? 'PIN kiosque ✓' : 'pas de PIN') : u.email }}</td><td>{{ u.hourly_cost ? u.hourly_cost + ' €' : '' }}</td>
-          <td><Badge :label="u.active ? 'Actif' : 'Inactif'" :color="u.active ? 'green' : 'gray'"/></td></tr></tbody></table>
-    </div>
+    <UsersAdmin v-if="tab==='users'"/>
+    <ConfigPanel v-if="tab==='config'" :s="s"/>
     <div class="card" v-if="tab==='accounts'">
       <div class="card-head"><div><h2 style="margin:0">Plan comptable</h2><div class="muted small">Inspiré du PCN luxembourgeois — à faire valider par votre fiduciaire.</div></div><button class="btn" @click="newAcc = {type: 'expense'}">+ Compte</button></div>
       <table><thead><tr><th>Code</th><th>Intitulé</th><th>Type</th></tr></thead><tbody><tr v-for="a in accounts" class="click" @click="newAcc = {...a}"><td><b>{{ a.code }}</b></td><td>{{ a.name }}</td><td>{{ a.type }}</td></tr></tbody></table>
@@ -167,18 +164,6 @@ export const Settings = {
         <textarea v-model="s.ai.garage_context" rows="8" placeholder="Ex. : Garage multimarque à Esch-sur-Alzette, 4 mécaniciens, spécialisé VW/Audi et véhicules électriques. Objectif 2027 : ouvrir une carrosserie…"></textarea></label>
     </div>
 
-    <Modal v-if="editUser" :title="editUser.id ? editUser.name : 'Nouvel utilisateur'" @close="editUser = null">
-      <div class="form-grid">
-        <label>Nom<input v-model="editUser.name"></label>
-        <label>Rôle<select v-model="editUser.role"><option v-for="(l, k) in ROLE" :value="k">{{ l }}</option></select></label>
-        <template v-if="editUser.role !== 'mechanic'"><label>E-mail<input v-model="editUser.email" type="email"></label><label>Mot de passe {{ editUser.id ? '(laisser vide = inchangé)' : '' }}<input v-model="editUser.password" type="password"></label></template>
-        <label v-else>Code PIN kiosque (4-6 chiffres) {{ editUser.id ? '(vide = inchangé)' : '' }}<input v-model="editUser.pin" inputmode="numeric" maxlength="6"></label>
-        <label>Couleur<input v-model="editUser.color" type="color" style="height:38px"></label>
-        <label>Coût horaire (€)<input v-model.number="editUser.hourly_cost" type="number"></label>
-        <label class="check" v-if="editUser.id"><input type="checkbox" :checked="!!editUser.active" @change="editUser.active = $event.target.checked ? 1 : 0"> Actif</label>
-      </div>
-      <template #foot><button class="btn primary" @click="saveUser">Enregistrer</button></template>
-    </Modal>
     <Modal v-if="newAcc" title="Compte comptable" @close="newAcc = null">
       <div class="form-grid"><label>Code<input v-model="newAcc.code"></label><label>Intitulé<input v-model="newAcc.name"></label>
         <label>Type<select v-model="newAcc.type"><option value="asset">Actif</option><option value="liability">Passif</option><option value="equity">Capitaux propres</option><option value="income">Produit</option><option value="expense">Charge</option></select></label></div>

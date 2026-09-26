@@ -147,6 +147,7 @@ export const DocumentEditor = {
     watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage], () => { dirty.value = true; }, { deep: true });
 
     const locked = computed(() => doc.value && (['invoice', 'credit_note'].includes(doc.value.type) ? doc.value.status !== 'draft' : doc.value.status === 'invoiced'));
+    const showDiscount = computed(() => store.settings?.options?.ventes?.line_discounts !== false || (doc.value?.lines || []).some((l) => l.discount));
     const lineTotal = (l) => (l.kind === 'text' ? 0 : Math.round((l.quantity || 0) * (l.unit_price || 0) * (1 - (l.discount || 0) / 100) * 100) / 100);
     const totals = computed(() => {
       const byRate = {};
@@ -226,7 +227,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -286,8 +287,8 @@ export const DocumentEditor = {
 
         <div class="card">
           <div class="card-head"><h2>Prestations & pièces</h2></div>
-          <div class="table-wrap"><table class="lines">
-            <thead><tr><th class="kind">Type</th><th>Désignation</th><th class="q num">Qté</th><th class="p num">P.U. HT</th><th class="d num">Rem. %</th><th class="t">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'">Fait</th><th></th></tr></thead>
+          <div class="table-wrap"><table class="lines" :class="{ 'no-disc': !showDiscount }">
+            <thead><tr><th class="kind">Type</th><th>Désignation</th><th class="q num">Qté</th><th class="p num">P.U. HT</th><th class="d num dcol">Rem. %</th><th class="t">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'">Fait</th><th></th></tr></thead>
             <tbody>
               <tr v-for="(l, i) in doc.lines" :class="{'text-line': l.kind === 'text'}">
                 <td><select v-model="l.kind" :disabled="locked"><option value="labor">🔧 M.O.</option><option value="part">📦 Pièce</option><option value="fee">🏷️ Forfait</option><option value="text">📝 Texte</option></select></td>
@@ -299,7 +300,7 @@ export const DocumentEditor = {
                 <template v-if="l.kind !== 'text'">
                   <td><input v-model.number="l.quantity" type="number" step="0.1" class="right" :disabled="locked"></td>
                   <td><input v-model.number="l.unit_price" type="number" step="0.01" class="right" :disabled="locked"></td>
-                  <td><input v-model.number="l.discount" type="number" class="right" :disabled="locked"></td>
+                  <td class="dcol"><input v-model.number="l.discount" type="number" class="right" :disabled="locked"></td>
                   <td><select v-model.number="l.tax_rate" :disabled="locked"><option v-for="r in TAX_RATES" :value="r">{{ r }}%</option></select></td>
                   <td class="num">{{ money(lineTotal(l)) }}</td>
                 </template>

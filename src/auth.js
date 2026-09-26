@@ -30,7 +30,7 @@ export function currentUser(req) {
   const token = readToken(req);
   if (!token) return null;
   const u = get(
-    `SELECT u.id,u.name,u.email,u.role,u.color,s.kind AS session_kind FROM sessions s
+    `SELECT u.id,u.name,u.email,u.role,u.color,u.permissions,u.job_title,s.kind AS session_kind FROM sessions s
      JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1`,
     token
   );

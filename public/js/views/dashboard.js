@@ -22,13 +22,13 @@ export const Dashboard = {
     </div>
     <BriefCard/>
     <div class="grid g4">
-      <div class="kpi"><div class="l"><Icon name="trending-up"/> CA du mois (HT)</div><div class="v">{{ money(d.salesMonth) }}</div><div class="muted small">Année : {{ money(d.salesYear) }}</div></div>
-      <a class="kpi click" href="#/workshop"><div class="l"><Icon name="wrench"/> OR en cours</div><div class="v">{{ d.ordersOpen }}</div><div class="muted small">{{ d.quotesPending }} devis en attente</div></a>
-      <a class="kpi click" :class="{alert: d.overdue > 0}" href="#/documents/invoice?filter=overdue"><div class="l"><Icon name="wallet"/> À encaisser</div><div class="v">{{ money(d.receivable) }}</div><div class="small" :class="d.overdue > 0 ? 'neg' : 'muted'">dont {{ money(d.overdue) }} en retard</div></a>
-      <a class="kpi click" href="#/bank"><div class="l"><Icon name="landmark"/> Trésorerie</div><div class="v">{{ money(d.bank) }}</div><div class="muted small">{{ d.unmatchedBank }} opérations à rapprocher · fournisseurs {{ money(d.payable) }}</div></a>
+      <div v-if="d.salesMonth !== null" class="kpi"><div class="l"><Icon name="trending-up"/> CA du mois (HT)</div><div class="v">{{ money(d.salesMonth) }}</div><div class="muted small">Année : {{ money(d.salesYear) }}</div></div>
+      <a v-if="d.ordersOpen !== null" class="kpi click" href="#/workshop"><div class="l"><Icon name="wrench"/> OR en cours</div><div class="v">{{ d.ordersOpen }}</div><div class="muted small">{{ d.quotesPending }} devis en attente</div></a>
+      <a v-if="d.receivable !== null" class="kpi click" :class="{alert: d.overdue > 0}" href="#/documents/invoice?filter=overdue"><div class="l"><Icon name="wallet"/> À encaisser</div><div class="v">{{ money(d.receivable) }}</div><div class="small" :class="d.overdue > 0 ? 'neg' : 'muted'">dont {{ money(d.overdue) }} en retard</div></a>
+      <a v-if="d.bank !== null" class="kpi click" href="#/bank"><div class="l"><Icon name="landmark"/> Trésorerie</div><div class="v">{{ money(d.bank) }}</div><div class="muted small">{{ d.unmatchedBank }} opérations à rapprocher · fournisseurs {{ money(d.payable) }}</div></a>
     </div>
     <div class="grid g3" style="margin-top:16px">
-      <div class="card" style="grid-column: span 2">
+      <div v-if="d.monthly.length" class="card" style="grid-column: span 2">
         <div class="card-head"><h2>Chiffre d'affaires (12 mois)</h2></div>
         <BarChart :data="d.monthly.map(m => ({...m, label: monthLabel(m.month)}))" value-key="total" label-key="label" :format="v => v ? Math.round(v/100)/10 + 'k' : ''"/>
       </div>

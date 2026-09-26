@@ -4,6 +4,7 @@ import { Badge, Modal, Picker, BarChart, Empty, Icon } from './components.js';
 import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 
 import { route, go } from './router.js';
+import { APPS, visibleApps, currentApp, can } from './apps.js';
 
 const lazy = (file, name) => defineAsyncComponent(() => import(`./views/${file}.js`).then((m) => m[name]));
 const VIEWS = {
@@ -15,34 +16,36 @@ const VIEWS = {
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
   accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'),
-  office: lazy('office', 'Office'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
+  office: lazy('office', 'Office'), apps: lazy('home', 'Home'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
 const NAV = [
   { section: 'Pilotage' },
+  { to: '/apps', icon: 'layout-grid', label: 'Applications', match: 'apps' },
   { to: '/', icon: 'layout-dashboard', label: 'Tableau de bord', match: 'dashboard' },
-  { to: '/copilot', icon: 'sparkles', label: 'Nova — copilote', match: 'copilot' },
-  { to: '/office', icon: 'brain', label: 'Bureau IA', match: 'office' },
+  { to: '/copilot', icon: 'sparkles', label: 'Nova — copilote', match: 'copilot', perm: 'ia' },
+  { to: '/office', icon: 'brain', label: 'Bureau IA', match: 'office', perm: 'ia' },
   { to: '/activities', icon: 'alarm-clock', label: 'Activités', match: 'activities' },
-  { to: '/mail', icon: 'mail', label: 'E-mails', match: 'mail' },
+  { to: '/mail', icon: 'mail', label: 'E-mails', match: 'mail', perm: 'emails' },
   { section: 'Atelier' },
-  { to: '/workshop', icon: 'wrench', label: 'Atelier (OR)', match: 'workshop' },
-  { to: '/planning', icon: 'calendar-days', label: 'Planning', match: 'planning' },
-  { to: '/timesheets', icon: 'timer', label: 'Pointage', match: 'timesheets' },
+  { to: '/workshop', icon: 'wrench', label: 'Atelier (OR)', match: 'workshop', perm: 'atelier' },
+  { to: '/planning', icon: 'calendar-days', label: 'Planning', match: 'planning', perm: 'atelier' },
+  { to: '/attendance', icon: 'user-check', label: 'Présences', match: 'attendance' },
+  { to: '/timesheets', icon: 'timer', label: 'Feuilles de temps', match: 'timesheets', perm: 'presences' },
   { section: 'Ventes' },
-  { to: '/documents/quote', icon: 'file-text', label: 'Devis', match: 'documents', type: 'quote' },
-  { to: '/documents/invoice', icon: 'receipt', label: 'Factures', match: 'documents', type: 'invoice' },
-  { to: '/customers', icon: 'users', label: 'Clients', match: 'customers' },
-  { to: '/vehicles', icon: 'car', label: 'Véhicules', match: 'vehicles' },
+  { to: '/documents/quote', icon: 'file-text', label: 'Devis', match: 'documents', type: 'quote', perm: 'ventes' },
+  { to: '/documents/invoice', icon: 'receipt', label: 'Factures', match: 'documents', type: 'invoice', perm: 'ventes' },
+  { to: '/customers', icon: 'users', label: 'Clients', match: 'customers', perm: 'contacts' },
+  { to: '/vehicles', icon: 'car', label: 'Véhicules', match: 'vehicles', perm: 'vehicules' },
   { section: 'Stock & achats' },
-  { to: '/stock', icon: 'package', label: 'Articles & stock', match: 'stock' },
-  { to: '/purchases', icon: 'shopping-cart', label: 'Achats', match: 'purchases' },
-  { to: '/suppliers', icon: 'factory', label: 'Fournisseurs', match: 'suppliers' },
+  { to: '/stock', icon: 'package', label: 'Articles & stock', match: 'stock', perm: 'inventaire' },
+  { to: '/purchases', icon: 'shopping-cart', label: 'Achats', match: 'purchases', perm: 'achats' },
+  { to: '/suppliers', icon: 'factory', label: 'Fournisseurs', match: 'suppliers', perm: 'contacts' },
   { section: 'Finance' },
-  { to: '/bank', icon: 'landmark', label: 'Banque', match: 'bank' },
-  { to: '/accounting', icon: 'book-open', label: 'Comptabilité', match: 'accounting' },
+  { to: '/bank', icon: 'landmark', label: 'Banque', match: 'bank', perm: 'banque' },
+  { to: '/accounting', icon: 'book-open', label: 'Comptabilité', match: 'accounting', perm: 'comptabilite' },
   { section: '' },
-  { to: '/settings', icon: 'settings', label: 'Paramètres', match: 'settings' },
+  { to: '/settings', icon: 'settings', label: 'Paramètres', match: 'settings', admin: true },
 ];
 
 // ---------- Connexion / première configuration ----------
@@ -73,6 +76,42 @@ const Login = {
       <div class="error" v-if="err">{{ err }}</div>
       <button class="btn primary big">{{ setup ? 'Créer mon garage' : 'Se connecter' }}</button>
       <a class="kiosk-link" href="/kiosk.html">🔧 Pointage mécaniciens (tablette atelier)</a>
+    </form>
+  </div>`,
+};
+
+// ---------- Invitation : choisir son mot de passe ----------
+const Invite = {
+  setup() {
+    const info = ref(null);
+    const err = ref('');
+    const pw = reactive({ a: '', b: '' });
+    onMounted(async () => { try { info.value = await GET('/auth/invite/' + route.params.token); } catch (e) { err.value = e.message; } });
+    const submit = async () => {
+      err.value = '';
+      if (pw.a.length < 8) { err.value = 'Mot de passe : 8 caractères minimum'; return; }
+      if (pw.a !== pw.b) { err.value = 'Les deux mots de passe sont différents'; return; }
+      try { await POST('/auth/invite/' + route.params.token, { password: pw.a }); go('/apps'); await boot(); } catch (e) { err.value = e.message; }
+    };
+    return { info, err, pw, submit };
+  },
+  template: `
+  <div class="login-bg">
+    <form class="login-card" @submit.prevent="submit">
+      <div class="login-logo"><Icon name="key-round" size="34"/></div>
+      <template v-if="info">
+        <h1>Bienvenue {{ info.name }} !</h1>
+        <p class="muted">Vous avez été invité(e) sur le logiciel de <b>{{ info.company }}</b>. Choisissez votre mot de passe pour vous connecter avec <b>{{ info.email }}</b>.</p>
+        <label>Mot de passe<input v-model="pw.a" type="password" minlength="8" required autocomplete="new-password"></label>
+        <label>Confirmer<input v-model="pw.b" type="password" minlength="8" required autocomplete="new-password"></label>
+        <div class="error" v-if="err">{{ err }}</div>
+        <button class="btn primary big">Activer mon compte</button>
+      </template>
+      <template v-else>
+        <h1>Invitation</h1>
+        <div class="error" v-if="err">{{ err }}</div>
+        <a class="btn" href="#/">Aller à la connexion</a>
+      </template>
     </form>
   </div>`,
 };
@@ -108,7 +147,7 @@ const GlobalSearch = {
 };
 
 const Root = {
-  components: { Login, GlobalSearch, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
+  components: { Login, Invite, GlobalSearch, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
   setup() {
     const searchOpen = ref(false);
     const menuOpen = ref(false);
@@ -132,17 +171,41 @@ const Root = {
     let deferred = null;
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; installable.value = true; });
     const install = async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice; deferred = null; installable.value = false; };
-    watch(() => route.path, () => { menuOpen.value = false; plusOpen.value = false; });
-    return { theme, toggleTheme, store, route, NAV, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent };
+    watch(() => route.path, () => { menuOpen.value = false; plusOpen.value = false; userOpen.value = false; attOpen.value = false; });
+    // Menu façon Odoo (applications + barre du haut) ou barre latérale classique
+    const navMode = ref((() => { try { return localStorage.getItem('garage_nav') || 'apps'; } catch { return 'apps'; } })());
+    const setNav = (m) => { navMode.value = m; try { localStorage.setItem('garage_nav', m); } catch { /* navigation privée */ } };
+    const nav = computed(() => NAV.filter((n, i) => {
+      if (n.section !== undefined) return true;
+      return n.admin ? store.user?.role === 'admin' : can(n.perm);
+    }).filter((n, i, arr) => n.section === undefined || (arr[i + 1] && arr[i + 1].section === undefined)));
+    const app = computed(() => (route.name === 'apps' ? null : currentApp(route)));
+    const appMenus = computed(() => (app.value?.menus || []).filter((m) => (m.perm ? can(m.perm) : true)));
+    const menuActive = (m) => { const p = route.path + (route.query.tab ? '?tab=' + route.query.tab : ''); return m.to === p || (m.to === route.path && !route.query.tab); };
+    const userOpen = ref(false);
+    const attOpen = ref(false);
+    const att = computed(() => store.user?.attendance || {});
+    const checking = ref(false);
+    const quickCheck = async () => {
+      checking.value = true;
+      try { const r = await POST('/attendance/check', {}); store.user.attendance = r; } catch (e) { alert(e.message); } finally { checking.value = false; }
+    };
+    const openAtt = async () => { attOpen.value = !attOpen.value; if (attOpen.value) store.user.attendance = await GET('/attendance/me'); };
+    const canQuote = computed(() => can('ventes', 'user'));
+    const canOrder = computed(() => can('atelier', 'user'));
+    const ROLE_LABEL = { admin: 'Administrateur', office: 'Utilisateur', mechanic: 'Mécanicien' };
+    return { theme, toggleTheme, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
+      navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL };
   },
   template: `
   <div v-if="store.loading" class="boot">🔧</div>
+  <Invite v-else-if="route.name === 'invite'"/>
   <Login v-else-if="!store.user" :setup="store.needsSetup"/>
-  <div v-else class="layout" :class="{'menu-open': menuOpen}">
-    <aside class="sidebar" @click="menuOpen = false">
+  <div v-else class="layout" :class="{'menu-open': menuOpen, 'nav-apps': navMode === 'apps', 'is-home': route.name === 'apps'}">
+    <aside class="sidebar" v-if="navMode === 'sidebar'" @click="menuOpen = false">
       <div class="brand"><span class="brand-logo"><Icon name="wrench"/></span><div><b>{{ store.company }}</b><small>Garage OS</small></div></div>
       <nav>
-        <template v-for="n in NAV">
+        <template v-for="n in nav">
           <div v-if="n.section !== undefined" class="nav-section">{{ n.section }}</div>
           <a v-else :href="'#' + n.to" :class="{active: isActive(n)}" :title="n.label"><Icon :name="n.icon"/><span class="nav-label">{{ n.label }}</span></a>
         </template>
@@ -156,27 +219,58 @@ const Root = {
     </aside>
     <main>
       <header class="topbar">
-        <button class="icon-btn burger" @click="menuOpen = !menuOpen">☰</button>
-        <button class="search-trigger" @click="searchOpen = true"><span style="display:flex;gap:8px;align-items:center"><Icon name="search"/> <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
+        <button v-if="navMode === 'sidebar'" class="icon-btn burger" @click="menuOpen = !menuOpen">☰</button>
+        <template v-else>
+          <a class="apps-btn" href="#/apps" title="Applications"><Icon name="layout-grid"/></a>
+          <a v-if="app" class="app-title" :href="app.href || '#' + app.to"><span class="app-mini" :style="{ '--c1': app.c[0], '--c2': app.c[1] }"><Icon :name="app.icon"/></span><b>{{ app.name }}</b></a>
+          <b v-else-if="route.name === 'apps'" class="app-title company">{{ store.company }}</b>
+          <nav class="app-menus" v-if="appMenus.length"><template v-for="m in appMenus"><a v-if="m.href" :href="m.href" target="_blank">{{ m.label }}</a><a v-else :href="'#' + m.to" :class="{ active: menuActive(m) }">{{ m.label }}</a></template></nav>
+        </template>
+        <button class="search-trigger" :class="{ compact: navMode === 'apps' }" @click="searchOpen = true"><span style="display:flex;gap:8px;align-items:center"><Icon name="search"/> <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
         <div class="quick">
           <button class="btn theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Thème clair' : 'Thème sombre'"><Icon :name="theme === 'dark' ? 'sun' : 'moon'"/></button>
+          <div class="att-sys">
+            <button class="btn att-sys-btn" :class="{ on: att.present }" @click="openAtt" :title="att.present ? 'Présent — cliquer pour pointer le départ' : 'Pointer mon arrivée'"><i></i><Icon name="clock"/></button>
+            <div v-if="attOpen" class="dropdown att-pop">
+              <div class="muted small">{{ att.present ? 'Présent(e) depuis ' + new Date(att.since).toLocaleTimeString('fr-LU', { hour: '2-digit', minute: '2-digit' }) : 'Pas encore pointé(e)' }}</div>
+              <div class="att-pop-h">{{ Math.floor(att.today_hours || 0) }}h{{ String(Math.round(((att.today_hours || 0) % 1) * 60)).padStart(2, '0') }} <small>aujourd'hui</small></div>
+              <button class="att-btn sm" :class="att.present ? 'out' : 'in'" :disabled="checking" @click="quickCheck"><Icon :name="att.present ? 'log-out' : 'log-in'"/> {{ att.present ? 'Départ' : 'Arrivée' }}</button>
+              <a href="#/attendance" class="small">Mes présences →</a>
+            </div>
+          </div>
           <ActivityBell/>
-          <a class="btn hide-phone" href="#/new/quote">+ Devis</a>
-          <a class="btn primary hide-phone" href="#/new/order">+ <span class="long">Ordre de réparation</span><span class="short">OR</span></a>
+          <a v-if="canQuote && navMode === 'sidebar'" class="btn hide-phone" href="#/new/quote">+ Devis</a>
+          <a v-if="canOrder" class="btn primary hide-phone" href="#/new/order">+ <span class="long">Ordre de réparation</span><span class="short">OR</span></a>
+          <div class="user-menu">
+            <button class="user-btn" @click="userOpen = !userOpen" :title="store.user.name"><span class="avatar" :style="{ background: store.user.color || '#6366f1' }">{{ store.user.name[0] }}</span></button>
+            <div v-if="userOpen" class="dropdown user-drop" @click="userOpen = false">
+              <div class="ud-head"><b>{{ store.user.name }}</b><small>{{ store.user.job_title || ROLE_LABEL[store.user.role] }} · {{ store.user.email }}</small></div>
+              <a href="#/attendance"><Icon name="user-check"/> Mes présences</a>
+              <a href="#" @click.prevent="toggleTheme"><Icon :name="theme === 'dark' ? 'sun' : 'moon'"/> {{ theme === 'dark' ? 'Thème clair' : 'Thème sombre' }}</a>
+              <a href="#" @click.prevent="setNav(navMode === 'apps' ? 'sidebar' : 'apps')"><Icon :name="navMode === 'apps' ? 'panel-left' : 'layout-grid'"/> {{ navMode === 'apps' ? 'Menu en barre latérale' : 'Menu des applications (Odoo)' }}</a>
+              <a href="/kiosk.html" target="_blank"><Icon name="tablet"/> Kiosque de pointage</a>
+              <a href="#" @click.prevent="openDevices"><Icon name="monitor-smartphone"/> Sur téléphone / tablette</a>
+              <a href="#" v-if="installable" @click.prevent="install"><Icon name="download"/> Installer l'application</a>
+              <a v-if="store.user.role === 'admin'" href="#/settings?tab=users"><Icon name="shield-check"/> Utilisateurs & accès</a>
+              <a href="#" @click.prevent="logout"><Icon name="log-out"/> Déconnexion</a>
+            </div>
+          </div>
         </div>
       </header>
       <div class="content"><component :is="view" :key="route.path"/></div>
     </main>
     <nav class="bottom-nav">
-      <a href="#/" :class="{active: route.name === 'dashboard'}"><Icon name="home"/>Accueil</a>
-      <a href="#/workshop" :class="{active: route.name === 'workshop'}"><Icon name="wrench"/>Atelier</a>
+      <a href="#/apps" :class="{active: route.name === 'apps'}"><Icon name="layout-grid"/>Applis</a>
+      <a v-if="canOrder" href="#/workshop" :class="{active: route.name === 'workshop'}"><Icon name="wrench"/>Atelier</a>
+      <a v-else href="#/" :class="{active: route.name === 'dashboard'}"><Icon name="home"/>Accueil</a>
       <a href="#" class="plus" @click.prevent="plusOpen = !plusOpen"><span class="plus-btn"><Icon name="plus"/></span></a>
-      <a href="#/planning" :class="{active: route.name === 'planning'}"><Icon name="calendar-days"/>Planning</a>
-      <a href="#" @click.prevent="menuOpen = true"><Icon name="menu"/>Menu</a>
+      <a href="#/attendance" :class="{active: route.name === 'attendance'}"><Icon name="user-check"/>Pointage</a>
+      <a v-if="navMode === 'sidebar'" href="#" @click.prevent="menuOpen = true"><Icon name="menu"/>Menu</a>
+      <a v-else href="#/planning" :class="{active: route.name === 'planning'}"><Icon name="calendar-days"/>Planning</a>
     </nav>
     <div v-if="plusOpen" class="plus-menu" @click="plusOpen = false">
       <div>
-        <a href="#/new/order">🔧 Ordre de réparation</a><a href="#/new/quote">📝 Devis</a><a href="#/new/invoice">🧾 Facture</a>
+        <a v-if="canOrder" href="#/new/order">🔧 Ordre de réparation</a><a v-if="canQuote" href="#/new/quote">📝 Devis</a><a v-if="canQuote" href="#/new/invoice">🧾 Facture</a>
         <a href="#/customer/new">👤 Client</a><a href="#/purchases">📥 Facture fournisseur</a><a href="#/activities">⏰ Activité</a>
       </div>
     </div>
@@ -201,8 +295,12 @@ async function boot() {
   store.needsSetup = s.needsSetup;
   store.company = s.company;
   store.ai = s.ai;
-  store.user = s.user && s.user.role !== 'mechanic' ? s.user : null;
-  if (store.user) store.settings = await GET('/settings');
+  store.user = s.user && s.user.role !== 'mechanic' && s.user.session_kind !== 'kiosk' ? s.user : null;
+  if (store.user) {
+    [store.settings, store.user] = await Promise.all([GET('/settings'), GET('/me')]);
+    // Page d'accueil : menu des applications (comme Odoo) sauf si un lien précis est ouvert
+    if ((!location.hash || location.hash === '#/' || location.hash === '#') && store.settings.options?.general?.start_page !== 'dashboard') go('/apps');
+  }
   store.loading = false;
 }
 

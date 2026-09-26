@@ -46,6 +46,7 @@ export function saveMailConfig(c) {
     from_email: (c.from_email ?? cur.from_email ?? '').trim(), bcc_me: Boolean(c.bcc_me ?? cur.bcc_me), signature: c.signature ?? cur.signature ?? '',
   });
 }
+export const isMailConfigured = () => isConfigured();
 const isConfigured = () => process.env.MAIL_TRANSPORT === 'json' || Boolean(mailConfig().host && mailConfig().from_email);
 function transport() {
   if (process.env.MAIL_TRANSPORT === 'json') return nodemailer.createTransport({ jsonTransport: true });

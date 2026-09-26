@@ -68,6 +68,7 @@ export const DocPrint = {
       return { sub, taxes, total: Math.round((sub + tax) * 100) / 100 };
     });
     const hasDiscount = computed(() => L.value.show_discount !== false && (props.doc?.lines || []).some((l) => l.discount));
+    const validity = computed(() => store.settings?.options?.ventes?.quote_validity_days || 30);
     const title = computed(() => TITLES[props.doc?.type] || DOC_TYPES[props.doc?.type] || 'Document');
     const showLogo = computed(() => L.value.show_logo !== false && L.value.logo_version);
     const logoUrl = computed(() => '/logo?v=' + L.value.logo_version);
@@ -85,7 +86,7 @@ export const DocPrint = {
       watchEffect(() => { styleEl.textContent = `@page { size: ${L.value.paper === 'Letter' ? 'letter' : 'A4'}; margin: 0; }`; });
       onUnmounted(() => styleEl.remove());
     }
-    return { L, C, footerText, vars, totals, hasDiscount, title, showLogo, logoUrl, paid, showQr, qrUrl, companyLine, vehicle, lineTotal, money, date };
+    return { L, C, footerText, vars, totals, hasDiscount, validity, title, showLogo, logoUrl, paid, showQr, qrUrl, companyLine, vehicle, lineTotal, money, date };
   },
   template: `
   <div class="ip-doc">
@@ -116,7 +117,7 @@ export const DocPrint = {
           <dl>
             <dt>Date</dt><dd>{{ date(doc.date) }}</dd>
             <template v-if="doc.due_date && doc.type === 'invoice'"><dt>Échéance</dt><dd>{{ date(doc.due_date) }}</dd></template>
-            <template v-if="doc.type === 'quote'"><dt>Validité</dt><dd>30 jours</dd></template>
+            <template v-if="doc.type === 'quote'"><dt>Validité</dt><dd>{{ validity }} jours</dd></template>
           </dl>
         </div>
         <div class="ip-client">

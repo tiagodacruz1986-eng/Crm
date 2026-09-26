@@ -26,7 +26,10 @@ import {
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
-import { saveLogo, deleteLogo, logoFile, cleanLayout } from './src/branding.js';
+import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
+import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, createInvite, findInvite, clearInvite } from './src/access.js';
+import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance } from './src/attendance.js';
+import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
 import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation } from './src/conversations.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
@@ -44,7 +47,7 @@ app.use('/vendor/three', express.static(nm('three')));
 app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
-const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain'];
+const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete'];
 let iconModule = null;
 app.get('/vendor/icons.js', async (req, res) => {
   if (!iconModule) {
@@ -53,6 +56,11 @@ app.get('/vendor/icons.js', async (req, res) => {
     iconModule = `export default ${JSON.stringify(map)};`;
   }
   res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
+});
+app.get('/home-bg', (req, res) => {
+  const l = logoFile('home');
+  if (!l) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=300').set('X-Content-Type-Options', 'nosniff').type(l.type).sendFile(l.file);
 });
 // Logo public (affiché sur les factures, les e-mails et la page de suivi client)
 app.get('/logo', (req, res) => {
@@ -85,7 +93,26 @@ api.post('/auth/setup', wrap((req, res) => {
 }));
 api.post('/auth/login', wrap((req, res) => {
   const u = get('SELECT * FROM users WHERE email=? AND active=1', String(req.body.email || '').toLowerCase());
-  if (!u || !verifySecret(req.body.password || '', u.password_hash)) throw new BusinessError('Identifiants incorrects', 401);
+  if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) throw new BusinessError('Identifiants incorrects', 401);
+  run('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?', u.id);
+  const token = createSession(u.id);
+  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 86400e3 });
+  return { token };
+}));
+// Invitation : la personne invitée choisit son mot de passe
+api.get('/auth/invite/:token', wrap((req) => {
+  const u = findInvite(req.params.token);
+  if (!u) throw new BusinessError('Invitation invalide ou expirée. Demandez un nouveau lien au gérant.', 404);
+  return { name: u.name, email: u.email, company: getSettings().company.name };
+}));
+api.post('/auth/invite/:token', wrap((req, res) => {
+  const u = findInvite(req.params.token);
+  if (!u) throw new BusinessError('Invitation invalide ou expirée. Demandez un nouveau lien au gérant.', 404);
+  const pw = String(req.body.password || '');
+  if (pw.length < 8) throw new BusinessError('Mot de passe : 8 caractères minimum');
+  run('UPDATE users SET password_hash=?, last_login=CURRENT_TIMESTAMP WHERE id=?', hashSecret(pw), u.id);
+  clearInvite(u.id);
+  run('DELETE FROM sessions WHERE user_id=?', u.id);
   const token = createSession(u.id);
   res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 86400e3 });
   return { token };
@@ -98,11 +125,43 @@ api.post('/auth/logout', (req, res) => {
 });
 
 // ---------- Kiosque mécaniciens (pointage) ----------
-api.get('/kiosk/users', (req, res) => res.json(all("SELECT id, name, color FROM users WHERE active=1 AND role='mechanic' AND pin_hash IS NOT NULL ORDER BY name")));
+api.get('/kiosk/users', (req, res) => {
+  const cfg = attendanceConfig();
+  res.json({
+    company: getSettings().company.name, logo: getSettings().layout?.logo_version ? `/logo?v=${getSettings().layout.logo_version}` : null,
+    pin: cfg.kiosk_pin, badge: cfg.kiosk_badge,
+    users: all(`SELECT u.id, u.name, u.color, u.role, u.job_title,
+      (SELECT start FROM time_entries t WHERE t.user_id=u.id AND t.kind='presence' AND t.end IS NULL LIMIT 1) AS since
+      FROM users u WHERE u.active=1 AND (u.pin_hash IS NOT NULL OR u.role='mechanic') ORDER BY u.name`),
+  });
+});
+// Tentatives de PIN limitées (anti-devinette) : 5 essais par personne et par 5 minutes
+const pinTries = new Map();
+function checkPin(u, pin) {
+  const k = u.id;
+  const now = Date.now();
+  const e = pinTries.get(k) || { n: 0, t: now };
+  if (now - e.t > 300_000) { e.n = 0; e.t = now; }
+  if (e.n >= 5) throw new BusinessError('Trop d\'essais. Réessayez dans quelques minutes.', 429);
+  if (!verifySecret(pin || '', u.pin_hash)) { e.n++; pinTries.set(k, e); throw new BusinessError('Code PIN incorrect', 401); }
+  pinTries.delete(k);
+}
 api.post('/kiosk/login', wrap((req) => {
-  const u = get("SELECT * FROM users WHERE id=? AND active=1 AND role='mechanic'", req.body.user_id);
-  if (!u || !verifySecret(req.body.pin || '', u.pin_hash)) throw new BusinessError('Code PIN incorrect', 401);
-  return { token: createSession(u.id, 'kiosk'), user: { id: u.id, name: u.name, color: u.color } };
+  const u = get('SELECT * FROM users WHERE id=? AND active=1', req.body.user_id);
+  if (!u) throw new BusinessError('Personne inconnue', 404);
+  if (attendanceConfig().kiosk_pin || u.role !== 'mechanic') {
+    if (!u.pin_hash) throw new BusinessError('Aucun code PIN : le gérant doit en créer un dans Paramètres → Utilisateurs', 401);
+    checkPin(u, req.body.pin);
+  }
+  return { token: createSession(u.id, 'kiosk'), user: { id: u.id, name: u.name, color: u.color, role: u.role } };
+}));
+// Badge (lecteur de code-barres / carte) : arrivée ou départ direct, comme Odoo
+api.post('/kiosk/badge', wrap((req) => {
+  if (!attendanceConfig().kiosk_badge) throw new BusinessError('Badges désactivés', 403);
+  const badge = String(req.body.badge || '').trim();
+  const u = badge.length >= 3 ? get('SELECT id FROM users WHERE badge=? AND active=1', badge) : null;
+  if (!u) throw new BusinessError('Badge inconnu', 404);
+  return checkInOut(u.id, { source: 'badge' });
 }));
 const mech = requireAuth(['mechanic', 'admin', 'office']);
 function kioskState(userId) {
@@ -120,7 +179,9 @@ function kioskState(userId) {
   const todayHours = round2(all("SELECT * FROM time_entries WHERE user_id=? AND kind='work' AND start>=?", userId, dayStart).reduce((s, t) => s + durationHours(t), 0));
   return { presence, work, orders, todayHours };
 }
-api.get('/kiosk/state', mech, (req, res) => res.json(kioskState(req.user.id)));
+const fullKioskState = (u) => ({ ...kioskState(u.id), attendance: statusOf(u.id), show_orders: u.role === 'mechanic' || attendanceConfig().kiosk_show_orders });
+api.get('/kiosk/state', mech, (req, res) => res.json(fullKioskState(req.user)));
+api.post('/kiosk/attendance', mech, wrap((req) => checkInOut(req.user.id, { action: req.body.action, source: 'kiosk' })));
 function stopWork(userId, now) {
   run("UPDATE time_entries SET end=? WHERE user_id=? AND kind='work' AND end IS NULL", now, userId);
 }
@@ -146,7 +207,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
       stopWork(uid, now);
     } else throw new BusinessError('Action inconnue');
   });
-  return kioskState(uid);
+  return fullKioskState(req.user);
 }));
 api.post('/kiosk/orders/:id', mech, wrap((req) => {
   const id = Number(req.params.id);
@@ -162,15 +223,27 @@ api.post('/kiosk/orders/:id', mech, wrap((req) => {
     if (status === 'done') run("UPDATE time_entries SET end=? WHERE document_id=? AND kind='work' AND end IS NULL", localDateTime(), id);
     stageFromStatus(id, status);
   } else if (line_id !== undefined) livePublish(id);
-  return kioskState(req.user.id);
+  return fullKioskState(req.user);
 }));
 // Lien "photos & messages" du mécanicien pour un OR
 api.post('/kiosk/orders/:id/live', mech, wrap((req) => ({ url: `/suivi.html?t=${ensureLink(Number(req.params.id), 'mechanic')}` })));
 
 // ---------- Tout le reste nécessite une connexion bureau ----------
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : staff(req, res, next)));
+api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : accessGuard(req, res, next)));
+const needManager = (app) => (req, res, next) => (can(req.user, app, 'manager') ? next() : res.status(403).json({ error: 'Réservé aux administrateurs de cette application' }));
 
-api.get('/dashboard', (req, res) => res.json(dashboard()));
+api.get('/dashboard', (req, res) => {
+  const d = dashboard();
+  const u = req.user;
+  if (!can(u, 'ventes')) Object.assign(d, { salesMonth: null, salesYear: null, receivable: null, overdue: null, quotesPending: null, monthly: [] });
+  if (!can(u, 'banque')) Object.assign(d, { bank: null, unmatchedBank: null });
+  if (!can(u, 'achats')) d.payable = null;
+  if (!can(u, 'inventaire')) d.lowStock = [];
+  if (!can(u, 'atelier')) Object.assign(d, { ordersOpen: null, appointmentsToday: [] });
+  if (!can(u, 'vehicules')) d.inspectionsSoon = [];
+  res.json(d);
+});
 // Adresses du PC sur le réseau local (pour ouvrir le logiciel sur téléphone / tablette)
 api.get('/network', (req, res) => {
   const port = req.get('host')?.split(':')[1] || process.env.PORT || 3000;
@@ -183,10 +256,10 @@ api.get('/network', (req, res) => {
 api.get('/search', (req, res) => {
   const q = `%${req.query.q || ''}%`;
   res.json({
-    customers: all('SELECT id, name, company, phone, city FROM customers WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? OR mobile LIKE ? OR email LIKE ? LIMIT 8', q, q, q, q, q),
-    vehicles: all(`SELECT v.id, v.plate, v.make, v.model, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE REPLACE(v.plate,' ','') LIKE REPLACE(?,' ','') OR v.vin LIKE ? OR v.model LIKE ? LIMIT 8`, q, q, q),
-    documents: all('SELECT d.id, d.type, d.number, d.status, d.total, c.name AS customer_name FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.number LIKE ? OR d.reference LIKE ? ORDER BY d.id DESC LIMIT 8', q, q),
-    products: all('SELECT id, ref, name, qty_on_hand, sale_price FROM products WHERE ref LIKE ? OR name LIKE ? OR ean LIKE ? LIMIT 8', q, q, q),
+    customers: !can(req.user, 'contacts') ? [] : all('SELECT id, name, company, phone, city FROM customers WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? OR mobile LIKE ? OR email LIKE ? LIMIT 8', q, q, q, q, q),
+    vehicles: !can(req.user, 'vehicules') ? [] : all(`SELECT v.id, v.plate, v.make, v.model, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE REPLACE(v.plate,' ','') LIKE REPLACE(?,' ','') OR v.vin LIKE ? OR v.model LIKE ? LIMIT 8`, q, q, q),
+    documents: all('SELECT d.id, d.type, d.number, d.status, d.total, c.name AS customer_name FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.number LIKE ? OR d.reference LIKE ? ORDER BY d.id DESC LIMIT 8', q, q).filter((d) => can(req.user, d.type === 'order' ? 'atelier' : 'ventes')),
+    products: !can(req.user, 'inventaire') ? [] : all('SELECT id, ref, name, qty_on_hand, sale_price FROM products WHERE ref LIKE ? OR name LIKE ? OR ean LIKE ? LIMIT 8', q, q, q),
   });
 });
 
@@ -376,7 +449,15 @@ api.delete('/purchases/:id', wrap((req) => {
   run('DELETE FROM purchases WHERE id=?', req.params.id);
   return { ok: true };
 }));
-api.post('/purchases/:id/order', wrap((req) => { run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", req.params.id); return { ok: true }; }));
+api.post('/purchases/:id/order', wrap((req) => {
+  const o = options().achats;
+  const p = get('SELECT total FROM purchases WHERE id=?', req.params.id);
+  if (o.approval && p && p.total >= o.approval_amount && !can(req.user, 'achats', 'manager')) {
+    throw new BusinessError(`Commande de ${p.total.toFixed(2)} € : au-delà de ${o.approval_amount} €, elle doit être validée par un administrateur des achats.`, 403);
+  }
+  run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", req.params.id);
+  return { ok: true };
+}));
 api.post('/purchases/:id/receive', wrap((req) => { receivePurchase(Number(req.params.id)); return { ok: true }; }));
 api.post('/purchases/:id/post', wrap((req) => { postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
 api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
@@ -504,33 +585,102 @@ api.put('/timesheets/:id', wrap((req) => { update('time_entries', req.params.id,
 api.delete('/timesheets/:id', wrap((req) => { run('DELETE FROM time_entries WHERE id=?', req.params.id); return { ok: true }; }));
 
 // ---------- Utilisateurs & paramètres ----------
-api.get('/users', (req, res) => res.json(all('SELECT id, name, email, role, color, hourly_cost, active, pin_hash IS NOT NULL AS has_pin FROM users ORDER BY role, name')));
-api.post('/users', adminOnly, wrap((req) => {
-  const b = req.body;
-  if (!b.name || !['admin', 'office', 'mechanic'].includes(b.role)) throw new BusinessError('Nom et rôle requis');
-  if (b.role !== 'mechanic' && (!b.email || !b.password)) throw new BusinessError('E-mail et mot de passe requis pour un accès bureau');
-  if (b.role === 'mechanic' && !/^\d{4,6}$/.test(b.pin || '')) throw new BusinessError('Code PIN de 4 à 6 chiffres requis');
-  return { id: insert('users', { ...b, email: b.email?.toLowerCase(), password_hash: b.password ? hashSecret(b.password) : null, pin_hash: b.pin ? hashSecret(b.pin) : null },
-    ['name', 'email', 'role', 'color', 'hourly_cost', 'password_hash', 'pin_hash']) };
+// ---------- Utilisateurs et droits d'accès ----------
+const USER_COLS = ['name', 'email', 'role', 'color', 'hourly_cost', 'active', 'password_hash', 'pin_hash', 'permissions', 'job_title', 'badge'];
+api.get('/users', (req, res) => {
+  const admin = req.user.role === 'admin';
+  res.json(all(`SELECT id, name, email, role, color, hourly_cost, active, job_title, last_login, pin_hash IS NOT NULL AS has_pin,
+      ${admin ? "permissions, badge, invite_hash IS NOT NULL AND invite_expires > strftime('%Y-%m-%dT%H:%M:%fZ','now') AS invited, password_hash IS NOT NULL AS has_password" : '0 AS invited'}
+    FROM users ORDER BY active DESC, role, name`).map((u) => (admin ? { ...u, permissions: normalizePerms(u.permissions ?? PRESETS.bureau.perms) } : u)));
+});
+api.get('/access/meta', adminOnly, (req, res) => res.json({ apps: APPS, levels: LEVELS, labels: LEVEL_LABELS, presets: PRESETS }));
+function userData(b, creating) {
+  const data = { ...b };
+  if (b.email !== undefined) data.email = b.email ? String(b.email).trim().toLowerCase() : null;
+  if (b.role !== undefined && !['admin', 'office', 'mechanic'].includes(b.role)) throw new BusinessError('Type d\'utilisateur inconnu');
+  if (b.password) { if (String(b.password).length < 8) throw new BusinessError('Mot de passe : 8 caractères minimum'); data.password_hash = hashSecret(b.password); }
+  if (b.pin) { if (!/^\d{4,6}$/.test(b.pin)) throw new BusinessError('Code PIN : 4 à 6 chiffres'); data.pin_hash = hashSecret(b.pin); }
+  if (b.permissions !== undefined) data.permissions = JSON.stringify(normalizePerms(b.permissions));
+  if (b.badge !== undefined) {
+    data.badge = String(b.badge || '').trim() || null;
+    if (data.badge && get('SELECT id FROM users WHERE badge=? AND id!=?', data.badge, b.id || 0)) throw new BusinessError('Ce badge est déjà attribué');
+  }
+  if (data.email && get('SELECT id FROM users WHERE email=? AND id!=?', data.email, b.id || 0)) throw new BusinessError('Cette adresse e-mail est déjà utilisée par un autre utilisateur');
+  if (creating) {
+    if (!b.name) throw new BusinessError('Nom requis');
+    if ((b.role || 'office') !== 'mechanic' && !data.email) throw new BusinessError('E-mail requis pour un accès au logiciel');
+    if ((b.role || 'office') === 'mechanic' && !b.pin) throw new BusinessError('Code PIN de 4 à 6 chiffres requis pour le kiosque');
+  }
+  delete data.password; delete data.pin;
+  return data;
+}
+const baseUrl = (req) => (getSettings().public_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+async function inviteUser(req, id, send) {
+  const u = get('SELECT * FROM users WHERE id=?', id);
+  if (!u?.email) throw new BusinessError('Adresse e-mail requise pour inviter');
+  const { token, expires } = createInvite(id);
+  const url = `${baseUrl(req)}/#/invite/${token}`;
+  let sent = false;
+  if (send) {
+    const c = getSettings().company;
+    await sendEmail({ model: 'user', record_id: id, to: u.email, subject: `Invitation : accès au logiciel de ${c.name}`,
+      intro: `Bonjour ${u.name},\n\n${req.user.name} vous donne accès au logiciel de gestion de ${c.name}.\n\nCliquez sur ce lien pour choisir votre mot de passe (valable 7 jours) :\n${url}\n\nÀ bientôt !`, include_document: false, user_id: req.user.id });
+    sent = true;
+  }
+  return { url, expires, sent };
+}
+api.post('/users', adminOnly, wrap(async (req) => {
+  const b = { role: 'office', ...req.body };
+  const data = userData(b, true);
+  if (data.role === 'office' && data.permissions === undefined) data.permissions = JSON.stringify(PRESETS.bureau.perms);
+  const id = insert('users', data, USER_COLS);
+  const invite = b.invite && data.email && !data.password_hash ? await inviteUser(req, id, b.send_invite).catch((e) => ({ error: e.message })) : null;
+  return { id, invite };
 }));
 api.put('/users/:id', adminOnly, wrap((req) => {
-  const b = req.body;
-  const data = { ...b, email: b.email?.toLowerCase() };
-  if (b.password) data.password_hash = hashSecret(b.password);
-  if (b.pin) { if (!/^\d{4,6}$/.test(b.pin)) throw new BusinessError('PIN : 4 à 6 chiffres'); data.pin_hash = hashSecret(b.pin); }
+  const b = { ...req.body, id: Number(req.params.id) };
   if (Number(req.params.id) === req.user.id && (b.active === false || b.active === 0 || (b.role && b.role !== 'admin'))) throw new BusinessError('Vous ne pouvez pas désactiver votre propre compte admin');
-  update('users', req.params.id, data, ['name', 'email', 'role', 'color', 'hourly_cost', 'active', 'password_hash', 'pin_hash']);
-  if (b.active === false || b.active === 0) run('DELETE FROM sessions WHERE user_id=?', req.params.id);
+  const data = userData(b, false);
+  update('users', req.params.id, data, USER_COLS);
+  if (b.active === false || b.active === 0 || b.password || (b.role && b.role === 'mechanic')) run("DELETE FROM sessions WHERE user_id=? AND kind='web'", req.params.id);
   return { ok: true };
 }));
-api.get('/me', (req, res) => res.json(req.user));
-api.get('/settings', (req, res) => { const { odoo, ...s } = getSettings(); res.json(s); });
+api.post('/users/:id/invite', adminOnly, wrap((req) => inviteUser(req, Number(req.params.id), req.body.send)));
+api.get('/me', (req, res) => {
+  const { permissions, token, ...u } = req.user;
+  res.json({ ...u, perms: effectivePerms(req.user), attendance: statusOf(req.user.id) });
+});
+
+// ---------- Présences (pointage façon Odoo) ----------
+api.get('/attendance/me', (req, res) => res.json(statusOf(req.user.id)));
+api.post('/attendance/check', wrap((req) => checkInOut(req.user.id, { action: req.body.action, source: 'web' })));
+api.get('/attendance/board', (req, res) => res.json(board()));
+api.get('/attendance/report', (req, res) => res.json(attendanceReport(req.query)));
+api.get('/attendance', (req, res) => res.json(listAttendance(req.query)));
+api.post('/attendance', needManager('presences'), wrap((req) => ({ id: saveAttendance(req.body) })));
+api.put('/attendance/:id', needManager('presences'), wrap((req) => ({ id: saveAttendance({ ...req.body }, Number(req.params.id)) })));
+api.delete('/attendance/:id', needManager('presences'), wrap((req) => { run("DELETE FROM time_entries WHERE id=? AND kind='presence'", req.params.id); return { ok: true }; }));
+const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, copilot, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
+api.get('/settings', (req, res) => res.json(publicSettings()));
 api.put('/settings', adminOnly, wrap((req) => {
   for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai', 'public_url']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
   if (req.body.layout) setSetting('layout', cleanLayout(req.body.layout));
-  const { odoo, ...s } = getSettings();
-  return s;
+  if (req.body.options) setSetting('options', cleanOptions(req.body.options));
+  if (req.body.attendance) {
+    const a = req.body.attendance;
+    setSetting('attendance', {
+      hours_per_day: Math.min(24, Math.max(0, Number(a.hours_per_day) || ATTENDANCE_DEFAULTS.hours_per_day)),
+      work_days: Array.isArray(a.work_days) ? [...new Set(a.work_days.map(Number).filter((d) => d >= 0 && d <= 6))] : ATTENDANCE_DEFAULTS.work_days,
+      tolerance_min: Math.max(0, Number(a.tolerance_min) || 0),
+      auto_checkout: Boolean(a.auto_checkout), kiosk_pin: Boolean(a.kiosk_pin), kiosk_badge: Boolean(a.kiosk_badge), kiosk_show_orders: Boolean(a.kiosk_show_orders),
+    });
+  }
+  return publicSettings();
 }));
+api.post('/settings/home-bg', adminOnly, rawBody, wrap((req) => saveBackground(Buffer.isBuffer(req.body) ? req.body : null)));
+api.delete('/settings/home-bg', adminOnly, wrap(() => deleteBackground()));
+api.post('/automation/followups', adminOnly, wrap(() => runFollowups({ force: true })));
+api.post('/automation/reminders', adminOnly, wrap(() => runAppointmentReminders({ force: true })));
 
 // ---------- Import Odoo ----------
 api.get('/odoo', (req, res) => res.json({ config: publicOdooConfig(), job: odooJob, last: getSettings().odoo_last_import || null }));
@@ -675,6 +825,7 @@ app.use((err, req, res, _next) => {
 
 const PORT = Number(process.env.PORT || 3000);
 startScheduler();
+startAutomation();
 startInboxPolling();
 startCopilotScheduler();
 setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
