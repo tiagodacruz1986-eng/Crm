@@ -27,13 +27,13 @@ CREATE TABLE IF NOT EXISTS activities (
 CREATE INDEX IF NOT EXISTS idx_activities_due ON activities(status, due_date);
 `);
 
-export const MODELS = ['document', 'customer', 'vehicle', 'purchase', 'product', 'supplier', 'appointment'];
+export const MODELS = ['document', 'customer', 'vehicle', 'purchase', 'product', 'supplier', 'appointment', 'lead'];
 export const MODULES = {
   general: 'Général', atelier: 'Atelier', planning: 'Planning', ventes: 'Ventes', clients: 'Clients', vehicules: 'Véhicules',
-  stock: 'Stock', achats: 'Achats', banque: 'Banque', comptabilite: 'Comptabilité', pointage: 'Pointage', ia: 'Bureau IA',
+  stock: 'Stock', achats: 'Achats', banque: 'Banque', comptabilite: 'Comptabilité', pointage: 'Pointage', ia: 'Bureau IA', crm: 'CRM', marketing: 'Marketing',
 };
 export const ACTIVITY_TYPES = { todo: 'À faire', call: 'Appel', email: 'E-mail', meeting: 'Rendez-vous', reminder: 'Rappel', payment: 'Relance paiement', order: 'Commande' };
-const MODEL_MODULE = { document: 'ventes', customer: 'clients', vehicle: 'vehicules', purchase: 'achats', product: 'stock', supplier: 'achats', appointment: 'planning' };
+const MODEL_MODULE = { document: 'ventes', customer: 'clients', vehicle: 'vehicules', purchase: 'achats', product: 'stock', supplier: 'achats', appointment: 'planning', lead: 'crm' };
 
 // ---------- Configuration SMTP ----------
 export function mailConfig() { return getSettings().smtp || {}; }
@@ -69,6 +69,7 @@ export function recordInfo(model, id) {
     purchase: () => { const p = get('SELECT p.number, s.name, s.email FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?', id); return p && { label: `Achat ${p.number} — ${p.name || ''}`, link: `/purchase/${id}`, email: p.email, name: p.name }; },
     product: () => { const p = get('SELECT ref, name FROM products WHERE id=?', id); return p && { label: `${p.ref ? p.ref + ' — ' : ''}${p.name}`, link: `/product/${id}` }; },
     supplier: () => { const s = get('SELECT name, email FROM suppliers WHERE id=?', id); return s && { label: s.name, link: '/suppliers', email: s.email, name: s.name }; },
+    lead: () => { const l = get('SELECT name, contact_name, email FROM crm_leads WHERE id=?', id); return l && { label: `Opportunité : ${l.name}`, link: `/crm?lead=${id}`, email: l.email, name: l.contact_name }; },
     appointment: () => { const a = get('SELECT a.start, a.title, c.name, c.email FROM appointments a LEFT JOIN customers c ON c.id=a.customer_id WHERE a.id=?', id); return a && { label: `RDV ${a.start.slice(0, 16).replace('T', ' ')} — ${a.name || ''}`, link: '/planning', email: a.email, name: a.name }; },
   }[model];
   return r ? r() : null;

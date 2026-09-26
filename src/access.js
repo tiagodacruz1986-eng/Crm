@@ -24,6 +24,9 @@ export const APPS = [
   { key: 'banque', name: 'Banque', desc: 'Relevés, rapprochements, paiements' },
   { key: 'comptabilite', name: 'Comptabilité', desc: 'Écritures, TVA, balance, grand livre' },
   { key: 'presences', name: 'Présences', desc: 'Pointages de toute l\'équipe, feuilles de temps' },
+  { key: 'crm', name: 'CRM', desc: 'Pistes, opportunités, pipeline commercial' },
+  { key: 'site', name: 'Site web', desc: 'Créer et publier la page web du garage' },
+  { key: 'social', name: 'Marketing social', desc: 'Publications Facebook, Instagram…' },
   { key: 'ia', name: 'IA', desc: 'Nova, bureau IA, agents' },
   { key: 'emails', name: 'Discussion & e-mails', desc: 'Envoyer des e-mails, boîte d\'envoi' },
 ];
@@ -32,6 +35,7 @@ export const APPS = [
 const all_ = (lvl) => Object.fromEntries(APPS.map((a) => [a.key, lvl]));
 export const PRESETS = {
   bureau: { name: 'Bureau / accueil', perms: { ...all_('user'), comptabilite: 'read', banque: 'read', presences: 'read' } },
+  marketing: { name: 'Commercial / marketing', perms: { ...all_('none'), crm: 'manager', site: 'manager', social: 'manager', contacts: 'user', vehicules: 'read', ventes: 'user', emails: 'user', ia: 'user' } },
   chef_atelier: { name: 'Chef d\'atelier', perms: { ...all_('none'), atelier: 'manager', contacts: 'user', vehicules: 'user', inventaire: 'user', achats: 'user', presences: 'manager', ventes: 'read', ia: 'user', emails: 'user' } },
   comptable: { name: 'Comptable / fiduciaire', perms: { ...all_('read'), comptabilite: 'manager', banque: 'user', achats: 'user', atelier: 'none', ia: 'none', emails: 'user' } },
   magasinier: { name: 'Magasinier', perms: { ...all_('none'), inventaire: 'manager', achats: 'user', contacts: 'read', vehicules: 'read', atelier: 'read' } },
@@ -42,6 +46,7 @@ export const PRESETS = {
 // Droits induits (comme Odoo) : travailler dans une application demande de lire certaines autres
 const IMPLIES = {
   ventes: ['contacts', 'vehicules', 'inventaire'],
+  crm: ['contacts', 'vehicules'],
   atelier: ['contacts', 'vehicules', 'inventaire'],
   achats: ['contacts', 'inventaire'],
   banque: ['ventes', 'achats', 'contacts'],
@@ -79,10 +84,11 @@ const PREFIXES = [
   ['/timesheets', 'presences'], ['/attendance', 'presences'],
   ['/agents', 'ia'], ['/agent-', 'ia'], ['/copilot', 'ia'],
   ['/mail', 'emails'],
+  ['/crm', 'crm'], ['/website', 'site'], ['/social', 'social'],
 ];
 // Routes accessibles à tout utilisateur connecté (lecture de son propre pointage, recherche filtrée…)
 const OPEN = [/^\/attendance\/me$/, /^\/attendance\/check$/, /^\/mail\/(compose|preview)$/, /^\/copilot\/journal/];
-const READ_POSTS = [/^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/];
+const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/];
 
 function documentApp(req) {
   const typeApp = (t) => (t === 'order' ? 'atelier' : t ? 'ventes' : null);

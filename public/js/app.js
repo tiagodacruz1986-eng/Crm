@@ -17,7 +17,7 @@ const VIEWS = {
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
   accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'),
-  office: lazy('office', 'Office'), apps: lazy('home', 'Home'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
+  office: lazy('office', 'Office'), apps: lazy('home', 'Home'), crm: lazy('crm', 'Crm'), website: lazy('website', 'Website'), social: lazy('social', 'Social'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
 const NAV = [

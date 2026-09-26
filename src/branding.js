@@ -83,3 +83,4 @@ export function deleteBackground() {
   setSetting('home', home);
   return home;
 }
+export const sniffImage = sniff;

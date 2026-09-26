@@ -3,6 +3,7 @@
 import { db, all, get, run, insert, today, localDate, getSettings } from './db.js';
 import { compose, sendEmail, createActivity, isMailConfigured } from './mail.js';
 import { autoCheckout } from './attendance.js';
+import { publishDue } from './social.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS followups (
@@ -129,6 +130,7 @@ async function tick() {
   const t = today();
   const o = options();
   try { autoCheckout(); } catch (e) { console.error('Départ automatique', e); }
+  publishDue(getSettings().public_url).catch((e) => console.error('Publications programmées', e));
   const due = (key, time) => hm >= time && lastRun[key] !== t && (lastRun[key] = t);
   if (o.relances.enabled && due('followups', o.relances.run_time)) runFollowups().catch((e) => console.error('Relances', e));
   if (o.rendez_vous.reminder && due('reminders', o.rendez_vous.reminder_time)) runAppointmentReminders().catch((e) => console.error('Rappels RDV', e));

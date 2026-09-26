@@ -162,8 +162,12 @@ export const get = (sql, ...p) => {
 };
 export const run = (sql, ...p) => db.prepare(sql).run(...p);
 
+// Transaction (réentrante : un appel imbriqué fait partie de la transaction en cours)
+let txDepth = 0;
 export function tx(fn) {
+  if (txDepth > 0) { txDepth++; try { return fn(); } finally { txDepth--; } }
   db.exec('BEGIN');
+  txDepth = 1;
   try {
     const r = fn();
     db.exec('COMMIT');
@@ -171,6 +175,8 @@ export function tx(fn) {
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
+  } finally {
+    txDepth = 0;
   }
 }
 

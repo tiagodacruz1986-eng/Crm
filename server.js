@@ -30,6 +30,9 @@ import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBack
 import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, createInvite, findInvite, clearInvite } from './src/access.js';
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance } from './src/attendance.js';
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
+import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
+import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
+import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
 import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation } from './src/conversations.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
@@ -47,7 +50,7 @@ app.use('/vendor/three', express.static(nm('three')));
 app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
-const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete'];
+const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban'];
 let iconModule = null;
 app.get('/vendor/icons.js', async (req, res) => {
   if (!iconModule) {
@@ -56,6 +59,21 @@ app.get('/vendor/icons.js', async (req, res) => {
     iconModule = `export default ${JSON.stringify(map)};`;
   }
   res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
+});
+// ---------- Site web public ----------
+const siteHeaders = (res) => res.set('X-Content-Type-Options', 'nosniff').set('Referrer-Policy', 'strict-origin-when-cross-origin');
+app.get('/site', (req, res) => {
+  siteHeaders(res);
+  if (!websiteConfig().published) return res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>Bientôt en ligne</title><body style="font-family:system-ui;display:grid;place-items:center;min-height:90vh;color:#334155"><h1>🔧 Site bientôt en ligne</h1></body>');
+  res.type('html').send(renderSite());
+});
+app.get('/site-media/:file', (req, res) => {
+  const f = siteMediaFile(req.params.file);
+  if (!f) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=86400').set('X-Content-Type-Options', 'nosniff').sendFile(f);
+});
+app.post('/site-api/contact', express.json({ limit: '20kb' }), (req, res) => {
+  try { res.json(submitContact(req.body || {}, req.ip)); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.get('/home-bg', (req, res) => {
   const l = logoFile('home');
@@ -660,7 +678,7 @@ api.get('/attendance', (req, res) => res.json(listAttendance(req.query)));
 api.post('/attendance', needManager('presences'), wrap((req) => ({ id: saveAttendance(req.body) })));
 api.put('/attendance/:id', needManager('presences'), wrap((req) => ({ id: saveAttendance({ ...req.body }, Number(req.params.id)) })));
 api.delete('/attendance/:id', needManager('presences'), wrap((req) => { run("DELETE FROM time_entries WHERE id=? AND kind='presence'", req.params.id); return { ok: true }; }));
-const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, copilot, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
+const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
 api.get('/settings', (req, res) => res.json(publicSettings()));
 api.put('/settings', adminOnly, wrap((req) => {
   for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai', 'public_url']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
@@ -677,6 +695,47 @@ api.put('/settings', adminOnly, wrap((req) => {
   }
   return publicSettings();
 }));
+// ---------- CRM ----------
+api.get('/crm/meta', (req, res) => res.json({ stages: stages(), sources: SOURCES, lost_reasons: LOST_REASONS }));
+api.get('/crm/stats', (req, res) => res.json(pipelineStats()));
+api.get('/crm/leads', (req, res) => res.json(listLeads(req.query)));
+api.get('/crm/leads/:id', wrap((req) => getLead(Number(req.params.id))));
+api.post('/crm/leads', wrap((req) => ({ id: saveLead({ user_id: req.user.id, ...req.body }) })));
+api.put('/crm/leads/:id', wrap((req) => ({ id: saveLead(req.body, Number(req.params.id)) })));
+api.delete('/crm/leads/:id', wrap((req) => { run('DELETE FROM crm_leads WHERE id=?', req.params.id); return { ok: true }; }));
+api.post('/crm/leads/:id/move', wrap((req) => moveLead(Number(req.params.id), Number(req.body.stage_id), Number(req.body.sequence) || 0)));
+api.post('/crm/leads/:id/won', wrap((req) => markWon(Number(req.params.id))));
+api.post('/crm/leads/:id/lost', wrap((req) => markLost(Number(req.params.id), req.body.reason)));
+api.post('/crm/leads/:id/restore', wrap((req) => restoreLead(Number(req.params.id))));
+api.post('/crm/leads/:id/customer', wrap((req) => { if (!can(req.user, 'contacts', 'user')) throw new BusinessError('Droit « Utilisateur » sur Contacts requis', 403); return { customer_id: ensureCustomer(Number(req.params.id)) }; }));
+api.post('/crm/leads/:id/quote', wrap((req) => { if (!can(req.user, 'ventes', 'user')) throw new BusinessError('Droit « Utilisateur » sur Ventes requis', 403); return { document_id: createQuote(Number(req.params.id)) }; }));
+api.post('/crm/stages', needManager('crm'), wrap((req) => ({ id: saveStage(req.body) })));
+api.put('/crm/stages/:id', needManager('crm'), wrap((req) => ({ id: saveStage(req.body, Number(req.params.id)) })));
+api.delete('/crm/stages/:id', wrap((req) => { deleteStage(Number(req.params.id)); return { ok: true }; }));
+
+// ---------- Site web ----------
+api.get('/website', (req, res) => res.json({ config: websiteConfig(), types: BLOCK_TYPES, url: `${baseUrl(req)}/site` }));
+api.put('/website', wrap((req) => {
+  if ('published' in req.body && Boolean(req.body.published) !== websiteConfig().published && !can(req.user, 'site', 'manager')) throw new BusinessError('Seul un administrateur du site peut le publier ou le dépublier', 403);
+  return saveWebsite(req.body);
+}));
+api.post('/website/preview', wrap((req, res) => { res.type('html').send(renderSite({ preview: true })); }));
+api.post('/website/generate', wrap((req) => generateWebsite(req.body || {})));
+api.post('/website/images', rawBody, wrap((req) => saveSiteImage(Buffer.isBuffer(req.body) ? req.body : null)));
+
+// ---------- Marketing social ----------
+api.get('/social', (req, res) => res.json({ platforms: PLATFORMS, accounts: publicAccounts(), public_url: getSettings().public_url || '' }));
+api.put('/social/accounts', adminOnly, wrap((req) => saveAccounts(req.body)));
+api.get('/social/posts', (req, res) => res.json(listPosts(req.query)));
+api.post('/social/posts', wrap((req) => getPost(savePost(req.body, req.user.id))));
+api.put('/social/posts/:id', wrap((req) => getPost(savePost(req.body, req.user.id, Number(req.params.id)))));
+api.delete('/social/posts/:id', wrap((req) => { run('DELETE FROM social_posts WHERE id=?', req.params.id); return { ok: true }; }));
+api.post('/social/posts/:id/publish', wrap((req) => publishPost(Number(req.params.id), getSettings().public_url)));
+api.post('/social/posts/:id/manual-done', wrap((req) => markManualDone(Number(req.params.id))));
+api.post('/social/write', wrap((req) => writePosts(req.body || {})));
+api.post('/social/ideas', wrap(() => postIdeas()));
+api.post('/social/images', rawBody, wrap((req) => saveSiteImage(Buffer.isBuffer(req.body) ? req.body : null)));
+
 api.post('/settings/home-bg', adminOnly, rawBody, wrap((req) => saveBackground(Buffer.isBuffer(req.body) ? req.body : null)));
 api.delete('/settings/home-bg', adminOnly, wrap(() => deleteBackground()));
 api.post('/automation/followups', adminOnly, wrap(() => runFollowups({ force: true })));
