@@ -51,7 +51,7 @@ export const DevicesModal = {
           <div v-else class="btns"><input v-model="draft" placeholder="https://mon-pc.tailnet.ts.net"><button class="btn sm primary" @click="saveUrl">Enregistrer</button></div>
         </div>
       </section>
-      <section class="dev-card">
+      <section v-if="!net.internet_server" class="dev-card">
         <h3>📶 Sur le Wi-Fi du garage</h3>
         <template v-if="net.lan.length">
           <div v-for="u in net.lan" :key="u" class="dev-lan"><img :src="qr(u)" alt="QR code" class="dev-qr"><div class="dev-url">{{ u }}{{ suffix }}</div></div>
@@ -60,6 +60,6 @@ export const DevicesModal = {
         <p v-else class="error small">Aucune adresse réseau trouvée : vérifiez que le PC est connecté au Wi-Fi ou au câble.</p>
       </section>
     </div>
-    <p class="muted small">Astuce : laissez ce PC allumé (et en veille désactivée) pendant les heures d'ouverture, c'est lui qui fait tourner le logiciel.</p>
+    <p v-if="net && !net.internet_server" class="muted small">Astuce : laissez ce PC allumé (et en veille désactivée) pendant les heures d'ouverture, c'est lui qui fait tourner le logiciel.</p>
   </Modal>`,
 };

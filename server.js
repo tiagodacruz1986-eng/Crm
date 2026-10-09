@@ -353,8 +353,9 @@ api.get('/dashboard', (req, res) => {
 // Adresses du PC sur le réseau local (pour ouvrir le logiciel sur téléphone / tablette)
 api.get('/network', (req, res) => {
   const port = process.env.PORT || 3000;
-  const lan = lanUrls(port);
-  res.json({ lan, secure_url: secureUrl(req), current: `${req.protocol}://${req.get('host')}`, is_https: req.secure, port: Number(port) });
+  // Sur un serveur internet (Docker), les adresses internes du conteneur ne servent à rien aux téléphones
+  const internet = process.env.INTERNET_SERVER === '1';
+  res.json({ lan: internet ? [] : lanUrls(port), internet_server: internet, secure_url: secureUrl(req), current: `${req.protocol}://${req.get('host')}`, is_https: req.secure, port: Number(port) });
 });
 api.get('/search', (req, res) => {
   const q = `%${req.query.q || ''}%`;

@@ -1051,7 +1051,7 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 @media (hover: none) { .crm-board .touch-move { display: flex; gap: 6px; margin-top: 8px; } }
 
 /* ---------- Installer sur téléphone (fenêtre du PC) ---------- */
-.dev-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
 .dev-card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: var(--panel-2); }
 .dev-card.best { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
 .dev-card h3 { margin: 0 0 10px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
