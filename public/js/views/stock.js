@@ -1,4 +1,4 @@
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, num, date, datetime, today, TAX_RATES } from '../api.js';
 
 // Envoi d'un fichier brut (PDF, photo) à l'API
@@ -8,7 +8,7 @@ async function uploadFile(url, file) {
   if (!r.ok) throw new Error(d.error || 'Envoi impossible');
   return d;
 }
-import { route, go } from '../router.js';
+import { route, go, leaveGuards } from '../router.js';
 import { PaymentModal } from './documents.js';
 
 const PRODUCT_FIELDS = ['ref', 'ean', 'name', 'category', 'brand', 'supplier_id', 'purchase_price', 'sale_price', 'tax_rate', 'qty_min', 'location', 'unit', 'is_service', 'labor_hours', 'active'];
@@ -201,8 +201,17 @@ export const PurchaseEditor = {
     const files = ref([]);
     const viewer = ref(null);
     const aiBusy = ref(false);
+    // Achat modifié et non enregistré : confirmation avant de quitter (comme pour les OR et devis)
+    let saved = '';
+    const snap = () => JSON.stringify({ ...p.value, payments: undefined });
+    const markSaved = () => { saved = p.value ? snap() : ''; };
+    const leaveOk = () => !p.value || p.value.posted || snap() === saved || confirm('Les modifications de cet achat ne sont pas enregistrées. Quitter quand même ?');
+    const onUnload = (e) => { if (p.value && !p.value.posted && snap() !== saved) { e.preventDefault(); e.returnValue = ''; } };
+    onMounted(() => { leaveGuards.add(leaveOk); window.addEventListener('beforeunload', onUnload); });
+    onUnmounted(() => { leaveGuards.delete(leaveOk); window.removeEventListener('beforeunload', onUnload); });
     const load = async () => {
       p.value = isNew ? { date: today(), status: 'draft', lines: [], payments: [] } : await GET('/purchases/' + route.params.id);
+      markSaved();
       if (!isNew) { files.value = await GET('/attachments/purchase/' + route.params.id); if (!viewer.value || !files.value.some((f) => f.id === viewer.value.id)) viewer.value = files.value.find((f) => /pdf|image/.test(f.mime)) || null; }
     };
     const addFiles = async (e) => { for (const f of e.target.files) await act(() => uploadFile(`/attachments/purchase/${p.value.id}`, f)); e.target.value = ''; load(); };
@@ -227,12 +236,12 @@ export const PurchaseEditor = {
     const addLine = () => p.value.lines.push({ description: '', quantity: 1, unit_price: 0, tax_rate: 17, product_id: null, account_code: null });
     const pickProduct = (l, x) => { if (x) Object.assign(l, { product_id: x.id, description: `${x.ref ? x.ref + ' — ' : ''}${x.name}`, unit_price: x.purchase_price, tax_rate: x.tax_rate }); };
     const save = async () => {
-      if (isNew) { const r = await act(() => POST('/purchases', p.value), 'Enregistré'); go('/purchase/' + r.id); return r.id; }
+      if (isNew) { const r = await act(() => POST('/purchases', p.value), 'Enregistré'); markSaved(); go('/purchase/' + r.id); return r.id; }
       await act(() => PUT('/purchases/' + p.value.id, p.value), 'Enregistré'); await load(); return p.value.id;
     };
     const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); };
     const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; load(); };
-    const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); go('/purchases'); };
+    const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); markSaved(); p.value = null; go('/purchases'); };
     return { files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
   },
   template: `

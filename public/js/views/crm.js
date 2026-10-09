@@ -198,14 +198,14 @@ export const Crm = {
       </p>
       <Chatter v-if="edit.id" model="lead" :record-id="edit.id" style="margin-top:12px"/>
       <template #foot>
-        <template v-if="edit.id">
+        <div v-if="edit.id" class="foot-actions">
           <button v-if="edit.status === 'open'" class="btn won-btn" @click="won"><Icon name="trophy"/> Gagnée</button>
           <button v-if="edit.status === 'open'" class="btn" @click="askLost"><Icon name="thumbs-down"/> Perdue</button>
           <button v-if="edit.status !== 'open'" class="btn" @click="restore(edit)"><Icon name="undo-2"/> Restaurer</button>
           <button v-if="can('ventes', 'user')" class="btn" @click="quote"><Icon name="file-text"/> {{ edit.quote_id ? 'Voir le devis' : 'Nouveau devis' }}</button>
           <button v-if="!edit.customer_id && can('contacts', 'user')" class="btn" @click="toCustomer"><Icon name="user-plus"/> Créer le client</button>
           <button v-if="manager" class="btn danger" @click="remove">Supprimer</button>
-        </template>
+        </div>
         <span style="flex:1"></span>
         <button class="btn" @click="edit = null">Fermer</button><button class="btn primary" @click="save()">Enregistrer</button>
       </template>

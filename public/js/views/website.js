@@ -22,6 +22,7 @@ export const Website = {
     const types = ref({});
     const url = ref('');
     const sel = ref(null);
+    watch(sel, () => { if (matchMedia('(max-width: 1100px)').matches) nextTick(() => document.querySelector('.block-editor-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); });
     const html = ref('');
     const saving = ref(false);
     const gen = reactive({ open: false, notes: '', tone: 'chaleureux et professionnel', busy: false });
@@ -126,7 +127,7 @@ export const Website = {
       <div class="btns" style="margin-top:8px"><select v-model="addType" style="flex:1"><option value="">+ Ajouter un bloc…</option><option v-for="(l, k) in types" :value="k">{{ ICON[k] }} {{ l }}</option></select><button class="btn sm" :disabled="!addType" @click="add">Ajouter</button></div>
 
       <template v-if="block">
-        <h3 class="sec-title">{{ ICON[block.type] }} {{ types[block.type] }}</h3>
+        <h3 class="sec-title block-editor-title">{{ ICON[block.type] }} {{ types[block.type] }}</h3>
         <label>Titre<input v-model="block.title"></label>
         <label v-if="block.type === 'promo'">Étiquette<input v-model="block.badge"></label>
         <label v-if="block.type === 'hero'">Sous-titre<textarea v-model="block.subtitle" rows="3"></textarea></label>
@@ -178,7 +179,7 @@ export const Website = {
     </aside>
 
     <section class="site-preview">
-      <div class="le-preview-bar"><div class="seg"><button :class="{ on: device === 'desktop' }" @click="device = 'desktop'">Ordinateur</button><button :class="{ on: device === 'mobile' }" @click="device = 'mobile'">Téléphone</button></div><span class="muted small">Aperçu en direct</span></div>
+      <div class="le-preview-bar"><div class="seg preview-switch"><button :class="{ on: device === 'desktop' }" @click="device = 'desktop'">Ordinateur</button><button :class="{ on: device === 'mobile' }" @click="device = 'mobile'">Téléphone</button></div><span class="muted small">Aperçu en direct</span></div>
       <div class="site-frame" :class="device"><iframe :srcdoc="html" sandbox="allow-same-origin" title="Aperçu du site"></iframe></div>
     </section>
 

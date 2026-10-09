@@ -1,5 +1,5 @@
 // Marketing social (inspiré d'Odoo) : composer, prévisualiser, programmer et publier ; idées et textes par l'IA.
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, store, datetime } from '../api.js';
 import { route, go } from '../router.js';
 
@@ -30,7 +30,11 @@ export const Social = {
     const openPost = (p) => { edit.value = { ...p, scheduled_at: p.scheduled_at || '' }; ai.variants = []; };
     // Téléphone : les publications ne tiennent pas dans les cases du calendrier → un jour touché affiche sa liste
     const dayPick = ref(null);
-    const tapDay = (d) => { if (d.posts.length && matchMedia('(max-width: 700px)').matches) dayPick.value = d.key; else planOn(d.key); };
+    const tapDay = (d) => {
+      if (!d.posts.length || !matchMedia('(max-width: 700px)').matches) return planOn(d.key);
+      dayPick.value = d.key;
+      nextTick(() => document.querySelector('.cal-daylist')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    };
     const pickedDay = computed(() => dayPick.value && days.value.find((d) => d.key === dayPick.value));
     const toggle = (k) => { const l = edit.value.platforms; const i = l.indexOf(k); if (i >= 0) l.splice(i, 1); else l.push(k); };
     const limits = computed(() => (edit.value ? edit.value.platforms.map((k) => ({ k, name: meta.value.platforms[k].name, max: meta.value.platforms[k].max, over: edit.value.text.length > meta.value.platforms[k].max })) : []));

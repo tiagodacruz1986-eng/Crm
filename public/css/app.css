@@ -1087,7 +1087,7 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 /* Recherche globale : champ + bouton « Fermer » (pas de touche Échap sur un téléphone) */
 .search-head { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 18px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .search-box .search-head input { border: 0; padding-left: 4px; padding-right: 4px; flex: 1; min-width: 0; }
-.search-close { padding: 10px; font-weight: 600; flex-shrink: 0; }
+.search-head .search-close { padding: 10px; font-weight: 600; flex-shrink: 0; }
 @media (max-width: 800px) {
   .search-box { padding-top: env(safe-area-inset-top); }
   /* Le bouton Nova ne cache plus la dernière ligne des listes */
@@ -1099,20 +1099,42 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
   /* Cases à cocher dans les lignes empilées : taille normale */
   table.stackable td > input[type=checkbox] { flex: none; width: 22px; height: 22px; max-width: none; }
   /* Liste de choix (pièce du stock…) assez large pour être lisible */
-  .picker-list { left: auto; right: 0; min-width: min(320px, calc(100vw - 40px)); }
+  .picker-list { left: auto; right: 0; min-width: min(320px, calc(100vw - 48px)); text-align: left; }
 }
 @media (max-height: 520px) { .login-bg { padding-top: 64px; } }
 /* OR / devis modifié : bouton « Enregistrer » toujours à portée de pouce sur téléphone */
 .save-fab { display: none; }
 @media (max-width: 800px) { .save-fab { display: inline-flex; position: fixed; left: 16px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 90; padding: 13px 20px; border-radius: 14px; box-shadow: var(--shadow-lg); } }
 @media (max-width: 800px) {
-  .modal-body { overflow-wrap: anywhere; }
+  .modal-body { overflow-wrap: break-word; }
   /* Achats : le choix de l'article prend toute la largeur (le bouton « Saisie libre » passe dessous) */
   table.stackable td:has(> .picker) { flex-wrap: wrap; }
   table.stackable td > .picker { flex: 1 1 100%; max-width: none; }
-  /* Textes longs (e-mails, communications bancaires) : retour à la ligne au lieu de déborder */
-  table.stackable td, .list-item, .card-head { overflow-wrap: anywhere; }
+  /* Textes longs (e-mails, communications bancaires, liens dans l'historique) : retour à la ligne au lieu de déborder */
+  table.stackable td, .list-item { overflow-wrap: break-word; }
+  .wrap-any, .chat-msg, .activity { overflow-wrap: anywhere; min-width: 0; }
+  .chat-msg > div, .activity > div { min-width: 0; }
+  .btn, .icon-btn, .seg button, .badge { overflow-wrap: normal; } /* jamais de mot coupé dans un bouton */
+  /* En-têtes de carte : le titre garde au moins 160 px, les boutons passent dessous s'il le faut */
   .card-head { flex-wrap: wrap; }
+  .card-head > :first-child { flex: 1 1 160px; min-width: 0; }
+  /* Liste des utilisateurs : l'e-mail sur sa propre ligne */
+  table.users-list td:first-child { flex-wrap: wrap; justify-content: flex-start; }
+  table.users-list td:first-child > div { flex: 1 1 100%; max-width: none; text-align: left; }
+  /* Titre d'une colonne vide masqué */
+  table.stackable td.is-empty { display: none; }
+  /* Messages au-dessus des fenêtres plein écran : sous l'en-tête (titre et ✕ restent visibles) */
+  body:has(.modal-bg) .toasts { top: calc(76px + env(safe-area-inset-top)); }
+  /* CRM : actions de l'opportunité sur une ligne qui défile, pied de fenêtre moins haut */
+  .foot-actions { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 100%; scrollbar-width: none; padding-bottom: 2px; }
+  .foot-actions .btn { flex: none; white-space: nowrap; }
+  .crm-stagebar { overflow-x: auto; scrollbar-width: none; }
+  .crm-stagebar button { flex: 0 0 auto; white-space: nowrap; padding: 8px 16px 8px 18px; }
+  /* Éditeur du site : sur téléphone l'aperçu est déjà au format téléphone */
+  .preview-switch { display: none; }
+  .toolbar input[type=checkbox] { flex: none; }
+  .is-office .agent-dock { right: 10px; }
+  .agent-panel .agent-body .btn { max-width: 100%; white-space: normal; text-align: left; }
   /* Bureau IA : il a ses propres agents, le bouton Nova masquerait les boutons de la console */
   .is-office .copilot-orb, .is-office .copilot-panel { display: none; }
 }
@@ -1126,5 +1148,13 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 .limits { margin: 4px 0 10px; }
 .cal-nav { flex-wrap: nowrap; align-items: center; }
 .cal-nav h2 { font-size: clamp(16px, 4.5vw, 22px); white-space: nowrap; }
-.cal-d.picked { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cal-d.picked { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand-2); }
+.cal-daylist .list-item > span:last-child { flex-shrink: 0; white-space: nowrap; }
 .cal-daylist { margin-top: 14px; }
+/* Écrans tactiles : cibles assez grandes pour le doigt */
+@media (hover: none) {
+  button.link { padding: 8px 6px; margin: -8px -6px; }
+  .seg button { min-height: 36px; }
+  .color-dots button { width: 32px; height: 32px; }
+}
+:root[data-theme="light"] .site-status.live b { color: #047857; }

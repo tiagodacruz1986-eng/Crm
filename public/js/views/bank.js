@@ -47,7 +47,7 @@ export const Bank = {
     <div class="grid g3">
       <div v-for="a in accounts" class="card">
         <div class="card-head"><div><h2 style="margin:0">🏦 {{ a.name }}</h2><div class="muted small">{{ a.bank_name }} {{ a.iban }}</div></div><button class="icon-btn" @click="edit = {...a}">✎</button></div>
-        <div class="kpi" style="box-shadow:none;padding:0;border:0"><div class="l">Solde selon relevés</div><div class="v">{{ money(a.statement_balance) }}</div></div>
+        <div class="kpi" style="box-shadow:none;padding:0;border:0;border-radius:0;overflow:visible;background:none"><div class="l">Solde selon relevés</div><div class="v">{{ money(a.statement_balance) }}</div></div>
         <div class="muted small" style="margin:6px 0 10px">{{ a.unmatched }} à rapprocher · dernière synchro {{ a.last_sync ? datetime(a.last_sync) : 'jamais' }}</div>
         <div class="btns">
           <label class="btn sm" style="flex-direction:row;color:inherit">📥 Importer un relevé<input type="file" accept=".xml,.csv,.txt,.053" hidden @change="importFile(a, $event)"></label>
@@ -67,7 +67,7 @@ export const Bank = {
         <tbody><tr v-for="l in lines">
           <td class="nowrap">{{ date(l.date) }}</td>
           <td>{{ l.counterparty }}<div class="muted small">{{ l.counterparty_iban }}</div></td>
-          <td class="small" style="max-width:320px">{{ l.communication }}</td>
+          <td class="small wrap-any" style="max-width:320px">{{ l.communication }}</td>
           <td class="num strong" :class="l.amount > 0 ? 'pos' : 'neg'">{{ money(l.amount) }}</td>
           <td>
             <template v-if="l.status === 'unmatched'">
@@ -97,7 +97,7 @@ export const Bank = {
       <template #foot><button class="btn primary" :disabled="!edit.name" @click="saveAccount">Enregistrer</button></template>
     </Modal>
     <Modal v-if="assign" title="Affecter l'opération à un compte" @close="assign = null">
-      <p><b>{{ money(assign.line.amount) }}</b> — {{ assign.line.counterparty }} <span class="muted">{{ assign.line.communication }}</span></p>
+      <p><b>{{ money(assign.line.amount) }}</b> — {{ assign.line.counterparty }} <span class="muted wrap-any">{{ assign.line.communication }}</span></p>
       <div class="btns"><button v-for="[c, n] in QUICK" class="btn sm" :class="{primary: assign.account === c}" @click="assign.account = c">{{ n }}</button></div>
       <label>Compte<select v-model="assign.account"><option v-for="a in chart" :value="a.code">{{ a.code }} — {{ a.name }}</option></select></label>
       <label>Libellé<input v-model="assign.label"></label>

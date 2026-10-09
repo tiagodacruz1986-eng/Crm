@@ -98,6 +98,8 @@ const App = {
     };
     const setStage = async (s) => {
       if (!isMech.value) return;
+      // Petit écran : les noms des étapes sont masqués, on confirme avant de changer ce que voit le client
+      if (matchMedia('(max-width: 480px)').matches && !confirm(`Passer à l'étape « ${s.label} » ?`)) return;
       await fetch(`${API}/stage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: s.key, name: name.value || 'Mécanicien' }) });
       load();
     };
@@ -137,8 +139,8 @@ const App = {
         </div>
         <div class="bar"><div :style="{width: pct + '%'}"></div></div>
         <div class="steps">
-          <div v-for="(s, i) in d.stages" class="step" :class="{done: i < d.stage_index, cur: i === d.stage_index, clickable: isMech}" @click="setStage(s)">
-            <div class="dot">{{ i < d.stage_index ? '✓' : s.icon }}</div><span class="lbl">{{ s.label }}</span>
+          <div v-for="(s, i) in d.stages" class="step" :class="{done: i < d.stage_index, cur: i === d.stage_index, clickable: isMech}" :title="s.label" :aria-label="s.label" @click="setStage(s)">
+            <div class="dot">{{ i < d.stage_index && !isMech ? '✓' : s.icon }}</div><span class="lbl">{{ s.label }}</span>
           </div>
         </div>
       </div>

@@ -130,14 +130,16 @@ const GlobalSearch = {
     const search = () => { clearTimeout(t); t = setTimeout(async () => { r.value = q.value.length > 1 ? await GET('/search?q=' + encodeURIComponent(q.value)) : null; }, 150); };
     const open = (path) => { go(path); emit('close'); };
     watch(() => route.path + '?' + JSON.stringify(route.query), () => emit('close'));
-    return { q, r, search, open, money, DOC_TYPES_SHORT };
+    const input = ref(null);
+    onMounted(() => input.value?.focus());
+    return { q, r, search, open, money, DOC_TYPES_SHORT, input };
   },
   template: `
   <div class="modal-bg" @mousedown.self="$emit('close')">
     <div class="search-box">
       <div class="search-head">
         <Icon name="search"/>
-        <input v-model="q" @input="search" placeholder="Plaque, client, n° de facture, référence pièce…" autofocus @keydown.esc="$emit('close')" enterkeyhint="search">
+        <input ref="input" v-model="q" @input="search" placeholder="Plaque, client, n° de facture, référence pièce…" @keydown.esc="$emit('close')" enterkeyhint="search">
         <button type="button" class="link search-close" @click="$emit('close')">Fermer</button>
       </div>
       <div class="search-results" v-if="r">
@@ -194,8 +196,9 @@ const Root = {
       e.preventDefault(); e.stopPropagation();
       userOpen.value = false; attOpen.value = false;
     };
-    onMounted(() => document.addEventListener('click', onOutside, true));
-    onUnmounted(() => document.removeEventListener('click', onOutside, true));
+    const onOutsideDown = (e) => { if ((userOpen.value || attOpen.value) && !e.target.closest?.('.user-menu, .att-sys')) e.preventDefault(); };
+    onMounted(() => { document.addEventListener('click', onOutside, true); document.addEventListener('mousedown', onOutsideDown, true); document.addEventListener('pointerdown', onOutsideDown, true); });
+    onUnmounted(() => { document.removeEventListener('click', onOutside, true); document.removeEventListener('mousedown', onOutsideDown, true); document.removeEventListener('pointerdown', onOutsideDown, true); });
     const att = computed(() => store.user?.attendance || {});
     const checking = ref(false);
     const quickCheck = async () => {
@@ -339,17 +342,22 @@ app.mount('#app');
 
 // Sur téléphone, les tableaux deviennent des fiches : chaque cellule reçoit le titre de sa colonne
 function labelTables(root = document) {
-  for (const t of root.querySelectorAll('.content table')) {
+  // Les fenêtres sont affichées directement dans <body> : leurs tableaux sont aussi adaptés au téléphone
+  for (const t of root.querySelectorAll('.content table, .modal-bg table')) {
     const heads = [...t.querySelectorAll(':scope > thead th')].map((th) => th.textContent.trim());
     if (!heads.length || t.closest('.ip')) continue; // les documents imprimés gardent leur tableau
     t.classList.add('stackable');
     for (const tr of t.querySelectorAll(':scope > tbody > tr, :scope > tfoot > tr')) {
-      [...tr.children].forEach((td, i) => { if (heads[i] && td.dataset.label !== heads[i]) td.dataset.label = heads[i]; });
+      [...tr.children].forEach((td, i) => {
+        if (heads[i] && td.dataset.label !== heads[i]) td.dataset.label = heads[i];
+        // Cellule sans contenu (texte vide, pas de champ ni d'image) : on n'affiche pas son titre seul sur téléphone
+        td.classList.toggle('is-empty', !td.textContent.trim() && !td.querySelector('input, select, textarea, button, img, svg, a'));
+      });
     }
   }
 }
 let labelTimer;
-new MutationObserver(() => { clearTimeout(labelTimer); labelTimer = setTimeout(labelTables, 80); }).observe(document.getElementById('app'), { childList: true, subtree: true });
+new MutationObserver(() => { clearTimeout(labelTimer); labelTimer = setTimeout(labelTables, 80); }).observe(document.body, { childList: true, subtree: true });
 
 // Application installable / hors-ligne (HTTPS ou localhost)
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {

@@ -66,10 +66,10 @@ export const UsersAdmin = {
         <div class="btns"><button class="btn" @click="create('mechanic')"><Icon name="wrench"/> Mécanicien</button><button class="btn primary" @click="create('office')"><Icon name="user-plus"/> Inviter un utilisateur</button></div>
       </div>
       <div class="seg" style="margin-bottom:12px"><button :class="{ on: filter === 'active' }" @click="filter = 'active'">Actifs</button><button :class="{ on: filter === 'archived' }" @click="filter = 'archived'">Désactivés</button></div>
-      <table>
+      <table class="users-list">
         <thead><tr><th>Nom</th><th>Type</th><th>Accès</th><th>Dernière connexion</th><th>Statut</th></tr></thead>
         <tbody><tr v-for="u in list" :key="u.id" class="click" @click="open(u)">
-          <td><span class="avatar" :style="{ background: u.color }">{{ u.name[0] }}</span> <b>{{ u.name }}</b><div class="muted small">{{ u.job_title || u.email }}</div></td>
+          <td><span class="avatar" :style="{ background: u.color }">{{ u.name[0] }}</span> <b>{{ u.name }}</b><div class="muted small wrap-any">{{ u.job_title || u.email }}</div></td>
           <td>{{ TYPES[u.role]?.label }}</td>
           <td class="small" style="max-width:360px">{{ summary(u) }}</td>
           <td class="small muted">{{ u.last_login ? datetime(u.last_login.replace(' ', 'T') + 'Z') : '—' }}</td>
