@@ -1,14 +1,19 @@
 {
+  "id": "/kiosk.html",
   "name": "Pointage atelier",
   "short_name": "Pointage",
+  "description": "Kiosque de pointage des mécaniciens : arrivée, départ et temps passé sur les ordres de réparation",
   "start_url": "/kiosk.html",
-  "scope": "/",
+  "scope": "/kiosk",
   "display": "standalone",
-  "background_color": "#0b1220",
-  "theme_color": "#0b1220",
+  "orientation": "any",
+  "background_color": "#05070e",
+  "theme_color": "#05070e",
   "lang": "fr",
+  "categories": ["business", "productivity"],
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

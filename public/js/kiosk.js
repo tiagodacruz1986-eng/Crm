@@ -23,7 +23,7 @@ const App = {
       const r = await fetch('/api' + url, {
         method, headers: { 'Content-Type': 'application/json', ...(token.value ? { Authorization: 'Bearer ' + token.value } : {}) },
         body: body ? JSON.stringify(body) : undefined,
-      });
+      }).catch(() => { throw new Error('Pas de connexion au serveur du garage — réessayez dans un instant'); });
       const d = await r.json().catch(() => ({}));
       if (r.status === 401 && token.value) logout();
       if (!r.ok) throw new Error(d.error || 'Erreur');

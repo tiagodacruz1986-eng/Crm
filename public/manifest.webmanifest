@@ -1,22 +1,32 @@
 {
+  "id": "/",
   "name": "Garage Manager",
   "short_name": "Garage",
-  "description": "Gestion du garage, atelier, comptabilité et équipe IA",
+  "description": "Gestion du garage : atelier, devis, factures, pointage, CRM, comptabilité et équipe IA",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0b1220",
-  "theme_color": "#2563eb",
+  "background_color": "#05070e",
+  "theme_color": "#05070e",
   "lang": "fr",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "screenshots": [
+    { "src": "/screenshots/phone-apps.jpg", "sizes": "1080x2340", "type": "image/jpeg", "form_factor": "narrow", "label": "Toutes les applications du garage" },
+    { "src": "/screenshots/phone-pointage.jpg", "sizes": "1080x2340", "type": "image/jpeg", "form_factor": "narrow", "label": "Pointage arrivée / départ" },
+    { "src": "/screenshots/wide-apps.jpg", "sizes": "1920x1080", "type": "image/jpeg", "form_factor": "wide", "label": "Menu des applications" }
+  ],
   "shortcuts": [
-    { "name": "Nouvel ordre de réparation", "url": "/#/new/order" },
-    { "name": "Atelier", "url": "/#/workshop" },
-    { "name": "Pointage atelier", "url": "/kiosk.html" }
+    { "name": "Pointer arrivée / départ", "short_name": "Pointage", "url": "/#/attendance", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Atelier", "url": "/#/workshop", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Nouvel ordre de réparation", "short_name": "Nouvel OR", "url": "/#/new/order", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "CRM", "url": "/#/crm", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

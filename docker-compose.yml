@@ -1,0 +1,39 @@
+# Mise en ligne sur un serveur avec https automatique (voir README → « Installer sur téléphone »).
+#   1. Faites pointer votre nom de domaine (ex. atelier.mon-garage.lu) vers l'adresse IP du serveur.
+#   2. Dans le fichier .env : DOMAIN=atelier.mon-garage.lu (et ANTHROPIC_API_KEY=… pour l'IA).
+#   3. docker compose up -d   → https://atelier.mon-garage.lu
+services:
+  garage:
+    build: .
+    image: garage-manager
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Luxembourg}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PUBLIC_URL: https://${DOMAIN:?Indiquez DOMAIN=votre-domaine dans le fichier .env}
+      # Serveur sur internet : aucun visiteur n'est considéré comme « réseau du garage »
+      # (code d'installation, limite des essais de mot de passe et PIN au kiosque toujours actifs)
+      INTERNET_SERVER: "1"
+    volumes:
+      - garage-data:/app/data
+    expose:
+      - "3000"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - garage
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  garage-data:
+  caddy-data:
+  caddy-config:

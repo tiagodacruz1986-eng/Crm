@@ -3,8 +3,10 @@ process.env.TZ ||= 'Europe/Luxembourg';
 import express from 'express';
 import path from 'node:path';
 import os from 'node:os';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
+import { db, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
 import { hashSecret, verifySecret, createSession, currentUser, requireAuth } from './src/auth.js';
 import {
   BusinessError, createMove, getDocument, saveDocument, convertDocument, postInvoice, registerPayment, addStockMove,
@@ -37,7 +39,8 @@ import { listConversations, conversationMessages, getConversation, updateConvers
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
 const app = express();
-app.set('trust proxy', true);
+// Confiance uniquement dans un proxy local (Caddy dans Docker, Tailscale serve…) : l'adresse IP réelle et le https viennent de lui
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 app.use(express.json({ limit: '20mb' }));
 app.use(express.text({ type: ['text/*', 'application/xml'], limit: '20mb' }));
 
@@ -60,6 +63,48 @@ app.get('/vendor/icons.js', async (req, res) => {
   }
   res.type('application/javascript').set('Cache-Control', 'public, max-age=86400').send(iconModule);
 });
+// ---------- Installation sur téléphone ----------
+function lanUrls(port) {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.') && !i.address.startsWith('172.17.'))
+    .map((i) => `http://${i.address}:${port}/`);
+}
+// Adresse sécurisée connue : adresse publique saisie (ou PUBLIC_URL), sinon l'adresse https utilisée en ce moment
+function secureUrl(req) {
+  const pub = getSettings().public_url;
+  if (pub && /^https:\/\//.test(pub)) return pub.replace(/\/?$/, '/');
+  return req.secure ? `https://${req.get('host')}/` : null;
+}
+// Service worker : liste des fichiers de l'interface gardés sur le téléphone (ouverture même sans réseau).
+// Calculée au démarrage ; la version change dès qu'un fichier change, ce qui met l'application à jour toute seule.
+let swCache = null;
+function serviceWorker() {
+  if (swCache) return swCache;
+  const pub = path.resolve('public');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]));
+  const files = ['js', 'css', 'icons'].flatMap((d) => walk(path.join(pub, d)))
+    .filter((f) => !/[\\/](suivi)\.(js|css)$/.test(f))
+    .map((f) => '/' + path.relative(pub, f).split(path.sep).join('/'));
+  const urls = ['/', '/kiosk.html', '/installer.html', '/manifest.webmanifest', '/kiosk.webmanifest', '/vendor/vue.js', '/vendor/marked.js', '/vendor/purify.js', '/vendor/icons.js', '/vendor/fonts/inter.woff2', '/vendor/fonts/space-grotesk.woff2', ...files];
+  const hash = crypto.createHash('sha1');
+  const src = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
+  hash.update(src);
+  for (const f of [...['index.html', 'kiosk.html', 'installer.html', 'manifest.webmanifest', 'kiosk.webmanifest'].map((n) => path.join(pub, n)), ...files.map((u) => path.join(pub, u)), nm('vue/package.json'), nm('lucide/package.json')]) {
+    try { hash.update(f + ':' + fs.readFileSync(f).length + ':' + crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex')); } catch {}
+  }
+  hash.update(ICONS.join());
+  swCache = src
+    .replace(/const CACHE = '[^']*';/, `const CACHE = 'garage-${hash.digest('hex').slice(0, 12)}';`)
+    .replace(/const PRECACHE = \[\];/, `const PRECACHE = ${JSON.stringify(urls)};`);
+  return swCache;
+}
+app.get('/sw.js', (req, res) => res.type('application/javascript').set('Cache-Control', 'no-cache').send(serviceWorker()));
+// Informations publiques pour la page d'installation (aucune donnée sensible)
+app.get('/app-info.json', (req, res) => {
+  const s = getSettings();
+  res.json({ company: s.company.name, logo: s.layout?.logo_version ? `/logo?v=${s.layout.logo_version}` : null, secure_url: secureUrl(req), secure: req.secure });
+});
+
 // ---------- Site web public ----------
 const siteHeaders = (res) => res.set('X-Content-Type-Options', 'nosniff').set('Referrer-Policy', 'strict-origin-when-cross-origin');
 app.get('/site', (req, res) => {
@@ -94,27 +139,67 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).the
 const staff = requireAuth(['admin', 'office']);
 const adminOnly = requireAuth(['admin']);
 
+// ---------- Accès depuis internet (serveur en ligne, tunnel) ----------
+// Requête venant de l'ordinateur lui-même, du réseau du garage ou de Tailscale (privé) — et non de l'internet public.
+// Derrière Caddy, Tailscale ou Cloudflare, req.ip est l'adresse réelle du visiteur (voir « trust proxy »).
+function isLocalRequest(req) {
+  if (process.env.INTERNET_SERVER === '1' || req.get('cf-connecting-ip') || req.get('tailscale-funnel-request')) return false;
+  const ip = String(req.ip || '').replace(/^::ffff:/, '');
+  return ip === '::1' || /^(127|10)\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^169\.254\./.test(ip)
+    || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip) || /^f[cd][0-9a-f]{0,2}:/i.test(ip) || /^fe80:/i.test(ip);
+}
+// Première configuration depuis internet : un code affiché dans le journal du serveur est demandé,
+// pour qu'un inconnu ne puisse pas créer le compte gérant d'un serveur tout juste mis en ligne.
+const SETUP_CODE = crypto.randomBytes(5).toString('hex').toUpperCase().replace(/^(.{5})/, '$1-');
+const sameCode = (a, b) => {
+  const x = Buffer.from(String(a || '').toUpperCase().replace(/[^0-9A-F]/g, '')), y = Buffer.from(b.replace(/-/g, ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+// Anti-devinette des mots de passe sur 15 minutes : 10 échecs max. par adresse et, depuis internet, 20 par compte
+const fails = new Map();
+const FAIL_WINDOW = 15 * 60_000;
+function guard(keys, max = 10) {
+  const now = Date.now();
+  for (const k of keys) {
+    const e = fails.get(k);
+    if (e && now - e.t < FAIL_WINDOW && e.n >= (k.startsWith('acct:') ? 2 * max : max)) throw new BusinessError('Trop d\'essais. Réessayez dans 15 minutes.', 429);
+  }
+}
+function failed(keys) {
+  const now = Date.now();
+  for (const k of keys) { const e = fails.get(k); if (!e || now - e.t >= FAIL_WINDOW) fails.set(k, { n: 1, t: now }); else e.n++; }
+  if (fails.size > 5000) for (const [k, e] of fails) if (now - e.t >= FAIL_WINDOW) fails.delete(k);
+}
+const loginKeys = (req, email) => (isLocalRequest(req) ? [`ip:${req.ip}`] : [`ip:${req.ip}`, `acct:${String(email || '').toLowerCase()}`]);
+
 // ---------- Authentification ----------
 api.get('/auth/status', (req, res) => {
   const needsSetup = get('SELECT COUNT(*) n FROM users WHERE role=?', 'admin').n === 0;
-  res.json({ needsSetup, user: currentUser(req), company: getSettings().company.name, ai: aiConfigured() });
+  res.json({ needsSetup, setupCode: needsSetup && !isLocalRequest(req), user: currentUser(req), company: getSettings().company.name, ai: aiConfigured() });
 });
 api.post('/auth/setup', wrap((req, res) => {
   if (get("SELECT COUNT(*) n FROM users WHERE role='admin'").n > 0) throw new BusinessError('Déjà configuré', 403);
+  if (!isLocalRequest(req)) {
+    guard([`setup:${req.ip}`]);
+    if (!sameCode(req.body.setup_code, SETUP_CODE)) { failed([`setup:${req.ip}`]); throw new BusinessError('Code d\'installation incorrect (il est affiché dans le journal du serveur)', 403); }
+  }
   const { name, email, password, company } = req.body;
-  if (!name || !email || !password || password.length < 6) throw new BusinessError('Nom, e-mail et mot de passe (6 caractères min.) requis');
+  if (!name || !email || !password || password.length < 8) throw new BusinessError('Nom, e-mail et mot de passe (8 caractères min.) requis');
   const id = insert('users', { name, email: email.toLowerCase(), role: 'admin', password_hash: hashSecret(password) }, ['name', 'email', 'role', 'password_hash']);
   if (company) setSetting('company', { ...getSettings().company, name: company });
   const token = createSession(id);
-  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 86400e3 });
+  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
   return { token };
 }));
 api.post('/auth/login', wrap((req, res) => {
+  const keys = loginKeys(req, req.body.email);
+  guard(keys);
   const u = get('SELECT * FROM users WHERE email=? AND active=1', String(req.body.email || '').toLowerCase());
-  if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) throw new BusinessError('Identifiants incorrects', 401);
+  if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) { failed(keys); throw new BusinessError('Identifiants incorrects', 401); }
+  fails.delete(keys[0]);
   run('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?', u.id);
   const token = createSession(u.id);
-  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 86400e3 });
+  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
   return { token };
 }));
 // Invitation : la personne invitée choisit son mot de passe
@@ -132,7 +217,7 @@ api.post('/auth/invite/:token', wrap((req, res) => {
   clearInvite(u.id);
   run('DELETE FROM sessions WHERE user_id=?', u.id);
   const token = createSession(u.id);
-  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 86400e3 });
+  res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
   return { token };
 }));
 api.post('/auth/logout', (req, res) => {
@@ -147,7 +232,7 @@ api.get('/kiosk/users', (req, res) => {
   const cfg = attendanceConfig();
   res.json({
     company: getSettings().company.name, logo: getSettings().layout?.logo_version ? `/logo?v=${getSettings().layout.logo_version}` : null,
-    pin: cfg.kiosk_pin, badge: cfg.kiosk_badge,
+    pin: cfg.kiosk_pin || !isLocalRequest(req), badge: cfg.kiosk_badge,
     users: all(`SELECT u.id, u.name, u.color, u.role, u.job_title,
       (SELECT start FROM time_entries t WHERE t.user_id=u.id AND t.kind='presence' AND t.end IS NULL LIMIT 1) AS since
       FROM users u WHERE u.active=1 AND (u.pin_hash IS NOT NULL OR u.role='mechanic') ORDER BY u.name`),
@@ -167,8 +252,10 @@ function checkPin(u, pin) {
 api.post('/kiosk/login', wrap((req) => {
   const u = get('SELECT * FROM users WHERE id=? AND active=1', req.body.user_id);
   if (!u) throw new BusinessError('Personne inconnue', 404);
-  if (attendanceConfig().kiosk_pin || u.role !== 'mechanic') {
-    if (!u.pin_hash) throw new BusinessError('Aucun code PIN : le gérant doit en créer un dans Paramètres → Utilisateurs', 401);
+  // Depuis internet, le code PIN est toujours obligatoire (sinon n'importe qui verrait les OR de l'atelier)
+  const local = isLocalRequest(req);
+  if (attendanceConfig().kiosk_pin || u.role !== 'mechanic' || !local) {
+    if (!u.pin_hash) throw new BusinessError(local ? 'Aucun code PIN : le gérant doit en créer un dans Paramètres → Utilisateurs' : 'Hors du réseau du garage, un code PIN est obligatoire : le gérant doit en créer un dans Paramètres → Utilisateurs', 401);
     checkPin(u, req.body.pin);
   }
   return { token: createSession(u.id, 'kiosk'), user: { id: u.id, name: u.name, color: u.color, role: u.role } };
@@ -177,8 +264,9 @@ api.post('/kiosk/login', wrap((req) => {
 api.post('/kiosk/badge', wrap((req) => {
   if (!attendanceConfig().kiosk_badge) throw new BusinessError('Badges désactivés', 403);
   const badge = String(req.body.badge || '').trim();
+  guard([`badge:${req.ip}`], 20);
   const u = badge.length >= 3 ? get('SELECT id FROM users WHERE badge=? AND active=1', badge) : null;
-  if (!u) throw new BusinessError('Badge inconnu', 404);
+  if (!u) { failed([`badge:${req.ip}`]); throw new BusinessError('Badge inconnu', 404); }
   return checkInOut(u.id, { source: 'badge' });
 }));
 const mech = requireAuth(['mechanic', 'admin', 'office']);
@@ -264,12 +352,9 @@ api.get('/dashboard', (req, res) => {
 });
 // Adresses du PC sur le réseau local (pour ouvrir le logiciel sur téléphone / tablette)
 api.get('/network', (req, res) => {
-  const port = req.get('host')?.split(':')[1] || process.env.PORT || 3000;
-  const urls = Object.values(os.networkInterfaces()).flat()
-    .filter((i) => i && i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.'))
-    .map((i) => `http://${i.address}:${port}/`);
-  const pub = getSettings().public_url;
-  res.json({ urls: pub ? [pub.replace(/\/?$/, '/'), ...urls] : urls });
+  const port = process.env.PORT || 3000;
+  const lan = lanUrls(port);
+  res.json({ lan, secure_url: secureUrl(req), current: `${req.protocol}://${req.get('host')}`, is_https: req.secure, port: Number(port) });
 });
 api.get('/search', (req, res) => {
   const q = `%${req.query.q || ''}%`;
@@ -888,8 +973,15 @@ startAutomation();
 startInboxPolling();
 startCopilotScheduler();
 setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
+// Les modifications passent d'abord par garage.db-wal : on les recopie régulièrement dans garage.db,
+// et à l'arrêt (Ctrl+C, arrêt du conteneur Docker) pour que garage.db soit toujours complet.
+setInterval(() => { try { db.exec('PRAGMA wal_checkpoint(PASSIVE)'); } catch {} }, 5 * 60_000).unref();
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.once(sig, () => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); db.close(); } catch {} process.exit(0); });
+}
 app.listen(PORT, () => {
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);
   console.log(`🔧  Pointage atelier (tablette) : http://localhost:${PORT}/kiosk.html`);
   console.log(aiConfigured() ? '🤖  Agents IA : actifs' : '🤖  Agents IA : mode démo (ajoutez ANTHROPIC_API_KEY dans .env)');
+  if (get("SELECT COUNT(*) n FROM users WHERE role='admin'").n === 0) console.log(`🔑  Code d'installation (seulement pour créer le compte du gérant depuis internet) : ${SETUP_CODE}`);
 });

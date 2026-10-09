@@ -1,7 +1,7 @@
 // Accès à l'API + formatage + notifications
 import { reactive } from 'vue';
 
-export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null });
+export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false });
 
 export async function api(method, url, body) {
   const res = await fetch('/api' + url, {
@@ -9,7 +9,7 @@ export async function api(method, url, body) {
     credentials: 'same-origin',
     headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' },
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
-  });
+  }).catch(() => { throw new Error('Pas de connexion au serveur du garage'); });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !url.startsWith('/auth')) { store.user = null; }

@@ -239,6 +239,8 @@ export function getSettings() {
       out[r.key] = typeof v === 'object' && v && !Array.isArray(v) ? { ...(out[r.key] || {}), ...v } : v;
     } catch { /* ignore */ }
   }
+  // Adresse publique https (serveur internet, Tailscale…) : variable d'environnement si rien n'est saisi
+  if (!out.public_url && process.env.PUBLIC_URL) out.public_url = process.env.PUBLIC_URL;
   return out;
 }
 export function setSetting(key, value) {

@@ -55,10 +55,10 @@ npm start
 
 Ouvrez **http://localhost:3000** : au premier lancement, créez le compte du gérant.
 
-- Tablette atelier : **http://localhost:3000/kiosk.html** (ou `http://IP-DU-PC:3000/kiosk.html` depuis le réseau du garage)
+- Tablette atelier : **http://localhost:3000/kiosk.html** (ou `http://IP-DU-PC:3000/kiosk.html` depuis le réseau du garage) — téléphones : voir [Installer sur téléphone](#-installer-sur-téléphone)
 - Pour découvrir avec des données d'exemple (sur une base vide) : `npm run demo` → connexion `demo@garage.lu` / `demo1234`, PIN mécaniciens `1111`, `2222`, `3333`
 
-Les données sont enregistrées dans `data/garage.db` (SQLite). **Sauvegardez ce fichier régulièrement.**
+Les données sont enregistrées dans le dossier `data/` (base SQLite `garage.db` + photos et pièces jointes). **Sauvegardez tout le dossier `data/` régulièrement**, de préférence logiciel arrêté.
 
 ## 🤖 Activer les agents IA
 
@@ -69,14 +69,55 @@ Les données sont enregistrées dans `data/garage.db` (SQLite). **Sauvegardez ce
 Les agents utilisent le modèle Claude `claude-opus-5` (modifiable via `CLAUDE_MODEL`), peuvent consulter les données du garage (lecture seule) et faire des recherches sur le web. Les tâches programmées tournent tant que le logiciel est allumé (fuseau `Europe/Luxembourg`).
 Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est partagé avec toute l'équipe.
 
-## 📱 Utiliser sur tablette et téléphone
+## 📲 Installer sur téléphone
 
-1. Le PC où tourne le logiciel et la tablette / le téléphone doivent être sur **le même Wi-Fi**.
-2. Dans le logiciel (sur le PC) : menu **📱 Sur téléphone / tablette** → scannez le QR code avec l'appareil.
-3. Pour avoir l'icône comme une vraie application : **iPhone / iPad** : Safari → Partager → *Sur l'écran d'accueil* ; **Android** : Chrome → ⋮ → *Ajouter à l'écran d'accueil*. Pour la tablette de l'atelier, faites de même avec l'adresse terminée par **/kiosk.html**.
-4. En dehors du garage : utilisez l'adresse publique (voir « Suivi en direct » plus bas). En HTTPS, l'application s'installe aussi directement depuis le navigateur (bouton **⬇ Installer l'application**).
+Le logiciel s'installe sur iPhone, Android et tablette **comme une application** : icône sur l'écran d'accueil, plein écran, l'interface s'ouvre même sans réseau (les données, elles, restent sur l'ordinateur du garage ou votre serveur).
 
+Dans le logiciel : menu du compte → **📱 Sur téléphone / tablette** → scannez le QR code avec l'appareil photo du téléphone. La page qui s'ouvre détecte l'appareil et explique les étapes : bouton **Installer l'application** sur Android, *Partager → Sur l'écran d'accueil* sur iPhone / iPad. Le même écran propose aussi le **pointage atelier** pour la tablette des mécaniciens.
+
+Trois façons de rendre le logiciel joignable, de la plus simple à la plus complète :
+
+| | 1. Wi-Fi du garage | 2. Tailscale (privé) | 3. Serveur internet |
+|---|---|---|---|
+| Fonctionne | au garage | au garage **et en 4G** | partout |
+| Vraie application sur Android | raccourci seulement | ✅ | ✅ |
+| Liens de suivi pour les clients, site web | ❌ | ❌ (seulement vos appareils) | ✅ |
+| Mise en place | rien à faire | 5 minutes | nom de domaine + petit serveur |
+
+### 1. Sur le Wi-Fi du garage (rien à configurer)
+
+Le téléphone et le PC doivent être sur **le même Wi-Fi** : scannez le QR code « Sur le Wi-Fi du garage ». Sans https, l'iPhone ajoute quand même l'icône en plein écran ; Android ne crée qu'un **raccourci** (sans mode hors-ligne).
 Si Windows demande l'autorisation du pare-feu au premier lancement, acceptez pour les **réseaux privés**, sinon les appareils ne pourront pas se connecter.
+
+### 2. Tailscale : adresse https privée, au garage et en 4G
+
+[Tailscale](https://tailscale.com) relie vos appareils par un réseau privé chiffré : **rien n'est ouvert sur internet**, seuls les appareils connectés à votre compte voient le logiciel.
+
+1. Créez un compte Tailscale et installez Tailscale sur le PC du garage ([Windows](https://tailscale.com/download/windows) / [Mac](https://tailscale.com/download/mac)). Donnez au PC un nom neutre (ex. `atelier-pc`) : il apparaît dans l'adresse et dans les registres publics des certificats https.
+2. Démarrez le logiciel (`demarrer-windows.bat` / `demarrer-mac.command`), puis double-cliquez sur **`acces-telephone-windows.bat`** (ou **`acces-telephone-mac.command`**). Le script active l'adresse `https://atelier-pc.<votre-réseau>.ts.net` et l'ouvre. Si Tailscale demande d'activer HTTPS, acceptez (console Tailscale → *DNS* → *MagicDNS* et *HTTPS Certificates*).
+3. Sur chaque téléphone : installez l'app **Tailscale** (App Store / Google Play), connectez-vous avec **le même compte**, ouvrez l'adresse (ou, dans le logiciel ouvert avec cette adresse, scannez le QR code « Adresse sécurisée ») et installez l'application.
+
+Bon à savoir : le PC doit rester allumé (veille désactivée) ; Tailscale doit être connecté sur le téléphone pendant l'utilisation. L'offre gratuite de Tailscale est réservée à un usage personnel : pour un garage, prenez une offre professionnelle (voir [tailscale.com/pricing](https://tailscale.com/pricing)). Pour couper l'accès : `tailscale serve --https=443 off`. N'utilisez pas `tailscale funnel`, qui rendrait le logiciel public.
+
+### 3. Serveur internet avec votre nom de domaine
+
+Nécessaire aussi pour le **site web public** et les **liens de suivi** envoyés aux clients. Sur un petit serveur Linux (VPS, de préférence situé dans l'UE) avec Docker :
+
+1. Chez votre fournisseur de nom de domaine, créez un enregistrement DNS **A** `atelier.votre-garage.lu` → adresse IP du serveur. Les ports **80** et **443** doivent être ouverts.
+2. Copiez le dossier du logiciel sur le serveur et créez un fichier `.env` :
+   ```
+   DOMAIN=atelier.votre-garage.lu
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+3. Lancez `docker compose up -d`. [Caddy](https://caddyserver.com) obtient et renouvelle automatiquement le certificat https.
+4. Ouvrez `https://atelier.votre-garage.lu`. Pour créer le compte du gérant **depuis internet**, un **code d'installation** est demandé (sécurité) : il s'affiche avec `docker compose logs garage | grep "Code d'installation"`.
+5. Sauvegarde (les données sont dans le volume Docker `garage-data`) :
+   `docker compose stop garage && docker compose cp garage:/app/data ./sauvegarde-$(date +%F) && docker compose start garage`
+6. Mise à jour : récupérez la nouvelle version, puis `docker compose up -d --build`.
+
+Protections actives quand le logiciel est joint depuis internet : code d'installation pour le premier compte, **10 essais de mot de passe maximum** par quart d'heure, **code PIN toujours demandé** au kiosque de pointage (donnez un PIN à chaque mécanicien), cookies de session sécurisés. Utilisez des mots de passe solides.
+
+*Variante sans serveur* : garder le logiciel sur le PC du garage et le publier avec un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) nommé sur votre domaine, protégé par **Cloudflare Access**. Le tunnel rapide `trycloudflare.com` ne sert qu'à un essai : l'adresse change à chaque lancement (l'application installée cesse de marcher), le suivi en temps réel n'y fonctionne pas et l'adresse est publique.
 
 ## ✉️ Configurer les e-mails
 
@@ -97,11 +138,9 @@ Dans un ordre de réparation, le panneau **Suivi en direct** crée deux liens se
 - **Lien mécanicien** : à ouvrir sur le téléphone de l'atelier (aussi accessible depuis le kiosque, bouton « 📷 Photos & messages »). Le mécanicien y fait avancer les étapes, coche les travaux, envoie photos et vidéos (visibles par le client ou internes) et peut **demander l'accord du client** avec un montant.
 - **Lien client** : jauge d'avancement mise à jour en temps réel, photos et vidéos, messages, boutons **J'accepte / Refuser**. Il s'envoie par e-mail, WhatsApp, SMS ou QR code, et peut être désactivé à tout moment.
 
-**Important : pour que le client ouvre le lien depuis chez lui, le logiciel doit être joignable depuis internet.** Sur le réseau Wi-Fi du garage, les liens fonctionnent tout de suite. Pour l'extérieur :
-1. **Le plus simple (gratuit)** : installez [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) et lancez `cloudflared tunnel --url http://localhost:3000` : une adresse `https://…trycloudflare.com` est créée. Pour une adresse fixe (ex. `https://atelier.votre-garage.lu`), créez un tunnel nommé avec votre domaine.
-2. Ou installez le logiciel sur un petit serveur en ligne (VPS).
+**Important : pour que le client ouvre le lien depuis chez lui, le logiciel doit être joignable depuis internet.** Sur le réseau Wi-Fi du garage, les liens fonctionnent tout de suite. Pour l'extérieur, installez le logiciel sur un serveur avec votre nom de domaine (voir [Installer sur téléphone → Serveur internet](#3-serveur-internet-avec-votre-nom-de-domaine)) ou publiez-le avec un Cloudflare Tunnel nommé. Le tunnel rapide `trycloudflare.com` ne convient pas : l'adresse change à chaque lancement et la mise à jour en temps réel n'y fonctionne pas.
 
-Indiquez ensuite cette adresse dans **Paramètres → Atelier & factures → Adresse publique**. Utilisez un mot de passe solide pour les comptes du bureau.
+Indiquez ensuite cette adresse dans **Paramètres → Atelier & factures → Adresse publique** (avec Docker, elle est réglée automatiquement). Utilisez un mot de passe solide pour les comptes du bureau.
 
 ## 🧠 Nova, le copilote
 

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Installer l'application</title>
+  <meta name="theme-color" content="#05070e">
+  <link rel="manifest" id="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <script>
+    // Quelle application installer : le logiciel (par défaut) ou le kiosque de pointage de l'atelier
+    (function () {
+      var kiosk = /[?&]app=kiosk\b/.test(location.search);
+      if (kiosk) document.getElementById('manifest').href = '/kiosk.webmanifest';
+      var p = 'dark'; try { p = localStorage.getItem('garage_theme') || 'dark'; } catch (e) {}
+      document.documentElement.dataset.theme = p === 'auto' ? (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : p === 'light' ? 'light' : 'dark';
+    })();
+  </script>
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Garage">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/installer.css">
+</head>
+<body class="inst">
+  <main class="inst-wrap">
+    <header class="inst-head">
+      <img id="logo" alt="" hidden>
+      <img class="inst-icon" src="/icons/icon-192.png" alt="">
+      <div><h1 id="title">Installer l'application</h1><p id="company" class="muted"></p></div>
+    </header>
+
+    <nav class="inst-switch" aria-label="Application à installer">
+      <a id="sw-app" href="/installer.html">💼 Logiciel du garage</a>
+      <a id="sw-kiosk" href="/installer.html?app=kiosk">⏱️ Pointage atelier</a>
+    </nav>
+
+    <section id="installed" class="inst-card ok" hidden>
+      <div class="big">✅</div>
+      <h2>L'application est installée</h2>
+      <p>Vous pouvez l'ouvrir depuis l'écran d'accueil du téléphone.</p>
+      <a class="btn primary big" id="open-app" href="/">Ouvrir l'application</a>
+    </section>
+
+    <section id="insecure" class="inst-card warn" hidden>
+      <h2>⚠️ Connexion non sécurisée (http)</h2>
+      <p>Sur cette adresse, le téléphone peut seulement créer un <b>raccourci</b> sur l'écran d'accueil (sur iPhone, il s'ouvre quand même en plein écran). Pour une <b>vraie application</b> — qui marche aussi en 4G hors du garage — ouvrez l'adresse sécurisée <b>https</b> :</p>
+      <a id="secure-link" class="btn primary big" hidden>Ouvrir l'adresse sécurisée</a>
+      <p id="no-secure" class="muted small" hidden>Aucune adresse sécurisée n'est encore configurée : sur l'ordinateur du garage, menu du compte → « Sur téléphone / tablette » explique comment en créer une (gratuit).</p>
+    </section>
+
+    <section id="android" class="inst-card" hidden>
+      <h2>📲 Sur Android</h2>
+      <button id="install-btn" class="btn primary big" hidden>Installer l'application</button>
+      <p id="install-wait" class="muted small" hidden>Préparation de l'installation…</p>
+      <ol class="steps" id="android-steps">
+        <li>Ouvrez le menu <span class="kbd">⋮</span> de Chrome (en haut à droite).</li>
+        <li id="android-step2">Touchez <b>« Installer l'application »</b> <span class="muted">(selon la version : « Ajouter à l'écran d'accueil » → « Installer »)</span>.</li>
+        <li id="android-step3">Confirmez : l'icône apparaît sur l'écran d'accueil et dans la liste des applications.</li>
+      </ol>
+      <p class="muted small">Samsung Internet : menu <span class="kbd">≡</span> → « Ajouter page à » → « Écran d'accueil ».</p>
+    </section>
+
+    <section id="ios" class="inst-card" hidden>
+      <h2>📲 Sur iPhone / iPad</h2>
+      <p id="ios-browser" class="warn-line" hidden>Ouvrez cette page dans <b>Safari</b> si le bouton Partager n'apparaît pas.</p>
+      <ol class="steps">
+        <li>Touchez le bouton <b>Partager</b>
+          <svg class="share" viewBox="0 0 24 24" aria-label="Partager"><path d="M12 3v12M12 3l-4 4M12 3l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          en bas de l'écran (en haut sur iPad).</li>
+        <li>Faites défiler et touchez <b>« Sur l'écran d'accueil »</b> <span class="add">＋</span>.</li>
+        <li>Touchez <b>« Ajouter »</b> en haut à droite.</li>
+      </ol>
+      <div class="arrow-down" id="ios-arrow">⬇</div>
+    </section>
+
+    <section id="desktop" class="inst-card" hidden>
+      <h2>💻 Sur ordinateur</h2>
+      <button id="install-btn-desk" class="btn primary big" hidden>Installer l'application</button>
+      <p>Chrome ou Edge : cliquez sur l'icône d'installation <span class="kbd">⊕</span> à droite de la barre d'adresse.</p>
+      <p class="muted small">Pour installer sur un téléphone, scannez le QR code affiché sur l'ordinateur (menu du compte → « Sur téléphone / tablette »).</p>
+    </section>
+
+    <section class="inst-card subtle">
+      <h3>Pourquoi installer ?</h3>
+      <ul class="why">
+        <li>Icône sur l'écran d'accueil, ouverture en plein écran, sans barre d'adresse.</li>
+        <li>Pointage, atelier, photos des réparations, devis et clients toujours sous la main.</li>
+        <li>Vos données restent sur l'ordinateur du garage (ou votre serveur) : rien n'est stocké chez un tiers.</li>
+      </ul>
+      <a class="btn" href="/" id="continue">Continuer sans installer</a>
+    </section>
+  </main>
+  <script src="/js/installer.js"></script>
+</body>
+</html>

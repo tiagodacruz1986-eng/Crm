@@ -36,7 +36,13 @@ export const Home = {
     const logo = computed(() => (store.settings?.layout?.logo_version && !store.settings?.home?.background_version ? `/logo?v=${store.settings.layout.logo_version}` : null));
     const badge = (a) => (a.key === 'activities' ? (counts.value.late || 0) + (counts.value.today || 0) : 0);
     const enter = () => { if (apps.value[0]) open(apps.value[0]); };
-    return { q, apps, open, hello, first, now, bg, logo, badge, input, enter, store };
+    // Proposer l'installation quand le logiciel est ouvert dans le navigateur d'un téléphone ou d'une tablette
+    const mobile = /Android|iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    const dismissed = (() => { try { return localStorage.getItem('garage_install_hint') === '0'; } catch { return false; } })();
+    const installHint = ref(mobile && !standalone && !dismissed);
+    const hideHint = () => { installHint.value = false; try { localStorage.setItem('garage_install_hint', '0'); } catch { /* navigation privée */ } };
+    return { q, apps, open, hello, first, now, bg, logo, badge, input, enter, store, installHint, hideHint };
   },
   template: `
   <div class="home" :class="{ custom: store.settings?.home?.background_version }" :style="bg">
@@ -47,6 +53,12 @@ export const Home = {
         <div class="home-date">{{ now.toLocaleDateString('fr-LU', { weekday: 'long', day: 'numeric', month: 'long' }) }} · {{ now.toLocaleTimeString('fr-LU', { hour: '2-digit', minute: '2-digit' }) }}</div>
       </div>
       <div class="home-search"><Icon name="search"/><input ref="input" v-model="q" placeholder="Rechercher une application…" @keydown.enter="enter" @keydown.esc="q = ''"></div>
+    </div>
+    <div v-if="installHint" class="install-hint">
+      <span class="ih-ico">📲</span>
+      <div><b>Installez l'application sur ce téléphone</b><small>Icône sur l'écran d'accueil, plein écran, plus rapide.</small></div>
+      <a class="btn sm primary" href="/installer.html">Installer</a>
+      <button class="icon-btn" title="Plus tard" @click="hideHint"><Icon name="x"/></button>
     </div>
     <div class="apps-grid">
       <a v-for="a in apps" :key="a.key" class="app-tile" :href="a.href || '#' + a.to" :target="a.href ? '_blank' : null">

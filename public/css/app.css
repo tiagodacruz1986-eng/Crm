@@ -1049,3 +1049,34 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 @media (max-width: 700px) { .crm-board { grid-auto-columns: 84vw; scroll-snap-type: x mandatory; } .crm-col { scroll-snap-align: start; } .src-row { grid-template-columns: 1fr 60px 30px; } .src-row .muted { display: none; } .cal-d { min-height: 60px; } .cal-post { display: none; } .cal-d:has(.cal-post)::after { content: '•'; color: var(--brand); } .site-frame.mobile { width: 100%; } .ai-box { flex-wrap: wrap; } }
 .crm-board .touch-move { display: none; }
 @media (hover: none) { .crm-board .touch-move { display: flex; gap: 6px; margin-top: 8px; } }
+
+/* ---------- Installer sur téléphone (fenêtre du PC) ---------- */
+.dev-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dev-card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: var(--panel-2); }
+.dev-card.best { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.dev-card h3 { margin: 0 0 10px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.dev-qr { display: block; width: 190px; max-width: 100%; margin: 4px auto; background: #fff; padding: 8px; border-radius: 12px; }
+.dev-url { text-align: center; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; margin-bottom: 8px; }
+.dev-lan + .dev-lan { margin-top: 10px; }
+.dev-list { padding-left: 18px; line-height: 1.55; }
+.dev-edit { margin-top: 10px; } .dev-edit input { flex: 1; min-width: 0; }
+@media (max-width: 760px) { .dev-grid { grid-template-columns: 1fr; } }
+.install-hint { position: relative; max-width: 980px; margin: -2vh auto 26px; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: 16px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); box-shadow: var(--glow); backdrop-filter: blur(14px); }
+.install-hint > div { flex: 1; min-width: 0; } .install-hint small { display: block; color: var(--muted); }
+.install-hint .ih-ico { font-size: 26px; }
+.home.custom .install-hint { color: var(--ink); }
+.offline-card { text-align: center; } .offline-card .login-logo { margin: 0 auto; }
+
+/* Barre du haut sur petit téléphone (320–480 px) : tout doit tenir, l'avatar reste visible */
+@media (max-width: 480px) {
+  .topbar, .nav-apps .topbar { padding: 8px 10px; gap: 6px; }
+  .theme-toggle { display: none; } /* « Apparence » reste dans le menu du compte */
+  .search-trigger, .search-trigger.compact { flex: 1 1 0; min-width: 38px; max-width: none; padding: 9px 10px; overflow: hidden; }
+  .search-trigger > span { min-width: 0; }
+  .search-trigger .short { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quick, .nav-apps .quick { gap: 4px; flex-shrink: 0; }
+  .quick .btn { padding: 8px; }
+  .apps-btn { width: 36px; height: 36px; }
+  .user-btn .avatar { width: 34px; height: 34px; }
+}
+@media (max-width: 360px) { .search-trigger .short { display: none !important; } .search-trigger > span { justify-content: center; width: 100%; } }

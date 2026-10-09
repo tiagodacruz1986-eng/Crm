@@ -6,6 +6,7 @@ import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 import { route, go } from './router.js';
 import { APPS, visibleApps, currentApp, can } from './apps.js';
 import { theme, toggleTheme, setTheme, ThemePicker } from './theme.js';
+import { DevicesModal } from './devices.js';
 
 const lazy = (file, name) => defineAsyncComponent(() => import(`./views/${file}.js`).then((m) => m[name]));
 const VIEWS = {
@@ -53,7 +54,7 @@ const NAV = [
 const Login = {
   props: ['setup'],
   setup(props) {
-    const f = reactive({ name: '', email: '', password: '', company: '' });
+    const f = reactive({ name: '', email: '', password: '', company: '', setup_code: '' });
     const err = ref('');
     const submit = async () => {
       err.value = '';
@@ -62,7 +63,7 @@ const Login = {
         await boot();
       } catch (e) { err.value = e.message; }
     };
-    return { f, err, submit, theme, toggleTheme };
+    return { f, err, submit, theme, toggleTheme, store };
   },
   template: `
   <div class="login-bg">
@@ -74,7 +75,8 @@ const Login = {
       <label v-if="setup">Nom du garage<input v-model="f.company" placeholder="Garage …" required></label>
       <label v-if="setup">Votre nom<input v-model="f.name" required></label>
       <label>E-mail<input v-model="f.email" type="email" required autocomplete="username"></label>
-      <label>Mot de passe<input v-model="f.password" type="password" required minlength="6" autocomplete="current-password"></label>
+      <label>Mot de passe<input v-model="f.password" type="password" required :minlength="setup ? 8 : 6" :autocomplete="setup ? 'new-password' : 'current-password'"></label>
+      <label v-if="setup && store.setupCode">Code d'installation<input v-model="f.setup_code" required autocomplete="off" autocapitalize="characters" placeholder="XXXXX-XXXXX"><small class="muted">Sécurité : affiché dans le journal du serveur (<code>docker compose logs garage</code>).</small></label>
       <div class="error" v-if="err">{{ err }}</div>
       <button class="btn primary big">{{ setup ? 'Créer mon garage' : 'Se connecter' }}</button>
       <a class="kiosk-link" href="/kiosk.html">🔧 Pointage mécaniciens (tablette atelier)</a>
@@ -149,7 +151,7 @@ const GlobalSearch = {
 };
 
 const Root = {
-  components: { Login, Invite, GlobalSearch, ThemePicker, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
+  components: { Login, Invite, GlobalSearch, ThemePicker, DevicesModal, Copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.Copilot)) },
   setup() {
     const searchOpen = ref(false);
     const menuOpen = ref(false);
@@ -162,7 +164,7 @@ const Root = {
     const plusOpen = ref(false);
     const appearance = ref(false);
     const devices = ref(null);
-    const openDevices = async () => { devices.value = await GET('/network'); };
+    const openDevices = () => { devices.value = true; };
     // Installation comme application (Chrome, Edge, Android)
     const installable = ref(false);
     let deferred = null;
@@ -191,11 +193,21 @@ const Root = {
     const canQuote = computed(() => can('ventes', 'user'));
     const canOrder = computed(() => can('atelier', 'user'));
     const ROLE_LABEL = { admin: 'Administrateur', office: 'Utilisateur', mechanic: 'Mécanicien' };
+    const retry = () => boot();
     return { theme, toggleTheme, appearance, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
-      navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL };
+      navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL, retry };
   },
   template: `
   <div v-if="store.loading" class="boot">🔧</div>
+  <div v-else-if="store.offline" class="login-bg">
+    <div class="login-card offline-card">
+      <div class="login-logo"><Icon name="monitor-smartphone" size="34"/></div>
+      <h1>Pas de connexion au garage</h1>
+      <p class="muted">Le logiciel ne répond pas. Vérifiez que le téléphone est connecté (Wi-Fi du garage ou 4G avec l'adresse sécurisée) et que l'ordinateur du garage est allumé.</p>
+      <button class="btn primary big" @click="retry">Réessayer</button>
+      <p class="muted small">Nouvel essai automatique dès que la connexion revient.</p>
+    </div>
+  </div>
   <Invite v-else-if="route.name === 'invite'"/>
   <Login v-else-if="!store.user" :setup="store.needsSetup"/>
   <div v-else class="layout" :class="{'menu-open': menuOpen, 'nav-apps': navMode === 'apps', 'is-home': route.name === 'apps'}">
@@ -272,14 +284,7 @@ const Root = {
       </div>
     </div>
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
-    <Modal v-if="devices" title="📱 Utiliser sur téléphone et tablette" @close="devices = null">
-      <p>Connectez le téléphone ou la tablette <b>au même Wi-Fi que ce PC</b>, puis scannez :</p>
-      <div v-for="u in devices.urls" style="text-align:center;margin-bottom:10px">
-        <img :src="'/api/qr.svg?text=' + encodeURIComponent(u)" style="width:200px"><div><b>{{ u }}</b></div>
-      </div>
-      <p v-if="!devices.urls.length" class="error">Aucune adresse réseau trouvée : vérifiez que le PC est connecté au Wi-Fi ou au câble.</p>
-      <p class="muted small">Ensuite, dans le navigateur du téléphone : <b>Partager → Sur l'écran d'accueil</b> (iPhone) ou <b>⋮ → Ajouter à l'écran d'accueil</b> (Android) pour avoir l'icône comme une vraie application. Kiosque des mécaniciens : ajoutez <b>/kiosk.html</b> à l'adresse.</p>
-    </Modal>
+    <DevicesModal v-if="devices" @close="devices = null"/>
     <Modal v-if="appearance" title="Apparence" wide @close="appearance = false">
       <p class="muted" style="margin-top:0">Choisissez le thème du logiciel. Le choix est gardé sur cet appareil.</p>
       <ThemePicker/>
@@ -292,19 +297,28 @@ const Root = {
 
 async function boot() {
   store.loading = true;
-  const s = await GET('/auth/status');
-  store.needsSetup = s.needsSetup;
-  store.company = s.company;
-  store.ai = s.ai;
-  store.user = s.user && s.user.role !== 'mechanic' && s.user.session_kind !== 'kiosk' ? s.user : null;
-  if (store.user) {
-    [store.settings, store.user] = await Promise.all([GET('/settings'), GET('/me')]);
-    // Page d'accueil : menu des applications (comme Odoo) sauf si un lien précis est ouvert
-    if ((!location.hash || location.hash === '#/' || location.hash === '#') && store.settings.options?.general?.start_page !== 'dashboard') go('/apps');
+  try {
+    const s = await GET('/auth/status');
+    store.needsSetup = s.needsSetup;
+    store.setupCode = s.setupCode;
+    store.company = s.company;
+    store.ai = s.ai;
+    store.user = s.user && s.user.role !== 'mechanic' && s.user.session_kind !== 'kiosk' ? s.user : null;
+    if (store.user) {
+      [store.settings, store.user] = await Promise.all([GET('/settings'), GET('/me')]);
+      // Page d'accueil : menu des applications (comme Odoo) sauf si un lien précis est ouvert
+      if ((!location.hash || location.hash === '#/' || location.hash === '#') && store.settings.options?.general?.start_page !== 'dashboard') go('/apps');
+    }
+    store.offline = false;
+  } catch {
+    // Serveur du garage injoignable (téléphone hors Wi-Fi, PC éteint…) : écran clair + nouvel essai automatique
+    store.offline = true;
   }
   store.loading = false;
 }
 
+window.addEventListener('online', () => { if (store.offline) boot(); });
+setInterval(() => { if (store.offline && !store.loading) boot(); }, 15000);
 const app = createApp(Root);
 Object.entries({ Icon, Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;

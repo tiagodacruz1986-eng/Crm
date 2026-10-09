@@ -8,7 +8,9 @@ const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5';
 let client = null;
 const getClient = () => (client ??= new Anthropic());
 
-export const aiConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+// Une clé d'exemple laissée telle quelle dans .env (« sk-ant-... ») ne compte pas comme une vraie clé
+const realKey = (k) => Boolean(k && k.trim() && !/^sk-ant-\.\.\.$/.test(k.trim()));
+export const aiConfigured = () => realKey(process.env.ANTHROPIC_API_KEY) || realKey(process.env.ANTHROPIC_AUTH_TOKEN);
 
 const WEB_SEARCH = { type: 'web_search_20260209', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'LU', city: 'Luxembourg', timezone: 'Europe/Luxembourg' } };
 

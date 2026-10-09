@@ -79,7 +79,7 @@ export const ConfigPanel = {
       <div class="cfg-row"><div><b>Jours travaillés</b></div><div class="seg"><button v-for="[d, l] in DAYS" :key="d" :class="{ on: A.work_days.includes(d) }" @click="toggleDay(d)">{{ l }}</button></div></div>
       <div class="cfg-row"><div><b>Tolérance de retard</b><small>Après l'heure d'ouverture de l'atelier ({{ s.workshop.opening }})</small></div><div class="inline"><input type="number" min="0" v-model.number="A.tolerance_min"> minutes</div></div>
       <div class="cfg-row"><div><b>Départ automatique</b><small>Un pointage oublié est fermé après les heures prévues</small></div><label class="switch"><input type="checkbox" v-model="A.auto_checkout"><i></i></label></div>
-      <div class="cfg-row"><div><b>Code PIN au kiosque</b><small>Obligatoire pour les comptes du bureau dans tous les cas</small></div><label class="switch"><input type="checkbox" v-model="A.kiosk_pin"><i></i></label></div>
+      <div class="cfg-row"><div><b>Code PIN au kiosque</b><small>Obligatoire pour les comptes du bureau dans tous les cas, et pour tout le monde depuis internet (hors réseau du garage)</small></div><label class="switch"><input type="checkbox" v-model="A.kiosk_pin"><i></i></label></div>
       <div class="cfg-row"><div><b>Badges</b><small>Pointer en scannant sa carte / son badge au kiosque</small></div><label class="switch"><input type="checkbox" v-model="A.kiosk_badge"><i></i></label></div>
       <div class="cfg-row"><div><b>OR au kiosque pour le bureau</b><small>Les mécaniciens voient toujours leurs ordres de réparation</small></div><label class="switch"><input type="checkbox" v-model="A.kiosk_show_orders"><i></i></label></div>
     </section>
