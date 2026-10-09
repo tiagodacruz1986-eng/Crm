@@ -6,7 +6,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { db, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
+import { db, dataDir, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
 import { hashSecret, verifySecret, createSession, currentUser, requireAuth } from './src/auth.js';
 import {
   BusinessError, createMove, getDocument, saveDocument, convertDocument, postInvoice, registerPayment, addStockMove,
@@ -41,6 +41,8 @@ import { startScheduler, computeNextRun, executeTask, running } from './src/sche
 const app = express();
 // Confiance uniquement dans un proxy local (Caddy dans Docker, Tailscale serve…) : l'adresse IP réelle et le https viennent de lui
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+// Formulaires publics (connexion, kiosque) : petits messages seulement ; le reste accepte les photos et pièces jointes
+app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge'], express.json({ limit: '20kb' }));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.text({ type: ['text/*', 'application/xml'], limit: '20mb' }));
 
@@ -150,7 +152,15 @@ function isLocalRequest(req) {
 }
 // Première configuration depuis internet : un code affiché dans le journal du serveur est demandé,
 // pour qu'un inconnu ne puisse pas créer le compte gérant d'un serveur tout juste mis en ligne.
-const SETUP_CODE = crypto.randomBytes(5).toString('hex').toUpperCase().replace(/^(.{5})/, '$1-');
+// Le code est gardé dans le dossier des données : il reste le même après un redémarrage, jusqu'à la création du compte.
+const SETUP_FILE = path.join(dataDir, 'setup-code.txt');
+const SETUP_CODE = (() => {
+  if (get("SELECT COUNT(*) n FROM users WHERE role='admin'").n > 0) return crypto.randomBytes(5).toString('hex').toUpperCase().replace(/^(.{5})/, '$1-');
+  try { const c = fs.readFileSync(SETUP_FILE, 'utf8').trim(); if (/^[0-9A-F]{5}-[0-9A-F]{5}$/.test(c)) return c; } catch {}
+  const c = crypto.randomBytes(5).toString('hex').toUpperCase().replace(/^(.{5})/, '$1-');
+  try { fs.writeFileSync(SETUP_FILE, c, { mode: 0o600 }); } catch {}
+  return c;
+})();
 const sameCode = (a, b) => {
   const x = Buffer.from(String(a || '').toUpperCase().replace(/[^0-9A-F]/g, '')), y = Buffer.from(b.replace(/-/g, ''));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
@@ -168,9 +178,26 @@ function guard(keys, max = 10) {
 function failed(keys) {
   const now = Date.now();
   for (const k of keys) { const e = fails.get(k); if (!e || now - e.t >= FAIL_WINDOW) fails.set(k, { n: 1, t: now }); else e.n++; }
-  if (fails.size > 5000) for (const [k, e] of fails) if (now - e.t >= FAIL_WINDOW) fails.delete(k);
 }
-const loginKeys = (req, email) => (isLocalRequest(req) ? [`ip:${req.ip}`] : [`ip:${req.ip}`, `acct:${String(email || '').toLowerCase()}`]);
+setInterval(() => { const now = Date.now(); for (const [k, e] of fails) if (now - e.t >= FAIL_WINDOW) fails.delete(k); }, 60_000).unref();
+// Appareil déjà connecté à ce compte (cookie signé, 1 an) : une attaque sur le compte ne le bloque pas
+let deviceKey;
+function deviceTag(userId) {
+  if (!deviceKey) {
+    const f = path.join(dataDir, 'device.key');
+    try { deviceKey = fs.readFileSync(f, 'utf8').trim(); } catch {}
+    if (!deviceKey || deviceKey.length < 32) { deviceKey = crypto.randomBytes(32).toString('hex'); try { fs.writeFileSync(f, deviceKey, { mode: 0o600 }); } catch {} }
+  }
+  return crypto.createHmac('sha256', deviceKey).update('device:' + userId).digest('hex');
+}
+const rememberDevice = (req, res, userId) => res.cookie('gdevice', deviceTag(userId), { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 365 * 86400e3 });
+const knownDevice = (req, userId) => {
+  const c = /(?:^|;\s*)gdevice=([a-f0-9]{64})/.exec(req.headers.cookie || '')?.[1];
+  return !!c && crypto.timingSafeEqual(Buffer.from(c), Buffer.from(deviceTag(userId)));
+};
+// Clés de comptage : l'adresse, et depuis internet le compte (empreinte de taille fixe, jamais l'e-mail reçu tel quel)
+const loginKeys = (req, email, known) => (isLocalRequest(req) || known ? [`ip:${req.ip}`]
+  : [`ip:${req.ip}`, 'acct:' + crypto.createHash('sha256').update(email).digest('hex')]);
 
 // ---------- Authentification ----------
 api.get('/auth/status', (req, res) => {
@@ -187,19 +214,24 @@ api.post('/auth/setup', wrap((req, res) => {
   if (!name || !email || !password || password.length < 8) throw new BusinessError('Nom, e-mail et mot de passe (8 caractères min.) requis');
   const id = insert('users', { name, email: email.toLowerCase(), role: 'admin', password_hash: hashSecret(password) }, ['name', 'email', 'role', 'password_hash']);
   if (company) setSetting('company', { ...getSettings().company, name: company });
+  try { fs.rmSync(SETUP_FILE, { force: true }); } catch {}
   const token = createSession(id);
   res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
+  rememberDevice(req, res, id);
   return { token };
 }));
 api.post('/auth/login', wrap((req, res) => {
-  const keys = loginKeys(req, req.body.email);
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (email.length > 254) throw new BusinessError('Identifiants incorrects', 401);
+  const u = get('SELECT * FROM users WHERE email=? AND active=1', email);
+  const keys = loginKeys(req, email, u && knownDevice(req, u.id));
   guard(keys);
-  const u = get('SELECT * FROM users WHERE email=? AND active=1', String(req.body.email || '').toLowerCase());
   if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) { failed(keys); throw new BusinessError('Identifiants incorrects', 401); }
   fails.delete(keys[0]);
   run('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?', u.id);
   const token = createSession(u.id);
   res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
+  rememberDevice(req, res, u.id);
   return { token };
 }));
 // Invitation : la personne invitée choisit son mot de passe
@@ -218,6 +250,7 @@ api.post('/auth/invite/:token', wrap((req, res) => {
   run('DELETE FROM sessions WHERE user_id=?', u.id);
   const token = createSession(u.id);
   res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });
+  rememberDevice(req, res, u.id);
   return { token };
 }));
 api.post('/auth/logout', (req, res) => {
@@ -256,7 +289,9 @@ api.post('/kiosk/login', wrap((req) => {
   const local = isLocalRequest(req);
   if (attendanceConfig().kiosk_pin || u.role !== 'mechanic' || !local) {
     if (!u.pin_hash) throw new BusinessError(local ? 'Aucun code PIN : le gérant doit en créer un dans Paramètres → Utilisateurs' : 'Hors du réseau du garage, un code PIN est obligatoire : le gérant doit en créer un dans Paramètres → Utilisateurs', 401);
-    checkPin(u, req.body.pin);
+    // Depuis internet : en plus de la limite par personne, 10 codes faux max. par adresse et par quart d'heure
+    if (!local) guard([`kiosk:${req.ip}`]);
+    try { checkPin(u, req.body.pin); } catch (e) { if (!local && e.status === 401) failed([`kiosk:${req.ip}`]); throw e; }
   }
   return { token: createSession(u.id, 'kiosk'), user: { id: u.id, name: u.name, color: u.color, role: u.role } };
 }));

@@ -110,12 +110,12 @@ Nécessaire aussi pour le **site web public** et les **liens de suivi** envoyés
    ANTHROPIC_API_KEY=sk-ant-...
    ```
 3. Lancez `docker compose up -d`. [Caddy](https://caddyserver.com) obtient et renouvelle automatiquement le certificat https.
-4. Ouvrez `https://atelier.votre-garage.lu`. Pour créer le compte du gérant **depuis internet**, un **code d'installation** est demandé (sécurité) : il s'affiche avec `docker compose logs garage | grep "Code d'installation"`.
+4. Ouvrez `https://atelier.votre-garage.lu`. Pour créer le compte du gérant **depuis internet**, un **code d'installation** est demandé (sécurité) : il s'affiche avec `docker compose logs garage | grep "Code d'installation" | tail -n 1` (il reste le même après un redémarrage, jusqu'à la création du compte).
 5. Sauvegarde (les données sont dans le volume Docker `garage-data`) :
    `docker compose stop garage && docker compose cp garage:/app/data ./sauvegarde-$(date +%F) && docker compose start garage`
 6. Mise à jour : récupérez la nouvelle version, puis `docker compose up -d --build`.
 
-Protections actives quand le logiciel est joint depuis internet : code d'installation pour le premier compte, **10 essais de mot de passe maximum** par quart d'heure, **code PIN toujours demandé** au kiosque de pointage (donnez un PIN à chaque mécanicien), cookies de session sécurisés. Utilisez des mots de passe solides.
+Protections actives quand le logiciel est joint depuis internet : code d'installation pour le premier compte, **10 essais de mot de passe maximum** par adresse et 20 par compte sur un quart d'heure (un téléphone ou PC déjà connecté à ce compte n'est jamais bloqué), **code PIN toujours demandé** au kiosque de pointage (donnez un PIN à chaque mécanicien), cookies de session sécurisés. Utilisez des mots de passe solides. Si un compte reste bloqué, `docker compose restart garage` remet les compteurs à zéro.
 
 *Variante sans serveur* : garder le logiciel sur le PC du garage et le publier avec un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) nommé sur votre domaine, protégé par **Cloudflare Access**. Le tunnel rapide `trycloudflare.com` ne sert qu'à un essai : l'adresse change à chaque lancement (l'application installée cesse de marcher), le suivi en temps réel n'y fonctionne pas et l'adresse est publique.
 

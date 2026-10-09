@@ -85,8 +85,8 @@ const App = {
       const first = (r.user?.name || '').split(' ')[0];
       const h = new Date().getHours();
       greet.value = r.action === 'in'
-        ? { cls: 'in', title: `${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'} ${first} !`, sub: `Arrivée enregistrée à ${r.at.slice(11, 16)}`, extra: 'Bonne journée ☀️' }
-        : { cls: 'out', title: `Au revoir ${first} !`, sub: `Départ enregistré à ${r.at.slice(11, 16)}`, extra: `${hm(r.today_hours)} travaillées aujourd'hui · bonne soirée 👋` };
+        ? { cls: 'in', title: `${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'} ${first} !`, sub: `Arrivée enregistrée à ${r.at.slice(11, 16)}`, extra: h < 17 ? 'Bonne journée ☀️' : 'Bon travail 💪' }
+        : { cls: 'out', title: `Au revoir ${first} !`, sub: `Départ enregistré à ${r.at.slice(11, 16)}`, extra: `${hm(r.today_hours)} travaillées aujourd'hui · ${h >= 17 ? 'bonne soirée' : 'à bientôt'} 👋` };
       clearTimeout(greetT);
       greetT = setTimeout(() => { greet.value = null; }, 4000);
     };

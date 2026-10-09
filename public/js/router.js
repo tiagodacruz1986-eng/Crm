@@ -28,6 +28,14 @@ function parseRoute() {
   }
   route.name = 'dashboard';
 }
-window.addEventListener('hashchange', parseRoute);
+// Avant de quitter une page (ex. OR modifié et non enregistré) : une garde peut demander confirmation.
+// Si l'utilisateur refuse, on remet l'adresse précédente sans changer de page.
+export const leaveGuards = new Set();
+let current = location.hash;
+window.addEventListener('hashchange', () => {
+  for (const ok of leaveGuards) if (!ok()) { history.replaceState(null, '', current || '#/'); return; }
+  current = location.hash;
+  parseRoute();
+});
 parseRoute();
 

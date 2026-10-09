@@ -129,12 +129,17 @@ const GlobalSearch = {
     let t;
     const search = () => { clearTimeout(t); t = setTimeout(async () => { r.value = q.value.length > 1 ? await GET('/search?q=' + encodeURIComponent(q.value)) : null; }, 150); };
     const open = (path) => { go(path); emit('close'); };
+    watch(() => route.path + '?' + JSON.stringify(route.query), () => emit('close'));
     return { q, r, search, open, money, DOC_TYPES_SHORT };
   },
   template: `
   <div class="modal-bg" @mousedown.self="$emit('close')">
     <div class="search-box">
-      <input v-model="q" @input="search" placeholder="Plaque, client, n° de facture, référence pièce…" autofocus @keydown.esc="$emit('close')">
+      <div class="search-head">
+        <Icon name="search"/>
+        <input v-model="q" @input="search" placeholder="Plaque, client, n° de facture, référence pièce…" autofocus @keydown.esc="$emit('close')" enterkeyhint="search">
+        <button type="button" class="link search-close" @click="$emit('close')">Fermer</button>
+      </div>
       <div class="search-results" v-if="r">
         <div v-if="r.vehicles.length" class="sr-group">Véhicules</div>
         <div v-for="v in r.vehicles" class="sr" @click="open('/vehicle/' + v.id)">🚗 <b>{{ v.plate }}</b> {{ v.make }} {{ v.model }} <span class="muted">{{ v.customer_name }}</span></div>
@@ -183,6 +188,14 @@ const Root = {
     const menuActive = (m) => { const p = route.path + (route.query.tab ? '?tab=' + route.query.tab : ''); return m.to === p || (m.to === route.path && !route.query.tab); };
     const userOpen = ref(false);
     const attOpen = ref(false);
+    // Un toucher en dehors du menu du compte ou du pointage rapide le ferme, sans activer ce qui est dessous
+    const onOutside = (e) => {
+      if ((!userOpen.value && !attOpen.value) || e.target.closest?.('.user-menu, .att-sys')) return;
+      e.preventDefault(); e.stopPropagation();
+      userOpen.value = false; attOpen.value = false;
+    };
+    onMounted(() => document.addEventListener('click', onOutside, true));
+    onUnmounted(() => document.removeEventListener('click', onOutside, true));
     const att = computed(() => store.user?.attendance || {});
     const checking = ref(false);
     const quickCheck = async () => {

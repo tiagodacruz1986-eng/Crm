@@ -18,7 +18,7 @@ async function call(method, url, body, { ip, tok, headers = {} } = {}) {
     headers: { 'Content-Type': 'application/json', ...(ip ? { 'X-Forwarded-For': ip } : {}), ...(tok ? { Authorization: `Bearer ${tok}` } : {}), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: res.status, data: await res.json().catch(() => null) };
+  return { status: res.status, data: await res.json().catch(() => null), cookies: res.headers.getSetCookie() };
 }
 
 before(async () => {
@@ -53,11 +53,20 @@ test("première configuration depuis internet : code d'installation obligatoire"
 
 test('mot de passe : 10 essais par adresse, 20 par compte depuis internet, le garage garde la main', async () => {
   const bad = { email: 'g@t.lu', password: 'mauvais!' };
+  // Appareil du gérant déjà connecté depuis internet : il reçoit un cookie « appareil connu »
+  const first = await call('POST', '/auth/login', { ...bad, password: 'secret123' }, { ip: '192.0.2.77' });
+  assert.equal(first.status, 200);
+  const device = first.cookies.find((c) => c.startsWith('gdevice=')).split(';')[0];
+  assert.match(device, /^gdevice=[a-f0-9]{64}$/);
   for (let i = 0; i < 10; i++) assert.equal((await call('POST', '/auth/login', bad, { ip: INTERNET })).status, 401);
   assert.equal((await call('POST', '/auth/login', { ...bad, password: 'secret123' }, { ip: INTERNET })).status, 429, 'bloqué même avec le bon mot de passe');
   // Attaque répartie sur plusieurs adresses : le compte est protégé après 20 échecs
   for (let i = 0; i < 10; i++) assert.equal((await call('POST', '/auth/login', bad, { ip: '198.51.100.9' })).status, 401);
   assert.equal((await call('POST', '/auth/login', { ...bad, password: 'secret123' }, { ip: '198.51.100.10' })).status, 429, 'compte protégé depuis une autre adresse internet');
+  assert.equal((await call('POST', '/auth/login', { ...bad, email: ' G@T.LU ', password: 'secret123' }, { ip: '198.51.100.11' })).status, 429, 'majuscules / espaces : même compte');
+  const forged = 'gdevice=' + 'a'.repeat(64);
+  assert.equal((await call('POST', '/auth/login', { ...bad, password: 'secret123' }, { ip: '198.51.100.12', headers: { cookie: forged } })).status, 429, 'faux cookie appareil : refusé');
+  assert.equal((await call('POST', '/auth/login', { ...bad, password: 'secret123' }, { ip: '192.0.2.78', headers: { cookie: device } })).status, 200, "l'appareil déjà connecté du gérant n'est pas bloqué");
   assert.equal((await call('POST', '/auth/login', { ...bad, password: 'secret123' })).status, 200, 'au garage (réseau local) : connexion possible');
 });
 
@@ -71,6 +80,14 @@ test('kiosque : depuis internet, le code PIN est toujours demandé', async () =>
   assert.equal(lan.status, 200, 'tablette du garage : sans PIN ' + JSON.stringify(lan.data));
   assert.equal((await call('POST', '/kiosk/login', { user_id: mech }, { ip: INTERNET })).status, 401, 'internet : sans PIN refusé');
   assert.equal((await call('POST', '/kiosk/login', { user_id: mech, pin: '4321' }, { ip: INTERNET })).status, 200, 'internet : avec PIN accepté');
+  // Codes PIN essayés sur plusieurs mécaniciens depuis la même adresse internet : 10 échecs max.
+  const ids = [];
+  for (const n of ['A', 'B', 'C']) ids.push((await call('POST', '/users', { name: 'Méca ' + n, role: 'mechanic', pin: '5678' }, { tok: token })).data.id);
+  const ip = '203.0.113.88';
+  for (const id of ids.slice(0, 2)) for (let i = 0; i < 4; i++) assert.equal((await call('POST', '/kiosk/login', { user_id: id, pin: '0000' }, { ip })).status, 401);
+  for (let i = 0; i < 2; i++) assert.equal((await call('POST', '/kiosk/login', { user_id: ids[2], pin: '0000' }, { ip })).status, 401);
+  assert.equal((await call('POST', '/kiosk/login', { user_id: ids[2], pin: '5678' }, { ip })).status, 429, 'adresse bloquée après 10 codes faux');
+  assert.equal((await call('POST', '/kiosk/login', { user_id: ids[2], pin: '5678' })).status, 200, 'tablette du garage : pas bloquée');
 });
 
 test('serveur internet (INTERNET_SERVER=1) : même une adresse privée est traitée comme internet', async () => {
@@ -82,4 +99,33 @@ test('serveur internet (INTERNET_SERVER=1) : même une adresse privée est trait
     for (let i = 0; i < 50 && !st; i++) st = await fetch(`http://127.0.0.1:${port}/api/auth/status`).then((r) => r.json()).catch(() => new Promise((r) => setTimeout(r, 100)));
     assert.equal(st.setupCode, true, 'proxy Docker (adresse privée) : code demandé');
   } finally { srv.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('formulaires publics : messages énormes refusés, aucune trace gardée en mémoire', async () => {
+  const huge = 'x'.repeat(30_000) + '@t.lu';
+  assert.equal((await call('POST', '/auth/login', { email: huge, password: 'x' }, { ip: '203.0.113.50' })).status, 413, 'plus de 20 ko : refusé');
+  assert.equal((await call('POST', '/auth/login', { email: 'y'.repeat(300) + '@t.lu', password: 'x' }, { ip: '203.0.113.51' })).status, 401, 'e-mail trop long : refusé sans comptage');
+  // L'adresse 203.0.113.51 n'a rien consommé : 10 essais restent possibles
+  for (let i = 0; i < 10; i++) assert.equal((await call('POST', '/auth/login', { email: `n${i}@t.lu`, password: 'x' }, { ip: '203.0.113.51' })).status, 401);
+  assert.equal((await call('POST', '/auth/login', { email: 'z@t.lu', password: 'x' }, { ip: '203.0.113.51' })).status, 429);
+});
+
+test("code d'installation : identique après un redémarrage, effacé une fois le compte créé", async () => {
+  const port = PORT + 200;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-code-'));
+  const start = () => new Promise((resolve) => {
+    let txt = '';
+    const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ANTHROPIC_API_KEY: '', INTERNET_SERVER: '1' }, stdio: 'pipe' });
+    srv.stdout.on('data', (d) => { txt += d; const m = txt.match(/Code d'installation[^:]*: ([0-9A-F]{5}-[0-9A-F]{5})/); if (m) resolve({ srv, code: m[1] }); });
+  });
+  const stop = (srv) => new Promise((r) => { srv.on('exit', r); srv.kill(); });
+  try {
+    const a = await start(); await stop(a.srv);
+    const b = await start();
+    assert.equal(b.code, a.code, 'même code après redémarrage');
+    const r = await fetch(`http://127.0.0.1:${port}/api/auth/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'G', email: 'g@t.lu', password: 'secret123', setup_code: b.code }) });
+    assert.equal(r.status, 200);
+    assert.equal(fs.existsSync(path.join(dir, 'setup-code.txt')), false, 'code effacé');
+    await stop(b.srv);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

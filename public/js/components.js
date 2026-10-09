@@ -13,14 +13,17 @@ export const Badge = {
 export const Modal = {
   props: { title: String, wide: Boolean },
   emits: ['close'],
+  // Affichée directement dans <body> : une fenêtre ouverte depuis une carte (flou, overflow) n'y reste pas coincée
   template: `
+  <Teleport to="body">
   <div class="modal-bg" @mousedown.self="$emit('close')">
     <div class="modal" :class="{wide}">
       <div class="modal-head"><h3>{{ title }}</h3><button class="icon-btn" @click="$emit('close')">✕</button></div>
       <div class="modal-body"><slot/></div>
       <div class="modal-foot" v-if="$slots.foot"><slot name="foot"/></div>
     </div>
-  </div>`,
+  </div>
+  </Teleport>`,
 };
 
 // Champ de recherche avec suggestions (clients, véhicules, articles…)

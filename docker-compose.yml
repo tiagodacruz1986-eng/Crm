@@ -10,6 +10,7 @@ services:
     environment:
       TZ: ${TZ:-Europe/Luxembourg}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       PUBLIC_URL: https://${DOMAIN:?Indiquez DOMAIN=votre-domaine dans le fichier .env}
       # Serveur sur internet : aucun visiteur n'est considéré comme « réseau du garage »
       # (code d'installation, limite des essais de mot de passe et PIN au kiosque toujours actifs)

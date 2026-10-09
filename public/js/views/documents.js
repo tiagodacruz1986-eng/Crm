@@ -1,6 +1,6 @@
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, datetime, hours, today, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS } from '../api.js';
-import { route, go } from '../router.js';
+import { route, go, leaveGuards } from '../router.js';
 import { LivePanel } from '../live-panel.js';
 import { DocPrint } from '../doc-print.js';
 
@@ -27,7 +27,7 @@ export const DocumentList = {
   <div>
     <div class="page-head">
       <h1>{{ type === 'invoice' ? 'Factures & avoirs' : type === 'quote' ? 'Devis' : 'Ordres de réparation' }}</h1>
-      <div class="btns"><ModuleTools :module="type === 'order' ? 'atelier' : 'ventes'"/><a class="btn primary" :href="'#/new/' + type">+ Nouveau {{ DOC_TYPES_SHORT[type].toLowerCase() }}</a></div>
+      <div class="btns"><ModuleTools :module="type === 'order' ? 'atelier' : 'ventes'"/><a class="btn primary" :href="'#/new/' + type">+ {{ { quote: 'Nouveau devis', order: 'Nouvel OR', invoice: 'Nouvelle facture', credit_note: 'Nouvel avoir' }[type] || 'Nouveau' }}</a></div>
     </div>
     <div class="card">
       <div class="toolbar">
@@ -147,6 +147,11 @@ export const DocumentEditor = {
     watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage], () => { dirty.value = true; }, { deep: true });
 
     const locked = computed(() => doc.value && (['invoice', 'credit_note'].includes(doc.value.type) ? doc.value.status !== 'draft' : doc.value.status === 'invoiced'));
+    // Modifications non enregistrées : confirmation avant de changer de page ou de fermer l'application
+    const leaveOk = () => !dirty.value || locked.value || confirm('Les modifications ne sont pas enregistrées. Quitter quand même ?');
+    const onUnload = (e) => { if (dirty.value && !locked.value) { e.preventDefault(); e.returnValue = ''; } };
+    onMounted(() => { leaveGuards.add(leaveOk); window.addEventListener('beforeunload', onUnload); });
+    onUnmounted(() => { leaveGuards.delete(leaveOk); window.removeEventListener('beforeunload', onUnload); });
     const showDiscount = computed(() => store.settings?.options?.ventes?.line_discounts !== false || (doc.value?.lines || []).some((l) => l.discount));
     const lineTotal = (l) => (l.kind === 'text' ? 0 : Math.round((l.quantity || 0) * (l.unit_price || 0) * (1 - (l.discount || 0) / 100) * 100) / 100);
     const totals = computed(() => {
@@ -212,7 +217,7 @@ export const DocumentEditor = {
     };
     const setStatus = async (status) => { await ensureSaved(); await act(() => POST(`/documents/${doc.value.id}/status`, { status })); await load(); };
     const pay = async (p) => { await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); };
-    const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); history.back(); };
+    const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); dirty.value = false; history.back(); };
     const print = async () => { if (dirty.value && !locked.value) await save(true); setTimeout(() => window.print(), 100); };
 
     const flow = computed(() => {
@@ -336,6 +341,7 @@ export const DocumentEditor = {
             <template v-if="doc.amount_paid"><span class="muted">Déjà payé</span><span class="num pos">{{ money(doc.amount_paid) }}</span><b>Reste dû</b><b class="num">{{ money(doc.total - doc.amount_paid) }}</b></template>
           </div>
           <div v-if="dirty && !locked" class="muted small" style="margin-top:10px">● Modifications non enregistrées</div>
+          <button v-if="dirty && !locked" class="btn primary save-fab" @click="save()">Enregistrer</button>
         </div>
         <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id"/>
         <div class="card" v-if="doc.type==='order' && !isNew">

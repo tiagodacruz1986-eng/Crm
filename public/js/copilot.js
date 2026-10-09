@@ -119,10 +119,12 @@ export const Copilot = {
     onUnmounted(() => { ambient.value = false; ambientRec?.stop(); rec?.stop(); });
 
     const toggleVoice = () => { voiceOn.value = !voiceOn.value; try { localStorage.setItem('nova_voice', voiceOn.value ? '1' : '0'); } catch { /* navigation privée */ } if (!voiceOn.value) speechSynthesis?.cancel(); };
-    const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+    const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); e.target.style.height = ''; } };
+    // La zone de saisie s'agrandit avec le texte (jusqu'à 120 px), surtout utile sur téléphone
+    const grow = (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, 120) + 'px'; };
     const hello = computed(() => { const h = new Date().getHours(); return h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'; });
     const SUGGEST = ['Qu\'est-ce qui est urgent aujourd\'hui ?', 'Fais-moi le résumé de ma journée', 'Rappelle-moi demain à 9h d\'appeler le fournisseur de pneus', 'Combien j\'ai encaissé cette semaine ?'];
-    return { open, messages, input, busy, listening, ambient, interim, voiceOn, body, send, talk, toggleAmbient, toggleVoice, onKey, hello, SUGGEST, md, store, voiceSupported };
+    return { open, messages, input, busy, listening, ambient, interim, voiceOn, body, send, talk, toggleAmbient, toggleVoice, onKey, grow, hello, SUGGEST, md, store, voiceSupported };
   },
   template: `
   <button class="copilot-orb no-print" :class="{listening: listening || ambient}" @click="open = !open" title="Nova — copilote IA"><Icon :name="open ? 'x' : 'sparkles'"/></button>
@@ -148,7 +150,7 @@ export const Copilot = {
     </div>
     <div class="copilot-foot">
       <button class="mic" :class="{on: listening}" @click="talk" :title="voiceSupported ? 'Appuyez et parlez' : 'Dictée non disponible dans ce navigateur'"><div v-if="listening" class="wave"><i></i><i></i><i></i><i></i><i></i></div><Icon v-else name="mic"/></button>
-      <textarea v-model="input" rows="1" placeholder="Demandez ou dictez quelque chose…" @keydown="onKey"></textarea>
+      <textarea v-model="input" rows="1" placeholder="Demandez ou dictez…" @keydown="onKey" @input="grow"></textarea>
       <button class="mic" :class="{on: ambient}" @click="toggleAmbient" title="Écoute continue (journal de la journée)"><Icon name="notebook-pen"/></button>
       <button class="btn primary" style="height:46px" :disabled="busy || !input.trim()" @click="send()"><Icon name="send"/></button>
     </div>

@@ -81,14 +81,17 @@ body.kiosk::before, body.kiosk::after { display: none; }
 [data-theme="light"] .k-avatar i { box-shadow: 0 0 0 3px #fff; }
 [data-theme="light"] .k-hero h1 { background: linear-gradient(90deg, #0891b2, #6366f1, #c026d3); -webkit-background-clip: text; background-clip: text; }
 [data-theme="light"] .k-pad button { background: #fff; color: #0b1224; box-shadow: 0 3px 10px rgba(30, 50, 100, .1); }
-[data-theme="light"] .k-pad button.ok { color: #fff; }
+[data-theme="light"] .k-pad button.ok { color: #fff; background: linear-gradient(120deg, #0891b2, #6366f1); }
 [data-theme="light"] .k-dots span { border-color: #94a3b8; }
 [data-theme="light"] .k-stats div { background: #f1f5fb; }
 [data-theme="light"] .k-stats b { color: #0b1224; }
-[data-theme="light"] .k-btn { background: #e2e8f0; color: #0b1224; }
+[data-theme="light"] .k-btn:not(.green):not(.red):not(.blue):not(.orange) { background: #e2e8f0; color: #0b1224; }
 [data-theme="light"] .k-btn.green, [data-theme="light"] .k-btn.red, [data-theme="light"] .k-btn.blue, [data-theme="light"] .k-btn.orange { color: #fff; }
 [data-theme="light"] .k-line { border-color: #e2e8f0; }
 [data-theme="light"] .k-order .complaint { color: #334155; }
 [data-theme="light"] .k-order textarea, [data-theme="light"] .k-order input, [data-theme="light"] .k-search { background: #f8fafc; border-color: #cbd5e1; color: #0b1224; }
 [data-theme="light"] .k-err { color: #dc2626; }
 [data-theme="light"] .k-user.present .k-avatar i { box-shadow: 0 0 0 3px #fff, 0 0 10px #22c55e; }
+[data-theme="light"] .k-timer { color: #15803d; }
+/* Téléphone peu haut (iPhone 13 en navigateur…) : le clavier du code PIN tient sans défiler */
+@media (max-height: 760px) { .k-pad { gap: 8px; } .k-pad button { height: 56px; font-size: 24px; } }

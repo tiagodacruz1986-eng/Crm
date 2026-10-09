@@ -17,7 +17,12 @@ self.addEventListener('fetch', (e) => {
   const nav = e.request.mode === 'navigate';
   e.respondWith(
     fetch(e.request)
-      .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); } return res; })
+      .then((res) => {
+        // 502 à 504 : le proxy (Tailscale, Caddy…) répond mais le logiciel du garage est arrêté → comme hors-ligne
+        if (res.status >= 502 && res.status <= 504) throw new Error('garage injoignable');
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+        return res;
+      })
       .catch(() => caches.match(e.request, { ignoreSearch: nav }).then((r) => r || (nav ? caches.match(url.pathname.startsWith('/kiosk') ? '/kiosk.html' : '/') : undefined)).then((r) => r || Response.error()))
   );
 });

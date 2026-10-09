@@ -41,7 +41,7 @@ export const DevicesModal = {
         <template v-else>
           <p class="small">Pour une <b>vraie application</b> sur le téléphone, le logiciel doit être joignable en <b>https</b>. Deux solutions :</p>
           <ul class="small dev-list">
-            <li><b>Tailscale</b> (gratuit, privé : seulement vos appareils) — installez Tailscale sur ce PC et sur le téléphone, puis double-cliquez sur <code>acces-telephone-windows.bat</code> (ou <code>-mac.command</code>).</li>
+            <li><b>Tailscale</b> (privé : seulement vos appareils ; prenez l'offre professionnelle pour un garage) — installez Tailscale sur ce PC et sur le téléphone, puis double-cliquez sur <code>acces-telephone-windows.bat</code> (ou <code>-mac.command</code>).</li>
             <li><b>Serveur internet</b> avec votre nom de domaine (ex. <code>atelier.votre-garage.lu</code>) — nécessaire aussi pour le site web public et les liens de suivi des clients.</li>
           </ul>
           <a class="btn sm" :href="GUIDE" target="_blank" rel="noopener">Guide pas à pas</a>
