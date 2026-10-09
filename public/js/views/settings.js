@@ -1,4 +1,4 @@
-import { ref, reactive, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
 import { route } from '../router.js';
 import { LayoutEditor } from './layout-editor.js';
@@ -49,7 +49,8 @@ export const Settings = {
     const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`✅ Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
     const imapPreset = (k) => Object.assign(inbox.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
     const load = async () => { loadOdoo(); loadMail(); loadInbox(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
-    onMounted(load);
+    // Lien direct vers un onglet (ex. ?tab=mail) : sur téléphone, l'onglet actif est ramené à l'écran
+    onMounted(async () => { await load(); await nextTick(); document.querySelector('.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
     const save = async () => { store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name; };
     const saveUser = async () => {
       const u = editUser.value;

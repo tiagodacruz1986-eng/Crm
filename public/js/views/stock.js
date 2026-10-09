@@ -316,7 +316,7 @@ export const SupplierList = {
       if (s.id) await act(() => PUT('/suppliers/' + s.id, s), 'Enregistré'); else await act(() => POST('/suppliers', s), 'Fournisseur créé');
       edit.value = null; load();
     };
-    const remove = async () => { await act(() => DEL('/suppliers/' + edit.value.id)); edit.value = null; load(); };
+    const remove = async () => { if (!confirm(`Supprimer le fournisseur ${edit.value.name} ?`)) return; await act(() => DEL('/suppliers/' + edit.value.id)); edit.value = null; load(); };
     const mailTo = ref(null);
     return { rows, edit, accounts, save, remove, money, mailTo };
   },

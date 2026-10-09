@@ -177,7 +177,7 @@ tfoot td { font-weight: 700; background: var(--soft); }
 /* ---------- Fenêtres ---------- */
 .modal-bg { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: start center; padding: 6vh 16px; z-index: 100; overflow-y: auto; backdrop-filter: blur(8px); animation: fade .15s; }
 @keyframes fade { from { opacity: 0; } }
-.modal { background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 20px; width: 100%; max-width: 560px; box-shadow: var(--shadow-lg); animation: pop .2s cubic-bezier(.2, .9, .3, 1.2); }
+.modal { background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 20px; width: 100%; min-width: 0; max-width: 560px; box-shadow: var(--shadow-lg); animation: pop .2s cubic-bezier(.2, .9, .3, 1.2); }
 @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.98); } }
 .modal.wide { max-width: 900px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--line); }
@@ -200,7 +200,7 @@ tfoot td { font-weight: 700; background: var(--soft); }
 .sr:hover { background: var(--brand-soft); }
 
 /* ---------- Notifications ---------- */
-.toasts { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
+.toasts { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; } /* les messages ne bloquent jamais un bouton */
 .toast { background: var(--panel-solid); color: var(--ink); padding: 12px 16px 12px 14px; border-radius: 12px; box-shadow: var(--shadow-lg); max-width: 400px; animation: slide .25s cubic-bezier(.2, .9, .3, 1.2); border: 1px solid var(--line-strong); border-left: 3px solid var(--ok); }
 .toast.error { border-left-color: var(--bad); }
 @keyframes slide { from { transform: translateY(12px); opacity: 0; } }
@@ -727,7 +727,8 @@ button, a, input, select { touch-action: manipulation; }
   tr.click:hover td { background: transparent; }
   .table-wrap { overflow: visible; }
   table.lines td.nowrap, table.lines td:last-child { justify-content: flex-end; }
-  .modal-bg { padding: 0; place-items: stretch; }
+  /* Fenêtre plein écran qui grandit avec son contenu (le pied reste collé en bas pendant le défilement) */
+  .modal-bg { padding: 0; display: block; }
   .modal, .modal.wide { max-width: none; min-height: 100%; border-radius: 0; display: flex; flex-direction: column; border: 0; }
   .modal-body { flex: 1; }
   .modal-foot { position: sticky; bottom: 0; flex-wrap: wrap; border-radius: 0; }
@@ -1104,3 +1105,26 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 /* OR / devis modifié : bouton « Enregistrer » toujours à portée de pouce sur téléphone */
 .save-fab { display: none; }
 @media (max-width: 800px) { .save-fab { display: inline-flex; position: fixed; left: 16px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 90; padding: 13px 20px; border-radius: 14px; box-shadow: var(--shadow-lg); } }
+@media (max-width: 800px) {
+  .modal-body { overflow-wrap: anywhere; }
+  /* Achats : le choix de l'article prend toute la largeur (le bouton « Saisie libre » passe dessous) */
+  table.stackable td:has(> .picker) { flex-wrap: wrap; }
+  table.stackable td > .picker { flex: 1 1 100%; max-width: none; }
+  /* Textes longs (e-mails, communications bancaires) : retour à la ligne au lieu de déborder */
+  table.stackable td, .list-item, .card-head { overflow-wrap: anywhere; }
+  .card-head { flex-wrap: wrap; }
+  /* Bureau IA : il a ses propres agents, le bouton Nova masquerait les boutons de la console */
+  .is-office .copilot-orb, .is-office .copilot-panel { display: none; }
+}
+@media (max-width: 700px) {
+  .ai-box input { flex: 1 1 100%; }
+  .post-feed { grid-template-columns: minmax(0, 1fr); }
+  .sub-item .row3 { flex-wrap: wrap; }
+  .sub-item .row3 input:not(.emoji-in) { flex: 1 1 0; min-width: 0; }
+  .sub-item .row3 input:last-child:not(:nth-child(2)) { flex-basis: 100%; }
+}
+.limits { margin: 4px 0 10px; }
+.cal-nav { flex-wrap: nowrap; align-items: center; }
+.cal-nav h2 { font-size: clamp(16px, 4.5vw, 22px); white-space: nowrap; }
+.cal-d.picked { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cal-daylist { margin-top: 14px; }

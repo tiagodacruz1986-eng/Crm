@@ -223,7 +223,7 @@ const Root = {
   </div>
   <Invite v-else-if="route.name === 'invite'"/>
   <Login v-else-if="!store.user" :setup="store.needsSetup"/>
-  <div v-else class="layout" :class="{'menu-open': menuOpen, 'nav-apps': navMode === 'apps', 'is-home': route.name === 'apps'}">
+  <div v-else class="layout" :class="{'menu-open': menuOpen, 'nav-apps': navMode === 'apps', 'is-home': route.name === 'apps', 'is-office': route.name === 'office'}">
     <aside class="sidebar" v-if="navMode === 'sidebar'" @click="menuOpen = false">
       <div class="brand"><span class="brand-logo"><Icon name="wrench"/></span><div><b>{{ store.company }}</b><small>Garage OS</small></div></div>
       <nav>

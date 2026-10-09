@@ -2,7 +2,7 @@
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
-.wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 120px; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px calc(var(--composer-h, 104px) + 24px); }
 .head { background: linear-gradient(135deg, #1d4ed8, #0891b2); color: #fff; border-radius: 20px; padding: 20px; margin-bottom: 16px; }
 .head .garage { opacity: .85; font-size: 14px; }
 .head .garage-logo { max-height: 34px; max-width: 170px; background: #fff; padding: 4px 8px; border-radius: 8px; vertical-align: middle; }
@@ -63,3 +63,5 @@ textarea { resize: none; min-height: 44px; max-height: 120px; }
 .checklist .done span:last-child { text-decoration: line-through; color: var(--muted); }
 .center { text-align: center; padding: 60px 16px; }
 @media (max-width: 480px) { .step .dot { width: 32px; height: 32px; font-size: 15px; } .step { font-size: 9px; } .gauge-top .pct { font-size: 28px; } }
+/* Petit téléphone : les étapes gardent leur icône, le nom de l'étape en cours est affiché au-dessus de la jauge */
+@media (max-width: 480px) { .step .lbl { display: none; } }

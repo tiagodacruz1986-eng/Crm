@@ -28,6 +28,10 @@ export const Social = {
       ai.variants = [];
     };
     const openPost = (p) => { edit.value = { ...p, scheduled_at: p.scheduled_at || '' }; ai.variants = []; };
+    // Téléphone : les publications ne tiennent pas dans les cases du calendrier → un jour touché affiche sa liste
+    const dayPick = ref(null);
+    const tapDay = (d) => { if (d.posts.length && matchMedia('(max-width: 700px)').matches) dayPick.value = d.key; else planOn(d.key); };
+    const pickedDay = computed(() => dayPick.value && days.value.find((d) => d.key === dayPick.value));
     const toggle = (k) => { const l = edit.value.platforms; const i = l.indexOf(k); if (i >= 0) l.splice(i, 1); else l.push(k); };
     const limits = computed(() => (edit.value ? edit.value.platforms.map((k) => ({ k, name: meta.value.platforms[k].name, max: meta.value.platforms[k].max, over: edit.value.text.length > meta.value.platforms[k].max })) : []));
     const upload = async (file) => {
@@ -96,7 +100,7 @@ export const Social = {
       acc[k].token = '';
     };
     const counts = computed(() => ({ scheduled: posts.value.filter((p) => p.status === 'scheduled').length, published: posts.value.filter((p) => p.status === 'published').length, todo: posts.value.filter((p) => ['manual', 'partial', 'error'].includes(p.status)).length }));
-    return { view, setView, meta, posts, edit, ai, month, acc, compose, openPost, toggle, limits, upload, saveDraft, schedule, publishNow, publish, manualDone, remove, copy, write, ideas, useIdea, days, shiftMonth, planOn, saveAccounts, counts, STATUS, PICON, datetime, store };
+    return { view, setView, meta, posts, edit, ai, month, acc, compose, openPost, dayPick, tapDay, pickedDay, toggle, limits, upload, saveDraft, schedule, publishNow, publish, manualDone, remove, copy, write, ideas, useIdea, days, shiftMonth, planOn, saveAccounts, counts, STATUS, PICON, datetime, store };
   },
   template: `
   <div v-if="meta">
@@ -135,12 +139,16 @@ export const Social = {
     </div>
 
     <div v-if="view === 'calendar'" class="card">
-      <div class="card-head"><div class="btns"><button class="btn sm" @click="shiftMonth(-1)">←</button><h2 style="margin:0;text-transform:capitalize">{{ month.toLocaleDateString('fr-LU', { month: 'long', year: 'numeric' }) }}</h2><button class="btn sm" @click="shiftMonth(1)">→</button></div><span class="muted small">Cliquez sur un jour pour programmer</span></div>
+      <div class="card-head"><div class="btns cal-nav"><button class="btn sm" @click="shiftMonth(-1); dayPick = null">←</button><h2 style="margin:0;text-transform:capitalize">{{ month.toLocaleDateString('fr-LU', { month: 'long', year: 'numeric' }) }}</h2><button class="btn sm" @click="shiftMonth(1); dayPick = null">→</button></div><span class="muted small">Cliquez sur un jour pour programmer</span></div>
       <div class="cal"><div v-for="d in ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim']" :key="d" class="cal-h">{{ d }}</div>
-        <div v-for="d in days" :key="d.key" class="cal-d" :class="{ other: d.other, today: d.today }" @click="planOn(d.key)">
+        <div v-for="d in days" :key="d.key" class="cal-d" :class="{ other: d.other, today: d.today, picked: dayPick === d.key }" @click="tapDay(d)">
           <span class="n">{{ d.day }}</span>
           <div v-for="p in d.posts" :key="p.id" class="cal-post" :class="p.status" @click.stop="openPost(p)"><span class="pchip sm" :class="p.platforms[0]">{{ PICON[p.platforms[0]] }}</span>{{ p.text.slice(0, 40) }}</div>
         </div>
+      </div>
+      <div v-if="pickedDay" class="cal-daylist">
+        <div class="card-head"><b style="text-transform:capitalize">{{ new Date(pickedDay.key + 'T12:00').toLocaleDateString('fr-LU', { weekday: 'long', day: 'numeric', month: 'long' }) }}</b><button class="btn sm primary" @click="planOn(pickedDay.key)">+ Programmer</button></div>
+        <div v-for="p in pickedDay.posts" :key="p.id" class="list-item click" @click="openPost(p)"><span><span class="pchip sm" :class="p.platforms[0]">{{ PICON[p.platforms[0]] }}</span> {{ p.text.slice(0, 80) }}</span><span class="muted small">{{ (p.scheduled_at || '').slice(11, 16) }}</span></div>
       </div>
     </div>
 

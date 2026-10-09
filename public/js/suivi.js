@@ -44,6 +44,12 @@ const App = {
       if (grew) nextTick(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
     };
     onMounted(async () => {
+      // La zone de saisie (fixée en bas) change de hauteur : la page garde toujours assez de place au-dessous
+      const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+        const c = document.querySelector('.composer');
+        document.documentElement.style.setProperty('--composer-h', (c ? c.offsetHeight : 0) + 'px');
+      }) : null;
+      if (ro) new MutationObserver(() => { const c = document.querySelector('.composer'); if (c && !c.dataset.watched) { c.dataset.watched = '1'; ro.observe(c); } }).observe(document.body, { childList: true, subtree: true });
       if (!token) { err.value = 'Lien incomplet'; return; }
       await load();
       const es = new EventSource(`${API}/events`);
@@ -132,7 +138,7 @@ const App = {
         <div class="bar"><div :style="{width: pct + '%'}"></div></div>
         <div class="steps">
           <div v-for="(s, i) in d.stages" class="step" :class="{done: i < d.stage_index, cur: i === d.stage_index, clickable: isMech}" @click="setStage(s)">
-            <div class="dot">{{ i < d.stage_index ? '✓' : s.icon }}</div>{{ s.label }}
+            <div class="dot">{{ i < d.stage_index ? '✓' : s.icon }}</div><span class="lbl">{{ s.label }}</span>
           </div>
         </div>
       </div>
