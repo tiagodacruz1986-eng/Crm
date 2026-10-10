@@ -22,7 +22,7 @@ export const Website = {
     const types = ref({});
     const url = ref('');
     const sel = ref(null);
-    watch(sel, () => { if (matchMedia('(max-width: 1100px)').matches) nextTick(() => document.querySelector('.block-editor-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); });
+    watch(sel, (v, old) => { if (old && matchMedia('(max-width: 1100px)').matches) nextTick(() => document.querySelector('.block-editor-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); });
     const html = ref('');
     const saving = ref(false);
     const gen = reactive({ open: false, notes: '', tone: 'chaleureux et professionnel', busy: false });

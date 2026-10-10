@@ -31,7 +31,8 @@ const App = {
     };
     const bump = () => { clearTimeout(idle); if (token.value || who.value) idle = setTimeout(logout, IDLE_LOGOUT_MS); };
     const logout = () => { token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; err.value = ''; q.value = ''; loadUsers(); };
-    const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); } catch { /* hors ligne */ } };
+    const offline = ref(false);
+    const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); offline.value = false; } catch { offline.value = true; } };
 
     // Lecteur de badge : les caractères arrivent très vite puis « Entrée »
     let buf = '', lastKey = 0;
@@ -120,7 +121,7 @@ const App = {
     const h = hm;
     const since = (s) => (s ? s.slice(11, 16) : '');
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
-    return { info, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
+    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
   },
   template: `
   <div class="k-wrap">
@@ -140,7 +141,8 @@ const App = {
           <small>{{ u.since ? 'Présent depuis ' + since(u.since) : (u.job_title || 'Absent') }}</small>
         </button>
       </div>
-      <p v-if="!info.users.length" class="k-muted" style="text-align:center">Personne n'a encore de code PIN. Le gérant les crée dans Paramètres → Utilisateurs & accès.</p>
+      <p v-if="offline" class="k-err" style="text-align:center">📡 Pas de connexion au garage — nouvel essai automatique toutes les 30 secondes.</p>
+      <p v-else-if="!info.users.length" class="k-muted" style="text-align:center">Personne n'a encore de code PIN. Le gérant les crée dans Paramètres → Utilisateurs & accès.</p>
       <div class="k-err" style="text-align:center">{{ err }}</div>
     </template>
 

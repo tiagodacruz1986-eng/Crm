@@ -30,11 +30,23 @@ function parseRoute() {
 }
 // Avant de quitter une page (ex. OR modifié et non enregistré) : une garde peut demander confirmation.
 // Si l'utilisateur refuse, on remet l'adresse précédente sans changer de page.
+// Chaque entrée de l'historique porte son numéro : si l'utilisateur refuse, on revient exactement où il était
+// (retour/avance : history.go ; nouveau lien : history.back) sans écraser d'entrée.
 export const leaveGuards = new Set();
-let current = location.hash;
+let index = Number.isInteger(history.state?.i) ? history.state.i : 0;
+if (!Number.isInteger(history.state?.i)) history.replaceState({ ...(history.state || {}), i: index }, '');
+let ignoreNext = false;
 window.addEventListener('hashchange', () => {
-  for (const ok of leaveGuards) if (!ok()) { history.replaceState(null, '', current || '#/'); return; }
-  current = location.hash;
+  if (ignoreNext) { ignoreNext = false; return; }
+  const target = history.state?.i;
+  for (const ok of leaveGuards) if (!ok()) {
+    ignoreNext = true;
+    if (Number.isInteger(target) && target !== index) history.go(index - target);
+    else history.back();
+    return;
+  }
+  if (Number.isInteger(target)) index = target;
+  else { index += 1; history.replaceState({ ...(history.state || {}), i: index }, ''); }
   parseRoute();
 });
 parseRoute();

@@ -144,12 +144,14 @@ export const DocumentEditor = {
       dirty.value = false;
     };
     onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); await load(); });
-    watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage], () => { dirty.value = true; }, { deep: true });
+    watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage,
+      doc.value.date, doc.value.due_date, doc.value.reference, doc.value.mechanic_id, doc.value.promised_at, doc.value.internal_notes], () => { dirty.value = true; }, { deep: true });
 
     const locked = computed(() => doc.value && (['invoice', 'credit_note'].includes(doc.value.type) ? doc.value.status !== 'draft' : doc.value.status === 'invoiced'));
     // Modifications non enregistrées : confirmation avant de changer de page ou de fermer l'application
-    const leaveOk = () => !dirty.value || locked.value || confirm('Les modifications ne sont pas enregistrées. Quitter quand même ?');
-    const onUnload = (e) => { if (dirty.value && !locked.value) { e.preventDefault(); e.returnValue = ''; } };
+    // (document validé : seules les notes internes restent modifiables, elles comptent aussi)
+    const leaveOk = () => !dirty.value || confirm('Les modifications ne sont pas enregistrées. Quitter quand même ?');
+    const onUnload = (e) => { if (dirty.value) { e.preventDefault(); e.returnValue = ''; } };
     onMounted(() => { leaveGuards.add(leaveOk); window.addEventListener('beforeunload', onUnload); });
     onUnmounted(() => { leaveGuards.delete(leaveOk); window.removeEventListener('beforeunload', onUnload); });
     const showDiscount = computed(() => store.settings?.options?.ventes?.line_discounts !== false || (doc.value?.lines || []).some((l) => l.discount));
@@ -341,7 +343,7 @@ export const DocumentEditor = {
             <template v-if="doc.amount_paid"><span class="muted">Déjà payé</span><span class="num pos">{{ money(doc.amount_paid) }}</span><b>Reste dû</b><b class="num">{{ money(doc.total - doc.amount_paid) }}</b></template>
           </div>
           <div v-if="dirty && !locked" class="muted small" style="margin-top:10px">● Modifications non enregistrées</div>
-          <button v-if="dirty && !locked" class="btn primary save-fab" @click="save()">Enregistrer</button>
+          <Teleport to="body"><button v-if="dirty && !locked" class="btn primary save-fab" @click="save()">Enregistrer</button></Teleport>
         </div>
         <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id"/>
         <div class="card" v-if="doc.type==='order' && !isNew">

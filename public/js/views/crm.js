@@ -1,5 +1,5 @@
 // CRM (inspiré d'Odoo) : pipeline en colonnes, création rapide, fiche opportunité, liste, perdues et analyse.
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date } from '../api.js';
 import { route, go } from '../router.js';
 import { can } from '../apps.js';
@@ -67,18 +67,22 @@ export const Crm = {
       load();
     };
 
-    const open = async (id) => { edit.value = await GET('/crm/leads/' + id); };
+    const open = async (id) => {
+      edit.value = await GET('/crm/leads/' + id);
+      // Téléphone : la barre des étapes défile, on amène l'étape en cours à l'écran
+      nextTick(() => document.querySelector('.crm-stagebar .on')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
+    };
     const create = () => { edit.value = { name: '', contact_name: '', email: '', phone: '', company: '', service: '', vehicle_plate: '', vehicle_desc: '', description: '', expected_revenue: 0, priority: 0, source: 'telephone', deadline: '' }; };
     const FIELDS = ['name', 'contact_name', 'email', 'phone', 'company', 'service', 'vehicle_plate', 'vehicle_desc', 'description', 'expected_revenue', 'probability', 'priority', 'source', 'user_id', 'deadline', 'stage_id', 'tags'];
-    const save = async (close = true) => {
+    const save = async (close = true, quiet = false) => {
       const e = edit.value;
       const body = Object.fromEntries(FIELDS.filter((k) => e[k] !== undefined).map((k) => [k, e[k] === '' ? null : e[k]]));
-      if (e.id) await act(() => PUT('/crm/leads/' + e.id, body), 'Opportunité enregistrée');
+      if (e.id) await act(() => PUT('/crm/leads/' + e.id, body), quiet ? null : 'Opportunité enregistrée');
       else { const r = await act(() => POST('/crm/leads', body), 'Opportunité créée'); e.id = r.id; }
       if (close) edit.value = null; else edit.value = await GET('/crm/leads/' + e.id);
       load();
     };
-    const won = async () => { await save(false); edit.value = await act(() => POST(`/crm/leads/${edit.value.id}/won`), '🏆 Bravo, opportunité gagnée !'); load(); };
+    const won = async () => { await save(false, true); edit.value = await act(() => POST(`/crm/leads/${edit.value.id}/won`), '🏆 Bravo, opportunité gagnée !'); load(); };
     const askLost = () => { lost.value = { reason: meta.value.lost_reasons[0], other: '' }; };
     const confirmLost = async () => {
       const reason = lost.value.reason === 'Autre' && lost.value.other ? lost.value.other : lost.value.reason;
@@ -87,12 +91,12 @@ export const Crm = {
     };
     const restore = async (l) => { await act(() => POST(`/crm/leads/${l.id}/restore`), 'Opportunité restaurée'); if (edit.value) edit.value = await GET('/crm/leads/' + l.id); load(); };
     const quote = async () => {
-      await save(false);
+      await save(false, true);
       const r = await act(() => POST(`/crm/leads/${edit.value.id}/quote`));
       go('/document/' + r.document_id);
     };
     const toCustomer = async () => {
-      await save(false);
+      await save(false, true);
       const r = await act(() => POST(`/crm/leads/${edit.value.id}/customer`), 'Client créé');
       edit.value = await GET('/crm/leads/' + edit.value.id);
       return r;
@@ -150,7 +154,7 @@ export const Crm = {
       <table>
         <thead><tr><th>Opportunité</th><th>Client</th><th>Source</th><th>Étape</th><th class="num">Montant</th><th class="num">Proba.</th><th>Commercial</th><th v-if="view === 'lost'">Raison</th><th v-if="view === 'lost'"></th></tr></thead>
         <tbody><tr v-for="l in leads" :key="l.id" class="click" @click="open(l.id)">
-          <td><b>{{ l.name }}</b><div class="muted small">{{ date(l.created_at) }}</div></td><td>{{ l.contact_name || l.customer_name }}<div class="muted small">{{ l.phone }} {{ l.email }}</div></td>
+          <td><div><b>{{ l.name }}</b><div class="muted small">{{ date(l.created_at) }}</div></div></td><td><div>{{ l.contact_name || l.customer_name }}<div class="muted small">{{ l.phone }} {{ l.email }}</div></div></td>
           <td><Badge :label="meta.sources[l.source]" :color="SOURCE_COLORS[l.source] || 'gray'"/></td>
           <td>{{ l.status === 'won' ? '🏆 Gagnée' : l.status === 'lost' ? 'Perdue' : (meta.stages.find(s => s.id === l.stage_id) || {}).name }}</td>
           <td class="num">{{ money(l.expected_revenue) }}</td><td class="num">{{ l.probability }} %</td><td>{{ l.user_name }}</td>

@@ -205,7 +205,7 @@ const Root = {
       checking.value = true;
       try { const r = await POST('/attendance/check', {}); store.user.attendance = r; } catch (e) { alert(e.message); } finally { checking.value = false; }
     };
-    const openAtt = async () => { attOpen.value = !attOpen.value; if (attOpen.value) store.user.attendance = await GET('/attendance/me'); };
+    const openAtt = async () => { userOpen.value = false; attOpen.value = !attOpen.value; if (attOpen.value) store.user.attendance = await GET('/attendance/me'); };
     const canQuote = computed(() => can('ventes', 'user'));
     const canOrder = computed(() => can('atelier', 'user'));
     const ROLE_LABEL = { admin: 'Administrateur', office: 'Utilisateur', mechanic: 'Mécanicien' };
@@ -267,7 +267,7 @@ const Root = {
           <a v-if="canQuote && navMode === 'sidebar'" class="btn hide-phone" href="#/new/quote">+ Devis</a>
           <a v-if="canOrder" class="btn primary hide-phone" href="#/new/order">+ <span class="long">Ordre de réparation</span><span class="short">OR</span></a>
           <div class="user-menu">
-            <button class="user-btn" @click="userOpen = !userOpen" :title="store.user.name"><span class="avatar" :style="{ background: store.user.color || '#6366f1' }">{{ store.user.name[0] }}</span></button>
+            <button class="user-btn" @click="attOpen = false; userOpen = !userOpen" :title="store.user.name"><span class="avatar" :style="{ background: store.user.color || '#6366f1' }">{{ store.user.name[0] }}</span></button>
             <div v-if="userOpen" class="dropdown user-drop" @click="userOpen = false">
               <div class="ud-head"><b>{{ store.user.name }}</b><small>{{ store.user.job_title || ROLE_LABEL[store.user.role] }} · {{ store.user.email }}</small></div>
               <a href="#/attendance"><Icon name="user-check"/> Mes présences</a>

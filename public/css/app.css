@@ -1111,8 +1111,13 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
   table.stackable td:has(> .picker) { flex-wrap: wrap; }
   table.stackable td > .picker { flex: 1 1 100%; max-width: none; }
   /* Textes longs (e-mails, communications bancaires, liens dans l'historique) : retour à la ligne au lieu de déborder */
-  table.stackable td, .list-item { overflow-wrap: break-word; }
-  .wrap-any, .chat-msg, .activity { overflow-wrap: anywhere; min-width: 0; }
+  table.stackable td, .list-item, .wrap-any, .chat-msg, .activity { overflow-wrap: anywhere; }
+  .wrap-any, .list-item > span { min-width: 0; }
+  .list-item > .btn { flex-shrink: 0; }
+  /* Cellule « texte + ligne grise » (nom + date, client + téléphone…) : la ligne grise passe dessous en entier */
+  table.stackable td > div { flex: 0 1 auto; }
+  table.stackable td:has(> div.muted, > div.neg) { flex-wrap: wrap; }
+  table.stackable td > div.muted, table.stackable td > div.neg { flex: 1 1 100%; max-width: none; }
   .chat-msg > div, .activity > div { min-width: 0; }
   .btn, .icon-btn, .seg button, .badge { overflow-wrap: normal; } /* jamais de mot coupé dans un bouton */
   /* En-têtes de carte : le titre garde au moins 160 px, les boutons passent dessous s'il le faut */
@@ -1129,7 +1134,7 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
   .foot-actions { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 100%; scrollbar-width: none; padding-bottom: 2px; }
   .foot-actions .btn { flex: none; white-space: nowrap; }
   .crm-stagebar { overflow-x: auto; scrollbar-width: none; }
-  .crm-stagebar button { flex: 0 0 auto; white-space: nowrap; padding: 8px 16px 8px 18px; }
+  .crm-stagebar button { flex: 0 0 auto; white-space: nowrap; padding: 8px 16px 8px 18px; min-height: 36px; }
   /* Éditeur du site : sur téléphone l'aperçu est déjà au format téléphone */
   .preview-switch { display: none; }
   .toolbar input[type=checkbox] { flex: none; }
@@ -1150,11 +1155,18 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 .cal-nav h2 { font-size: clamp(16px, 4.5vw, 22px); white-space: nowrap; }
 .cal-d.picked { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand-2); }
 .cal-daylist .list-item > span:last-child { flex-shrink: 0; white-space: nowrap; }
-.cal-daylist { margin-top: 14px; }
+.cal-daylist { margin-top: 14px; scroll-margin-bottom: calc(150px + env(safe-area-inset-bottom)); }
+/* Titre du bloc choisi dans l'éditeur du site : pas caché sous la barre du haut */
+.block-editor-title { scroll-margin-top: calc(72px + env(safe-area-inset-top)); }
+/* Actions de l'opportunité (CRM) : espacées comme les autres boutons du pied de fenêtre */
+.foot-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 /* Écrans tactiles : cibles assez grandes pour le doigt */
 @media (hover: none) {
   button.link { padding: 8px 6px; margin: -8px -6px; }
   .seg button { min-height: 36px; }
   .color-dots button { width: 32px; height: 32px; }
+  .color-field input[type=color] { width: 40px; height: 40px; }
+  .color-field input[type=text] { min-height: 36px; }
+  .color-field button.link { padding: 10px 6px; margin: -10px -6px; }
 }
 :root[data-theme="light"] .site-status.live b { color: #047857; }

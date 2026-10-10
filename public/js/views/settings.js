@@ -14,7 +14,9 @@ export const Settings = {
     const users = ref([]);
     const accounts = ref([]);
     const tab = ref(route.query.tab || 'company');
+    const showTab = () => nextTick(() => document.querySelector('.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
     watch(() => route.query.tab, (t) => { if (t) tab.value = t; });
+    watch(tab, showTab);
     const editUser = ref(null);
     const newAcc = ref(null);
     const odoo = ref(null);
