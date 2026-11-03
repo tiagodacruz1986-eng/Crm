@@ -54,6 +54,7 @@ app.use('/vendor/purify.js', express.static(nm('dompurify/dist/purify.es.mjs')))
 app.use('/vendor/three', express.static(nm('three')));
 app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
+app.use('/vendor/fonts/instrument-serif.woff2', express.static(nm('@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
 const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban'];
 let iconModule = null;
@@ -84,10 +85,10 @@ function serviceWorker() {
   if (swCache) return swCache;
   const pub = path.resolve('public');
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]));
-  const files = ['js', 'css', 'icons'].flatMap((d) => walk(path.join(pub, d)))
+  const files = ['js', 'css', 'icons', 'img'].flatMap((d) => walk(path.join(pub, d)))
     .filter((f) => !/[\\/](suivi)\.(js|css)$/.test(f))
     .map((f) => '/' + path.relative(pub, f).split(path.sep).join('/'));
-  const urls = ['/', '/kiosk.html', '/installer.html', '/manifest.webmanifest', '/kiosk.webmanifest', '/vendor/vue.js', '/vendor/marked.js', '/vendor/purify.js', '/vendor/icons.js', '/vendor/fonts/inter.woff2', '/vendor/fonts/space-grotesk.woff2', ...files];
+  const urls = ['/', '/kiosk.html', '/installer.html', '/manifest.webmanifest', '/kiosk.webmanifest', '/vendor/vue.js', '/vendor/marked.js', '/vendor/purify.js', '/vendor/icons.js', '/vendor/fonts/inter.woff2', '/vendor/fonts/space-grotesk.woff2', '/vendor/fonts/instrument-serif.woff2', ...files];
   const hash = crypto.createHash('sha1');
   const src = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
   hash.update(src);

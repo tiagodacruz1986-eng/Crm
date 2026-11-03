@@ -333,6 +333,11 @@ async function boot() {
   store.loading = false;
 }
 
+// Thème « Verre » : si le garage a mis sa propre photo de fond (Paramètres), elle sert de décor partout
+watch(() => store.settings?.home?.background_version, (v) => {
+  if (v) document.documentElement.style.setProperty('--glass-photo', `url(/home-bg?v=${v})`);
+  else document.documentElement.style.removeProperty('--glass-photo');
+});
 window.addEventListener('online', () => { if (store.offline) boot(); });
 setInterval(() => { if (store.offline && !store.loading) boot(); }, 15000);
 const app = createApp(Root);

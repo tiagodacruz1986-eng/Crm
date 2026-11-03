@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <!-- Décor du thème « Verre » : un atelier-showroom chaleureux, volontairement simple (il est affiché flouté derrière les panneaux) -->
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9cfc2"/><stop offset=".55" stop-color="#bfae9b"/><stop offset="1" stop-color="#8e7a66"/>
+    </linearGradient>
+    <linearGradient id="win" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbf7ef"/><stop offset="1" stop-color="#e3d8c6"/>
+    </linearGradient>
+    <linearGradient id="door" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3532"/><stop offset="1" stop-color="#22201f"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a6446"/><stop offset=".5" stop-color="#a47a55"/><stop offset="1" stop-color="#6e4e35"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b08a63"/><stop offset="1" stop-color="#5c4230"/>
+    </linearGradient>
+    <linearGradient id="car" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a23b33"/><stop offset="1" stop-color="#5e1f1b"/>
+    </linearGradient>
+    <radialGradient id="lamp" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff3d6" stop-opacity="1"/><stop offset=".35" stop-color="#ffd59a" stop-opacity=".75"/><stop offset="1" stop-color="#ffd59a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sun" cx=".2" cy=".3" r=".8">
+      <stop offset="0" stop-color="#fff6e0" stop-opacity=".55"/><stop offset="1" stop-color="#fff6e0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#wall)"/>
+  <rect width="1600" height="1000" fill="url(#sun)"/>
+  <!-- grande baie vitrée à gauche -->
+  <rect x="60" y="90" width="330" height="560" rx="6" fill="url(#win)"/>
+  <path d="M225 90v560M60 370h330" stroke="#9c8b78" stroke-width="10"/>
+  <!-- porte sectionnelle de l'atelier, au fond -->
+  <rect x="470" y="150" width="660" height="500" rx="8" fill="url(#door)"/>
+  <path d="M470 215h660M470 280h660M470 345h660M470 410h660M470 475h660M470 540h660M470 605h660" stroke="#4a4440" stroke-width="5"/>
+  <!-- étagères en bois à droite -->
+  <rect x="1200" y="70" width="360" height="600" fill="url(#wood)"/>
+  <path d="M1200 210h360M1200 350h360M1200 490h360" stroke="#4e3624" stroke-width="12"/>
+  <g fill="#2c2623">
+    <circle cx="1260" cy="168" r="34"/><circle cx="1335" cy="168" r="34"/><circle cx="1410" cy="168" r="34"/>
+    <circle cx="1260" cy="308" r="34"/><circle cx="1335" cy="308" r="34"/>
+  </g>
+  <g fill="#e9e1d4"><rect x="1430" y="270" width="90" height="70" rx="4"/><rect x="1240" y="410" width="120" height="70" rx="4"/><rect x="1380" y="420" width="70" height="60" rx="4"/></g>
+  <rect x="1470" y="400" width="50" height="80" rx="4" fill="#c8a24a"/>
+  <!-- sol en parquet -->
+  <rect y="660" width="1600" height="340" fill="url(#floor)"/>
+  <path d="M0 720h1600M0 790h1600M0 870h1600M0 950h1600" stroke="#7a5a41" stroke-width="3" opacity=".6"/>
+  <!-- voiture de collection rouge -->
+  <ellipse cx="800" cy="905" rx="420" ry="28" fill="#2b1f18" opacity=".55"/>
+  <path d="M420 870c0-46 26-74 92-84l90-14c40-58 98-96 196-96h80c86 0 138 34 182 92l86 18c58 12 82 40 82 84v20H420z" fill="url(#car)"/>
+  <path d="M640 774c34-46 78-70 150-70h40c60 0 98 22 132 70z" fill="#2a3138" opacity=".9"/>
+  <path d="M800 704v70" stroke="#5e1f1b" stroke-width="8"/>
+  <g fill="#1b1b1d"><circle cx="560" cy="890" r="58"/><circle cx="1060" cy="890" r="58"/></g>
+  <g fill="#8d8f93"><circle cx="560" cy="890" r="26"/><circle cx="1060" cy="890" r="26"/></g>
+  <rect x="1156" y="828" width="34" height="18" rx="6" fill="#ffe7b0"/>
+  <!-- plante -->
+  <g fill="#4d6b42"><ellipse cx="120" cy="640" rx="70" ry="110"/><ellipse cx="190" cy="660" rx="50" ry="90"/><ellipse cx="80" cy="690" rx="45" ry="70"/></g>
+  <rect x="80" y="690" width="110" height="90" rx="12" fill="#e6ddd0"/>
+  <!-- suspensions -->
+  <path d="M600 0v70M800 0v90M1000 0v70" stroke="#2c2623" stroke-width="4"/>
+  <g fill="#2c2623"><path d="M570 70h60l-12 26h-36z"/><path d="M770 90h60l-12 26h-36z"/><path d="M970 70h60l-12 26h-36z"/></g>
+  <g fill="url(#lamp)"><circle cx="600" cy="110" r="90"/><circle cx="800" cy="130" r="100"/><circle cx="1000" cy="110" r="90"/></g>
+</svg>
