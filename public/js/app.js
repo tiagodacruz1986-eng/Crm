@@ -253,7 +253,7 @@ const Root = {
         </template>
         <button class="search-trigger" :class="{ compact: navMode === 'apps' }" @click="searchOpen = true"><span style="display:flex;gap:8px;align-items:center"><Icon name="search"/> <span class="long">Rechercher une plaque, un client, une facture…</span><span class="short">Rechercher…</span></span> <kbd>Ctrl K</kbd></button>
         <div class="quick">
-          <button class="btn theme-toggle" @click="toggleTheme" :title="theme.active === 'dark' ? 'Passer au thème clair' : 'Passer au thème sombre'"><Icon :name="theme.active === 'dark' ? 'sun' : 'moon'"/></button>
+          <button class="btn theme-toggle" @click="theme.pref === 'glass' ? (appearance = true) : toggleTheme()" :title="theme.pref === 'glass' ? 'Apparence' : theme.active === 'dark' ? 'Passer au thème clair' : 'Passer au thème sombre'"><Icon :name="theme.pref === 'glass' ? 'sparkles' : theme.active === 'dark' ? 'sun' : 'moon'"/></button>
           <div class="att-sys">
             <button class="btn att-sys-btn" :class="{ on: att.present }" @click="openAtt" :title="att.present ? 'Présent — cliquer pour pointer le départ' : 'Pointer mon arrivée'"><i></i><Icon name="clock"/></button>
             <div v-if="attOpen" class="dropdown att-pop">
@@ -271,7 +271,7 @@ const Root = {
             <div v-if="userOpen" class="dropdown user-drop" @click="userOpen = false">
               <div class="ud-head"><b>{{ store.user.name }}</b><small>{{ store.user.job_title || ROLE_LABEL[store.user.role] }} · {{ store.user.email }}</small></div>
               <a href="#/attendance"><Icon name="user-check"/> Mes présences</a>
-              <a href="#" @click.prevent="appearance = true"><Icon :name="theme.active === 'dark' ? 'moon' : 'sun'"/> Apparence : {{ { dark: 'sombre', light: 'claire', auto: 'automatique' }[theme.pref] }}</a>
+              <a href="#" @click.prevent="appearance = true"><Icon :name="theme.pref === 'glass' ? 'sparkles' : theme.active === 'dark' ? 'moon' : 'sun'"/> Apparence : {{ { dark: 'sombre', light: 'claire', glass: 'verre', auto: 'automatique' }[theme.pref] }}</a>
               <a href="#" @click.prevent="setNav(navMode === 'apps' ? 'sidebar' : 'apps')"><Icon :name="navMode === 'apps' ? 'panel-left' : 'layout-grid'"/> {{ navMode === 'apps' ? 'Menu en barre latérale' : 'Menu des applications (Odoo)' }}</a>
               <a href="/kiosk.html" target="_blank"><Icon name="tablet"/> Kiosque de pointage</a>
               <a href="#" @click.prevent="openDevices"><Icon name="monitor-smartphone"/> Sur téléphone / tablette</a>

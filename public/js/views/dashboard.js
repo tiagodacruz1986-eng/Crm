@@ -26,7 +26,8 @@ export const Dashboard = {
     });
     // Évolution du mois en cours par rapport au mois précédent (vrais chiffres, rien d'inventé)
     const trend = computed(() => {
-      const m = months.value; if (m.length < 2 || !m[m.length - 2].total) return null;
+      // Pas de comparaison les premiers jours du mois (le mois en cours vient de commencer)
+      const m = months.value; if (m.length < 2 || !m[m.length - 2].total || new Date().getDate() < 8) return null;
       return Math.round(((m[m.length - 1].total - m[m.length - 2].total) / m[m.length - 2].total) * 100);
     });
     const yearTotal = computed(() => months.value.reduce((t, m) => t + m.total, 0));
