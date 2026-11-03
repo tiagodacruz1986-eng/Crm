@@ -16,9 +16,6 @@
     <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#b08a63"/><stop offset="1" stop-color="#5c4230"/>
     </linearGradient>
-    <linearGradient id="car" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#a23b33"/><stop offset="1" stop-color="#5e1f1b"/>
-    </linearGradient>
     <radialGradient id="lamp" cx=".5" cy=".5" r=".5">
       <stop offset="0" stop-color="#fff3d6" stop-opacity="1"/><stop offset=".35" stop-color="#ffd59a" stop-opacity=".75"/><stop offset="1" stop-color="#ffd59a" stop-opacity="0"/>
     </radialGradient>
@@ -46,14 +43,6 @@
   <!-- sol en parquet -->
   <rect y="660" width="1600" height="340" fill="url(#floor)"/>
   <path d="M0 720h1600M0 790h1600M0 870h1600M0 950h1600" stroke="#7a5a41" stroke-width="3" opacity=".6"/>
-  <!-- voiture de collection rouge -->
-  <ellipse cx="800" cy="905" rx="420" ry="28" fill="#2b1f18" opacity=".55"/>
-  <path d="M420 870c0-46 26-74 92-84l90-14c40-58 98-96 196-96h80c86 0 138 34 182 92l86 18c58 12 82 40 82 84v20H420z" fill="url(#car)"/>
-  <path d="M640 774c34-46 78-70 150-70h40c60 0 98 22 132 70z" fill="#2a3138" opacity=".9"/>
-  <path d="M800 704v70" stroke="#5e1f1b" stroke-width="8"/>
-  <g fill="#1b1b1d"><circle cx="560" cy="890" r="58"/><circle cx="1060" cy="890" r="58"/></g>
-  <g fill="#8d8f93"><circle cx="560" cy="890" r="26"/><circle cx="1060" cy="890" r="26"/></g>
-  <rect x="1156" y="828" width="34" height="18" rx="6" fill="#ffe7b0"/>
   <!-- plante -->
   <g fill="#4d6b42"><ellipse cx="120" cy="640" rx="70" ry="110"/><ellipse cx="190" cy="660" rx="50" ry="90"/><ellipse cx="80" cy="690" rx="45" ry="70"/></g>
   <rect x="80" y="690" width="110" height="90" rx="12" fill="#e6ddd0"/>
