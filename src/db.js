@@ -240,7 +240,9 @@ export function getSettings() {
     } catch { /* ignore */ }
   }
   // Adresse publique https (serveur internet, Tailscale…) : variable d'environnement si rien n'est saisi
-  if (!out.public_url && process.env.PUBLIC_URL) out.public_url = process.env.PUBLIC_URL;
+  // (RENDER_EXTERNAL_URL : adresse https://….onrender.com donnée automatiquement par l'hébergeur Render)
+  const envUrl = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL;
+  if (!out.public_url && envUrl) out.public_url = envUrl;
   return out;
 }
 export function setSetting(key, value) {

@@ -75,14 +75,15 @@ Le logiciel s'installe sur iPhone, Android et tablette **comme une application**
 
 Dans le logiciel : menu du compte → **📱 Sur téléphone / tablette** → scannez le QR code avec l'appareil photo du téléphone. La page qui s'ouvre détecte l'appareil et explique les étapes : bouton **Installer l'application** sur Android, *Partager → Sur l'écran d'accueil* sur iPhone / iPad. Le même écran propose aussi le **pointage atelier** pour la tablette des mécaniciens.
 
-Trois façons de rendre le logiciel joignable, de la plus simple à la plus complète :
+Quatre façons de rendre le logiciel joignable :
 
-| | 1. Wi-Fi du garage | 2. Tailscale (privé) | 3. Serveur internet |
-|---|---|---|---|
-| Fonctionne | au garage | au garage **et en 4G** | partout |
-| Vraie application sur Android | raccourci seulement | ✅ | ✅ |
-| Liens de suivi pour les clients, site web | ❌ | ❌ (seulement vos appareils) | ✅ |
-| Mise en place | rien à faire | 5 minutes | nom de domaine + petit serveur |
+| | 1. Wi-Fi du garage | 2. Tailscale (privé) | 3. Serveur internet | 4. Render (en un clic) |
+|---|---|---|---|---|
+| Fonctionne | au garage | au garage **et en 4G** | partout | partout |
+| Vraie application sur Android | raccourci seulement | ✅ | ✅ | ✅ |
+| Liens de suivi pour les clients, site web | ❌ | ❌ (seulement vos appareils) | ✅ | ✅ |
+| Mise en place | rien à faire | 5 minutes | nom de domaine + petit serveur | 10 minutes, sans serveur à gérer |
+| Où sont les données | PC du garage | PC du garage | votre serveur | serveurs de Render (Francfort) |
 
 ### 1. Sur le Wi-Fi du garage (rien à configurer)
 
@@ -118,6 +119,20 @@ Nécessaire aussi pour le **site web public** et les **liens de suivi** envoyés
 Protections actives quand le logiciel est joint depuis internet : code d'installation pour le premier compte, **10 essais de mot de passe maximum** par adresse et 20 par compte sur un quart d'heure (un téléphone ou PC déjà connecté à ce compte n'est jamais bloqué), **code PIN toujours demandé** au kiosque de pointage (donnez un PIN à chaque mécanicien), cookies de session sécurisés. Utilisez des mots de passe solides. Si un compte reste bloqué, `docker compose restart garage` remet les compteurs à zéro.
 
 *Variante sans serveur* : garder le logiciel sur le PC du garage et le publier avec un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) nommé sur votre domaine, protégé par **Cloudflare Access**. Le tunnel rapide `trycloudflare.com` ne sert qu'à un essai : l'adresse change à chaque lancement (l'application installée cesse de marcher), le suivi en temps réel n'y fonctionne pas et l'adresse est publique.
+
+### 4. En un clic sur Render (sans serveur à gérer)
+
+[![Déployer sur Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/tiagodacruz1986-eng/Crm)
+
+[Render](https://render.com) héberge le logiciel et lui donne une adresse **https://….onrender.com** qui fonctionne partout (Wi-Fi, 4G), sans PC allumé au garage. Le fichier `render.yaml` prépare tout : image Docker, centre de données de **Francfort** (UE), disque pour les données, protections « serveur internet ».
+
+1. Cliquez sur le bouton ci-dessus et créez un compte Render (ou connectez-vous).
+2. Render affiche le service **garage-manager** avec un disque de 1 Go : le disque demande une **offre payante** (tarifs : [render.com/pricing](https://render.com/pricing)) ; sans disque, tout serait effacé à chaque redémarrage. Collez votre clé Claude dans `ANTHROPIC_API_KEY` si vous voulez les agents IA (facultatif), puis validez.
+3. Attendez la fin de la construction (quelques minutes), puis ouvrez l'adresse affichée en haut de la page du service.
+4. Pour créer le compte du gérant, un **code d'installation** est demandé : il s'affiche dans l'onglet **Logs** du service, sur la ligne « Code d'installation ».
+5. Sur iPhone : ouvrez l'adresse dans **Safari** → *Partager* → *Sur l'écran d'accueil*. Sur Android : Chrome → *Installer l'application*.
+
+Bon à savoir : chaque nouvelle version publiée sur GitHub est installée automatiquement (réglage *Auto-Deploy* du service pour le couper) ; pendant une mise à jour, le logiciel est brièvement indisponible. Vous pouvez ajouter votre propre nom de domaine dans *Settings → Custom Domains* de Render, puis le saisir comme adresse publique dans les Paramètres du logiciel. Les données sont chez Render : informez-en vos clients dans votre politique de confidentialité.
 
 ## ✉️ Configurer les e-mails
 

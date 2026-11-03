@@ -7,7 +7,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node . .
 RUN mkdir -p /app/data && chown -R node:node /app/data
-USER node
+# Le script de démarrage prépare le dossier des données puis lance le logiciel avec l'utilisateur « node » (sans droits admin)
+ENTRYPOINT ["/bin/sh", "/app/deploy/docker-entrypoint.sh"]
 EXPOSE 3000
 VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:3000/app-info.json >/dev/null || exit 1
