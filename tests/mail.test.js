@@ -71,7 +71,10 @@ test('e-mails, historique et activités', async () => {
   assert.equal(counts.upcoming, 1);
   assert.equal((await call('GET', '/activities?module=stock')).length, 1);
   const done = await call('POST', `/activities/${act}/done`, { feedback: 'Payé' });
-  assert.equal(done.next, '2020-02-01'); // prochaine occurrence créée
+  // prochaine occurrence créée : le 1er du mois, jamais dans le passé (l'activité terminée avait des années de retard)
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + (now.getDate() === 1 ? 0 : 1), 1, 12);
+  assert.equal(done.next, `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}-01`);
   const mine = await call('GET', '/activities?mine=1');
   assert.equal(mine.length, 2);
   assert.equal(mine.find((a) => a.model === 'document').record.link, `/document/${inv}`);

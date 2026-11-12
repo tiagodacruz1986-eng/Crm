@@ -167,14 +167,14 @@ export const BriefCard = {
     const brief = computed(() => data.value?.briefs?.[0] || null);
     const generate = async () => { busy.value = true; try { await act(() => POST('/copilot/brief', {}), 'Résumé généré et priorités planifiées'); await load(); } finally { busy.value = false; } };
     const listen = () => speak(`${brief.value.content} Vos priorités : ${brief.value.priorities.map((p, i) => `${i + 1}, ${p.resume}`).join('. ')}`);
-    return { data, brief, busy, generate, listen, md, fdate };
+    return { data, brief, busy, generate, listen, md, fdate, store };
   },
   template: `
   <div class="card brief" v-if="data" style="margin-bottom:16px">
     <div class="card-head">
       <div style="display:flex;gap:12px;align-items:center"><div class="mini-orb" style="flex:none;width:34px;height:34px;border-radius:50%;background:conic-gradient(from 0deg,#22d3ee,#818cf8,#e879f9,#22d3ee);box-shadow:0 0 18px rgba(129,140,248,.6)"></div>
         <div><h2 style="margin:0">Briefing de Nova</h2><div class="small muted">{{ brief ? 'Journée du ' + fdate(brief.date) + (brief.ai ? '' : ' · sans IA') : 'Résumé automatique chaque soir à ' + data.config.summary_time }}</div></div></div>
-      <div class="btns"><button v-if="brief" class="btn sm" @click="listen"><Icon name="volume-2"/> Écouter</button><button class="btn sm" :disabled="busy" @click="generate"><Icon name="sparkles"/> {{ busy ? 'Nova réfléchit…' : 'Résumer ma journée' }}</button><a class="btn sm" href="#/copilot">Journal</a></div>
+      <div class="btns"><button v-if="brief" class="btn sm" @click="listen"><Icon name="volume-2"/> Écouter</button><button v-if="store.user?.role === 'admin'" class="btn sm" :disabled="busy" @click="generate"><Icon name="sparkles"/> {{ busy ? 'Nova réfléchit…' : 'Résumer ma journée' }}</button><a class="btn sm" href="#/copilot">Journal</a></div>
     </div>
     <div v-if="brief" class="grid g2">
       <div class="md" v-html="md(brief.content)"></div>

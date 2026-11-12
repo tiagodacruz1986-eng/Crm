@@ -2,7 +2,7 @@
 // sur chaque fiche, comme dans Odoo.
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
-import { db, all, get, run, insert, getSettings, setSetting, round2, localDateTime, today } from './db.js';
+import { db, all, get, run, insert, getSettings, setSetting, round2, localDateTime, localDate, today, isDate } from './db.js';
 import { logoFile } from './branding.js';
 import { getDocument, getPurchase, BusinessError } from './business.js';
 
@@ -82,8 +82,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 export function templatesFor(model, id) {
   if (model === 'document') {
-    const t = get('SELECT type, status FROM documents WHERE id=?', id)?.type;
-    return { quote: ['quote', 'generic'], order: ['live_tracking', 'order_received', 'order_ready', 'generic'], invoice: ['invoice', 'invoice_reminder', 'generic'], credit_note: ['credit_note', 'generic'] }[t] || ['generic'];
+    const d = get('SELECT type, status FROM documents WHERE id=?', id);
+    // Une facture (ou un avoir) en brouillon n'a pas encore de numéro : seul le message libre est proposé
+    if (d && ['invoice', 'credit_note'].includes(d.type) && d.status === 'draft') return ['generic'];
+    return { quote: ['quote', 'generic'], order: ['live_tracking', 'order_received', 'order_ready', 'generic'], invoice: ['invoice', 'invoice_reminder', 'generic'], credit_note: ['credit_note', 'generic'] }[d?.type] || ['generic'];
   }
   return { appointment: ['appointment_confirm', 'generic'], customer: ['generic', 'overdue'], vehicle: ['ct_reminder', 'service_reminder', 'generic'], purchase: ['purchase_order', 'generic'] }[model] || ['generic'];
 }
@@ -97,11 +99,15 @@ export function compose(model, id, template, base = '') {
   const s = getSettings();
   const garage = s.company.name;
   const info = recordInfo(model, id) || {};
-  template ||= templatesFor(model, id)[0];
+  // un modèle qui ne convient pas à cette fiche (facture encore en brouillon…) est remplacé par le premier modèle valable
+  const allowed = templatesFor(model, id);
+  if (!allowed.includes(template)) template = allowed[0];
   const hello = info.name ? `Bonjour ${info.name},` : 'Bonjour,';
   let subject = garage, intro = `${hello}\n\n`, include = false;
   if (model === 'document') {
     const d = get('SELECT d.*, v.plate, v.make, v.model FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.id=?', id);
+    if (!d) throw new BusinessError('Document introuvable', 404);
+    d.number ||= '(brouillon)';
     const veh = d.plate ? ` (${d.plate})` : '';
     include = true;
     switch (template) {
@@ -115,8 +121,8 @@ export function compose(model, id, template, base = '') {
       }
       case 'order_received': subject = `Prise en charge de votre véhicule${veh}`; intro += `Nous avons bien pris en charge votre véhicule${veh}.${d.promised_at ? `\nIl devrait être prêt le ${fdate(d.promised_at)} vers ${d.promised_at.slice(11, 16)}.` : ''}\n\nNous vous contacterons en cas de travaux supplémentaires.`; break;
       case 'order_ready': subject = `Votre véhicule${veh} est prêt`; intro += `Bonne nouvelle : votre véhicule${veh} est prêt ! Vous pouvez venir le récupérer aux heures d'ouverture.`; include = false; break;
-      case 'invoice': subject = `Facture ${d.number} — ${garage}`; intro += `Veuillez trouver ci-dessous votre facture ${d.number} d'un montant de ${fmt(d.total)} TTC, payable avant le ${fdate(d.due_date)}.\n\nMerci pour votre confiance.`; break;
-      case 'invoice_reminder': subject = `Rappel : facture ${d.number} en attente de paiement`; intro += `Sauf erreur de notre part, la facture ${d.number} du ${fdate(d.date)} (échéance ${fdate(d.due_date)}) reste impayée pour un montant de ${fmt(d.total - d.amount_paid)}.\n\nNous vous remercions de bien vouloir procéder au règlement dans les meilleurs délais. Si le paiement a été effectué entre-temps, merci de ne pas tenir compte de ce message.`; break;
+      case 'invoice': subject = `Facture ${d.number} — ${garage}`; intro += `Veuillez trouver ci-dessous votre facture ${d.number} d'un montant de ${fmt(d.total)} TTC${d.due_date ? `, payable avant le ${fdate(d.due_date)}` : ''}.\n\nMerci pour votre confiance.`; break;
+      case 'invoice_reminder': subject = `Rappel : facture ${d.number} en attente de paiement`; intro += `Sauf erreur de notre part, la facture ${d.number} du ${fdate(d.date)}${d.due_date ? ` (échéance ${fdate(d.due_date)})` : ''} reste impayée pour un montant de ${fmt(d.total - d.amount_paid)}.\n\nNous vous remercions de bien vouloir procéder au règlement dans les meilleurs délais. Si le paiement a été effectué entre-temps, merci de ne pas tenir compte de ce message.`; break;
       case 'credit_note': subject = `Note de crédit ${d.number} — ${garage}`; intro += `Veuillez trouver ci-dessous la note de crédit ${d.number} d'un montant de ${fmt(d.total)}.`; break;
       default: subject = `${info.label || garage}`; include = false;
     }
@@ -157,11 +163,11 @@ async function documentBlock(model, id, attachments) {
   if (model === 'document') {
     const d = getDocument(id);
     const titles = { quote: 'Devis', order: 'Ordre de réparation', invoice: 'Facture', credit_note: 'Note de crédit' };
-    let html = `<h3 style="margin:18px 0 4px">${titles[d.type]} ${esc(d.number || '')}</h3><div style="color:#555;font-size:13px">Date : ${fdate(d.date)}${d.plate ? ` · Véhicule : ${esc(d.plate)} ${esc(d.make || '')} ${esc(d.model || '')}` : ''}${d.mileage ? ` · ${d.mileage} km` : ''}</div>`;
-    html += table(d.lines.map((l) => (l.kind === 'text' ? [`<i>${esc(l.description)}</i>`, '', '', ''] : [esc(l.description), l.quantity, fmt(l.unit_price), fmt(l.total_ht)])), ['Désignation', 'Qté', 'P.U. HT', 'Total HT']);
-    html += table([['Total HT', fmt(d.subtotal)], ...d.taxes.map((t) => [`TVA ${t.rate} %`, fmt(t.amount)]), [`<b>Total TTC</b>`, `<b>${fmt(d.total)}</b>`]], []);
+    let html = `<h3 style="margin:18px 0 4px">${titles[d.type]} ${esc(d.number || '')}</h3><div style="color:#555;font-size:13px">Date : ${esc(fdate(d.date))}${d.plate ? ` · Véhicule : ${esc(d.plate)} ${esc(d.make || '')} ${esc(d.model || '')}` : ''}${d.mileage ? ` · ${esc(d.mileage)} km` : ''}</div>`;
+    html += table(d.lines.map((l) => (l.kind === 'text' ? [`<i>${esc(l.description)}</i>`, '', '', ''] : [esc(l.description), esc(l.quantity), fmt(l.unit_price), fmt(l.total_ht)])), ['Désignation', 'Qté', 'P.U. HT', 'Total HT']);
+    html += table([['Total HT', fmt(d.subtotal)], ...d.taxes.map((t) => [`TVA ${esc(t.rate)} %`, fmt(t.amount)]), [`<b>Total TTC</b>`, `<b>${fmt(d.total)}</b>`]], []);
     const residual = round2(d.total - d.amount_paid);
-    if (d.type === 'invoice' && residual > 0 && s.company.iban) {
+    if (d.type === 'invoice' && d.status !== 'draft' && d.number && residual > 0 && s.company.iban) {
       const payload = ['BCD', '002', '1', 'SCT', s.company.bic || '', (s.company.name || '').slice(0, 70), s.company.iban.replace(/\s/g, ''), `EUR${residual.toFixed(2)}`, '', '', d.number || '', ''].join('\n');
       attachments.push({ filename: 'paiement.png', content: await QRCode.toBuffer(payload, { margin: 1, width: 220 }), cid: 'qrpay' });
       html += `<table style="margin-top:8px"><tr><td><img src="cid:qrpay" width="130" height="130" alt="QR"></td><td style="padding-left:12px;font-size:13px">
@@ -171,13 +177,13 @@ async function documentBlock(model, id, attachments) {
   }
   if (model === 'purchase') {
     const p = getPurchase(id);
-    return `<h3 style="margin:18px 0 4px">Commande ${esc(p.number)}</h3>` + table(p.lines.map((l) => [esc(l.description), l.quantity]), ['Article', 'Quantité']);
+    return `<h3 style="margin:18px 0 4px">Commande ${esc(p.number)}</h3>` + table(p.lines.map((l) => [esc(l.description), esc(l.quantity)]), ['Article', 'Quantité']);
   }
   if (model === 'customer') {
     const rows = all(`SELECT number, date, due_date, total, amount_paid FROM documents WHERE customer_id=? AND type='invoice' AND status IN ('posted','partial') ORDER BY date`, id);
     if (!rows.length) return '';
     const tot = rows.reduce((a, r) => a + r.total - r.amount_paid, 0);
-    return table([...rows.map((r) => [esc(r.number), fdate(r.date), fdate(r.due_date), fmt(r.total - r.amount_paid)]), ['<b>Total</b>', '', '', `<b>${fmt(tot)}</b>`]], ['Facture', 'Date', 'Échéance', 'Reste dû']);
+    return table([...rows.map((r) => [esc(r.number), esc(fdate(r.date)), esc(fdate(r.due_date)), fmt(r.total - r.amount_paid)]), ['<b>Total</b>', '', '', `<b>${fmt(tot)}</b>`]], ['Facture', 'Date', 'Échéance', 'Reste dû']);
   }
   return '';
 }
@@ -219,7 +225,19 @@ export async function sendEmail({ model, record_id, to, cc, subject, intro, incl
   if (!to || !/@/.test(to)) throw new BusinessError('Adresse e-mail du destinataire manquante');
   if (!subject) throw new BusinessError('Objet manquant');
   if (!isConfigured()) throw new BusinessError('Configurez d\'abord l\'envoi d\'e-mails dans Paramètres → E-mails.');
-  const later = scheduled_at && new Date(scheduled_at) > new Date(Date.now() + 30_000);
+  // Envoi programmé : une vraie date dans le futur (sinon l'e-mail partirait tout de suite, sans prévenir)
+  let later = false;
+  if (scheduled_at) {
+    const when = new Date(scheduled_at);
+    if (Number.isNaN(when.getTime())) throw new BusinessError('Date d\'envoi programmée invalide');
+    if (when <= new Date(Date.now() + 30_000)) throw new BusinessError('La date d\'envoi programmée est déjà passée : choisissez une heure à venir, ou envoyez maintenant.');
+    scheduled_at = localDateTime(when);
+    later = true;
+  }
+  if (model === 'document' && include_document) {
+    const d = get('SELECT type, status FROM documents WHERE id=?', record_id);
+    if (d && ['invoice', 'credit_note'].includes(d.type) && d.status === 'draft') throw new BusinessError('Validez la facture avant de l\'envoyer au client (un brouillon n\'a pas de numéro).');
+  }
   const id = insert('emails', { model, record_id, to_addr: to, cc, subject, intro, include_document: include_document ? 1 : 0, status: later ? 'scheduled' : 'sending', scheduled_at: later ? scheduled_at : null, user_id },
     ['model', 'record_id', 'to_addr', 'cc', 'subject', 'intro', 'include_document', 'status', 'scheduled_at', 'user_id']);
   if (later) {
@@ -232,21 +250,37 @@ export async function sendEmail({ model, record_id, to, cc, subject, intro, incl
     run("UPDATE emails SET status='error', error=? WHERE id=?", e.message, id);
     throw new BusinessError(`Envoi impossible : ${e.message}`);
   }
-  if (model === 'document') {
-    const d = get('SELECT type, status FROM documents WHERE id=?', record_id);
-    if (d?.type === 'quote' && d.status === 'draft') run("UPDATE documents SET status='sent' WHERE id=?", record_id);
-  }
+  markQuoteSent(model, record_id);
   return { id, status: 'sent' };
 }
+// Un devis en brouillon passe « Envoyé » une fois l'e-mail réellement parti (envoi immédiat ou programmé)
+function markQuoteSent(model, record_id) {
+  if (model !== 'document') return;
+  const d = get('SELECT type, status FROM documents WHERE id=?', record_id);
+  if (d?.type === 'quote' && d.status === 'draft') run("UPDATE documents SET status='sent', updated_at=? WHERE id=?", new Date().toISOString(), record_id);
+}
 
+let processing = false;
 export async function processScheduledEmails() {
-  const due = all("SELECT * FROM emails WHERE status='scheduled' AND scheduled_at<=?", localDateTime());
-  for (const e of due) {
-    run("UPDATE emails SET status='sending' WHERE id=?", e.id);
-    try { await deliver(e); } catch (err) {
-      run("UPDATE emails SET status='error', error=? WHERE id=?", err.message, e.id);
-      logMessage(e.model, e.record_id, `⚠️ Échec de l'envoi programmé « ${e.subject} » : ${err.message}`, e.user_id, 'system');
+  if (processing) return; // un envoi long ne doit pas être relancé par le passage suivant (sinon l'e-mail part deux fois)
+  processing = true;
+  try {
+    const due = all("SELECT * FROM emails WHERE status='scheduled' AND scheduled_at<=?", localDateTime());
+    for (const e of due) {
+      // chaque e-mail est « pris » une seule fois
+      if (!run("UPDATE emails SET status='sending' WHERE id=? AND status='scheduled'", e.id).changes) continue;
+      try { await deliver(e); markQuoteSent(e.model, e.record_id); } catch (err) {
+        run("UPDATE emails SET status='error', error=? WHERE id=?", err.message, e.id);
+        logMessage(e.model, e.record_id, `⚠️ Échec de l'envoi programmé « ${e.subject} » : ${err.message}`, e.user_id, 'system');
+      }
     }
+  } finally { processing = false; }
+}
+/** Au démarrage : un e-mail resté « en cours d'envoi » (logiciel arrêté pendant l'envoi) est marqué en échec, jamais renvoyé à l'aveugle. */
+export function recoverInterruptedEmails() {
+  for (const e of all("SELECT * FROM emails WHERE status='sending'")) {
+    run("UPDATE emails SET status='error', error=? WHERE id=?", 'Envoi interrompu par un arrêt du logiciel : vérifiez s\'il est arrivé, sinon renvoyez-le.', e.id);
+    logMessage(e.model, e.record_id, `⚠️ Envoi interrompu : « ${e.subject} » (${e.to_addr}) — à vérifier`, e.user_id, 'system');
   }
 }
 
@@ -271,6 +305,8 @@ export function listActivities({ user_id, module, model, record_id, status = 'pl
 export function createActivity(data, userId) {
   if (!data.summary?.trim()) throw new BusinessError('Résumé requis');
   if (!data.due_date) throw new BusinessError('Date d\'échéance requise');
+  if (!isDate(data.due_date)) throw new BusinessError('Date d\'échéance invalide');
+  if (data.user_id && !get('SELECT 1 FROM users WHERE id=?', data.user_id)) throw new BusinessError('Personne assignée introuvable');
   const module = data.module || MODEL_MODULE[data.model] || 'general';
   const id = insert('activities', { ...data, module, user_id: data.user_id || userId, created_by: userId, recurrence: data.recurrence || 'none' }, ACTIVITY_COLS);
   logMessage(data.model, data.record_id, `📌 Activité planifiée : ${ACTIVITY_TYPES[data.type] || ''} « ${data.summary} » pour le ${fdate(data.due_date)}`, userId, 'system');
@@ -278,13 +314,26 @@ export function createActivity(data, userId) {
 }
 
 function nextDate(date, rec) {
-  const d = new Date(date + 'T12:00:00');
-  if (rec === 'daily') d.setDate(d.getDate() + 1);
-  else if (rec === 'weekly') d.setDate(d.getDate() + 7);
-  else if (rec === 'monthly') d.setMonth(d.getMonth() + 1);
-  else if (rec === 'yearly') d.setFullYear(d.getFullYear() + 1);
-  else return null;
-  return d.toISOString().slice(0, 10);
+  if (!['daily', 'weekly', 'monthly', 'yearly'].includes(rec)) return null;
+  const start = new Date(date + 'T12:00:00');
+  if (Number.isNaN(start.getTime())) return null;
+  const day = start.getDate();
+  // n-ième occurrence après la date de départ ; fin de mois respectée (le 31 janvier → 28 février → 31 mars, sans dériver)
+  const at = (n) => {
+    const d = new Date(start);
+    if (rec === 'daily') d.setDate(day + n);
+    else if (rec === 'weekly') d.setDate(day + 7 * n);
+    else {
+      d.setDate(1);
+      if (rec === 'monthly') d.setMonth(d.getMonth() + n); else d.setFullYear(d.getFullYear() + n);
+      d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    }
+    return localDate(d);
+  };
+  // la prochaine occurrence n'est jamais dans le passé (activité terminée en retard)
+  let n = 1;
+  while (at(n) < today() && n < 4000) n++;
+  return at(n);
 }
 
 export function completeActivity(id, feedback, userId) {

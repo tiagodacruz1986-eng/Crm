@@ -1,7 +1,8 @@
 // Nova — copilote IA du gérant : écoute (voix ou texte), note le journal de la journée,
 // agit (activités, rendez-vous), fait le résumé de fin de journée et planifie les priorités.
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
-import { db, all, get, insert, getSettings, setSetting, round2, today, localDate, localDateTime } from './db.js';
+import { db, all, get, run, insert, getSettings, setSetting, round2, today, localDate, localDateTime, isDate, fold, likeFold } from './db.js';
+import { can } from './access.js';
 import { BusinessError, durationHours } from './business.js';
 import { TOOLS, runTool } from './agents.js';
 import { runLoop, aiConfigured, claudeClient, CLAUDE_MODEL, friendlyError } from './claude.js';
@@ -29,7 +30,22 @@ export function addJournal(text, userId, source = 'text') {
 export const journalOf = (date) => all(`SELECT j.*, u.name AS user_name FROM journal j LEFT JOIN users u ON u.id=j.user_id WHERE substr(j.created_at,1,10)=? ORDER BY j.id`, date);
 
 // ---------- Chiffres de la journée ----------
-export function dayStats(date = today()) {
+// Rubriques du bilan de la journée et application qui donne le droit de les voir
+const STAT_APP = {
+  ca_facture_ttc: 'ventes', factures_emises: 'ventes', factures_en_retard: 'ventes', devis_en_attente: 'ventes',
+  encaissements: 'banque', paiements_fournisseurs: 'banque',
+  or_crees: 'atelier', or_termines_a_facturer: 'atelier', or_en_retard: 'atelier', or_attente_pieces: 'atelier', rendez_vous_demain: 'atelier', accords_client_en_attente: 'atelier', messages_clients_du_jour: 'atelier',
+  mecaniciens: 'presences', stock_bas: 'inventaire', factures_fournisseurs_a_verifier: 'achats',
+};
+/** Bilan de la journée. Avec `user` (non gérant), seules les rubriques auxquelles il a droit sont renvoyées. */
+export function dayStats(date = today(), user = null) {
+  const st = fullDayStats(date);
+  if (!user || user.role === 'admin') return st;
+  for (const [k, app] of Object.entries(STAT_APP)) if (!can(user, app, 'read')) delete st[k];
+  st.journal = journalOf(date).filter((j) => j.user_id === user.id).map((j) => `${j.created_at.slice(11, 16)} ${j.text}`); // ses propres notes seulement
+  return st;
+}
+function fullDayStats(date) {
   const next = (() => { const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + 1); return localDate(d); })();
   const sum = (sql, ...p) => round2(get(sql, ...p)?.v || 0);
   const invoices = all(`SELECT d.number, d.total, c.name AS client FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.type='invoice' AND substr(d.posted_at,1,10)=?`, date);
@@ -95,7 +111,8 @@ const ACTION_TOOLS = [
   },
 ];
 
-function execCopilotTool(name, input, userId) {
+function execCopilotTool(name, input, user) {
+  const userId = user.id;
   switch (name) {
     case 'noter_journal': return { id: addJournal(input.texte, userId, 'ia'), ok: true };
     case 'planifier_activite': {
@@ -103,19 +120,28 @@ function execCopilotTool(name, input, userId) {
       return { id, ok: true };
     }
     case 'creer_rendez_vous': {
-      const q = `%${input.client}%`;
-      const c = get(`SELECT c.id, c.name, (SELECT id FROM vehicles WHERE customer_id=c.id ORDER BY id DESC LIMIT 1) AS vehicle_id FROM customers c
-        LEFT JOIN vehicles v ON v.customer_id=c.id WHERE c.name LIKE ? OR c.company LIKE ? OR REPLACE(v.plate,' ','') LIKE REPLACE(?,' ','') LIMIT 1`, q, q, q);
-      if (!c) throw new Error(`Client « ${input.client} » introuvable`);
-      const start = new Date(input.debut);
+      if (!can(user, 'atelier', 'user')) throw new Error('Accès refusé : cet utilisateur n\'a pas le droit de créer des rendez-vous (application Atelier).');
+      const name = String(input.client || '').trim();
+      if (name.length < 2) throw new Error('Nom du client manquant : demande-le à l\'utilisateur.');
+      const q = likeFold(name);
+      const found = all(`SELECT DISTINCT c.id, c.name, (SELECT id FROM vehicles WHERE customer_id=c.id ORDER BY id DESC LIMIT 1) AS vehicle_id FROM customers c
+        LEFT JOIN vehicles v ON v.customer_id=c.id WHERE fold(c.name) LIKE ? ESCAPE '\\' OR fold(c.company) LIKE ? ESCAPE '\\' OR fold(REPLACE(v.plate,' ','')) LIKE ? ESCAPE '\\' LIMIT 6`, q, q, likeFold(name.replace(/\s/g, '')));
+      if (!found.length) throw new Error(`Client « ${name} » introuvable`);
+      // plusieurs clients possibles : on ne choisit pas au hasard, on demande lequel
+      const exact = found.filter((x) => fold(x.name) === fold(name));
+      if (found.length > 1 && exact.length !== 1) throw new Error(`Plusieurs clients correspondent à « ${name} » : ${found.map((x) => x.name).join(', ')}. Demande à l'utilisateur lequel.`);
+      const c = exact[0] || found[0];
+      // date sans heure (« 2026-11-13 ») : à l'ouverture du garage, et non à 1 h du matin
+      const debut = /^\d{4}-\d{2}-\d{2}$/.test(String(input.debut || '')) ? `${input.debut}T${getSettings().workshop?.opening || '08:00'}` : input.debut;
+      const start = new Date(debut);
       if (Number.isNaN(start.getTime())) throw new Error('Date de début invalide');
       const end = new Date(start.getTime() + (input.duree_minutes || 60) * 60000);
       const id = insert('appointments', { customer_id: c.id, vehicle_id: c.vehicle_id, start: localDateTime(start).slice(0, 16), end: localDateTime(end).slice(0, 16), title: input.motif || 'Rendez-vous' },
         ['customer_id', 'vehicle_id', 'start', 'end', 'title']);
       return { id, client: c.name, ok: true };
     }
-    case 'chiffres_du_jour': return dayStats(input.date || today());
-    default: return runTool(name, input);
+    case 'chiffres_du_jour': return dayStats(isDate(input.date) ? input.date : today(), user);
+    default: return runTool(name, input, user);
   }
 }
 
@@ -140,12 +166,14 @@ export async function copilotChat(user, message, history = []) {
     addJournal(message, user.id, 'voice');
     return { reply: 'Mode démo : j\'ai noté cela dans votre journal. Ajoutez la clé API Claude pour que je puisse répondre et agir.', actions: [ACTION_LABEL.noter_journal] };
   }
-  const messages = [...history.slice(-12).filter((m) => m.role && m.content), { role: 'user', content: message.trim() }];
+  // seuls les messages « utilisateur » et « assistant » sont envoyés à l'IA (les notes dictées, de rôle « note », feraient échouer la demande)
+  const past = (Array.isArray(history) ? history : []).filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.trim()).slice(-12).map((m) => ({ role: m.role, content: m.content }));
+  const messages = [...past, { role: 'user', content: message.trim() }];
   while (messages.length && messages[0].role !== 'user') messages.shift();
   try {
     const reply = await runLoop({
       system: copilotSystem(user), messages, tools: [...TOOLS, ...ACTION_TOOLS], webSearch: true,
-      execTool: (n, i) => execCopilotTool(n, i, user.id),
+      execTool: (n, i) => execCopilotTool(n, i, user),
       onTool: (n, i) => { if (ACTION_LABEL[n]) actions.push(`${ACTION_LABEL[n]}${i.resume || i.motif || i.texte ? ` : ${(i.resume || i.motif || i.texte).slice(0, 80)}` : ''}`); },
     });
     return { reply, actions };
@@ -191,7 +219,15 @@ function ruleBasedBrief(st) {
   return { resume, priorites: p.slice(0, 6) };
 }
 
-export async function generateBrief({ date = today(), force = false } = {}) {
+const briefsInProgress = new Map();
+/** Résumé de fin de journée. Deux demandes simultanées pour le même jour partagent le même résultat (pas de doublon). */
+export function generateBrief({ date = today(), force = false } = {}) {
+  if (briefsInProgress.has(date)) return briefsInProgress.get(date);
+  const p = buildBrief({ date, force }).finally(() => briefsInProgress.delete(date));
+  briefsInProgress.set(date, p);
+  return p;
+}
+async function buildBrief({ date, force }) {
   const existing = get('SELECT * FROM daily_briefs WHERE date=?', date);
   if (existing && !force) return existing;
   const st = dayStats(date);
@@ -221,14 +257,18 @@ ${JSON.stringify(st)}
   if (cfg.auto_plan && admin) {
     for (const p of out.priorites) {
       const due = /^\d{4}-\d{2}-\d{2}$/.test(p.echeance) && p.echeance >= date ? p.echeance : date;
-      const dup = get("SELECT id FROM activities WHERE status='planned' AND summary=?", `🧠 ${p.resume}`);
-      if (dup) continue;
+      // même priorité déjà planifiée (on ignore les nombres : « Relancer 3 factures » puis « Relancer 4 factures » = une seule activité, mise à jour)
+      const key = (t) => t.replace(/\d+([.,]\d+)?/g, '#');
+      const dup = all("SELECT id, summary FROM activities WHERE status='planned' AND summary LIKE '🧠 %'").find((a) => key(a.summary) === key(`🧠 ${p.resume}`));
+      if (dup) { run('UPDATE activities SET summary=?, note=? WHERE id=?', `🧠 ${p.resume}`, p.pourquoi, dup.id); continue; }
       created.push(createActivity({ summary: `🧠 ${p.resume}`, note: p.pourquoi, due_date: due, type: p.type, module: p.module }, admin.id));
     }
   }
   const row = { date, content: out.resume, priorities: JSON.stringify(out.priorites), stats: JSON.stringify(st), ai };
   if (existing) db.prepare('UPDATE daily_briefs SET content=?, priorities=?, stats=?, ai=?, created_at=CURRENT_TIMESTAMP WHERE date=?').run(row.content, row.priorities, row.stats, ai, date);
   else insert('daily_briefs', row, ['date', 'content', 'priorities', 'stats', 'ai']);
+  // un seul rapport par jour chez Alex (CIO) : le résumé régénéré remplace le précédent
+  run("DELETE FROM agent_results WHERE agent_id='cio' AND title=?", `🧠 Résumé de la journée du ${date}`);
   insert('agent_results', { agent_id: 'cio', title: `🧠 Résumé de la journée du ${date}`, content: `${out.resume}\n\n### Priorités planifiées\n${out.priorites.map((p, i) => `${i + 1}. **${p.resume}** — ${p.pourquoi} (${p.echeance})`).join('\n')}` },
     ['agent_id', 'title', 'content']);
   if (cfg.email_me && admin?.email) {

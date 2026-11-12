@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { GET, PUT, DEL, act, hours, time, date, today, addDays } from '../api.js';
+import { can } from '../apps.js';
 
 export const Timesheets = {
   setup() {
@@ -15,7 +16,8 @@ export const Timesheets = {
     const week = () => { const d = new Date(); from.value = addDays(today(), -((d.getDay() + 6) % 7)); to.value = today(); load(); };
     const save = async () => { await act(() => PUT('/timesheets/' + edit.value.id, { start: edit.value.start, end: edit.value.end || null, note: edit.value.note }), 'Pointage corrigé'); edit.value = null; load(); };
     const remove = async () => { await act(() => DEL('/timesheets/' + edit.value.id)); edit.value = null; load(); };
-    return { from, to, data, load, day, week, edit, save, remove, hours, time, date, today };
+    const canFix = can('presences', 'manager'); // corriger un pointage : administrateurs des présences
+    return { canFix, from, to, data, load, day, week, edit, save, remove, hours, time, date, today };
   },
   template: `
   <div>
@@ -34,7 +36,7 @@ export const Timesheets = {
       <div class="card">
         <div class="table-wrap"><table>
           <thead><tr><th>Mécanicien</th><th>Type</th><th>Date</th><th>Début</th><th>Fin</th><th class="num">Durée</th><th>OR</th><th>Note</th></tr></thead>
-          <tbody><tr v-for="e in data.entries" class="click" @click="edit = {...e, start: e.start.slice(0,16), end: e.end ? e.end.slice(0,16) : ''}">
+          <tbody><tr v-for="e in data.entries" :class="{click: canFix}" @click="canFix && (edit = {...e, start: e.start.slice(0,16), end: e.end ? e.end.slice(0,16) : ''})">
             <td>{{ e.user_name }}</td><td><span class="badge" :class="e.kind === 'work' ? 'b-blue' : 'b-gray'">{{ e.kind === 'work' ? 'Travail' : 'Présence' }}</span></td>
             <td>{{ date(e.start.slice(0,10)) }}</td><td>{{ time(e.start) }}</td><td><span v-if="e.end">{{ time(e.end) }}</span><span v-else class="live">en cours</span></td>
             <td class="num">{{ hours(e.hours) }}</td><td><a v-if="e.document_id" :href="'#/document/' + e.document_id" @click.stop>{{ e.document_number }} <span class="plate" v-if="e.plate">{{ e.plate }}</span></a></td><td class="small">{{ e.note }}</td>

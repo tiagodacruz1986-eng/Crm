@@ -44,7 +44,8 @@ class Odoo {
       throw new BusinessError(`Odoo injoignable (${e.cause?.code || e.message}). Vérifiez l'adresse.`);
     }
     if (!res.ok) throw new BusinessError(`Odoo a répondu ${res.status}. Vérifiez l'adresse.`);
-    const data = await res.json();
+    let data;
+    try { data = await res.json(); } catch { throw new BusinessError('Cette adresse ne répond pas comme un serveur Odoo. Vérifiez l\'adresse (exemple : https://votre-societe.odoo.com).'); }
     if (data.error) throw new BusinessError(`Odoo : ${data.error.data?.message || data.error.message}`);
     return data.result;
   }
@@ -97,7 +98,8 @@ const PLACEHOLDER_PLATES = new Set(['0', '00', '000', '0000', '-', 'X', 'XX']);
 function partnerRow(p) {
   const address = [val(p.street), val(p.street2)].filter(Boolean).join(', ') || null;
   return {
-    name: p.name?.trim() || 'Sans nom', email: val(p.email), phone: val(p.phone), mobile: val(p.mobile),
+    // Odoo renvoie « false » pour un champ vide : un contact sans nom ne doit pas faire échouer tout l'import
+    name: (typeof p.name === 'string' && p.name.trim()) || 'Sans nom', email: val(p.email), phone: val(p.phone), mobile: val(p.mobile),
     address, zip: val(p.zip), city: val(p.city), vat_number: val(p.vat),
     country: p.country_id ? (m2oName(p.country_id) === 'Luxembourg' ? 'LU' : m2oName(p.country_id)) : 'LU',
   };
@@ -132,7 +134,9 @@ export async function runImport(options = { customers: true, suppliers: true, ve
 
     if (options.customers || options.suppliers || options.vehicles) {
       job.step = 'Import des contacts…';
-      for await (const page of o.readAll('res.partner', [['parent_id', '=', false]], PFIELDS)) {
+      // Contacts principaux, plus les conducteurs de véhicules rattachés à une société (sinon leur véhicule resterait sans propriétaire)
+      const domain = drivers.size ? ['|', ['parent_id', '=', false], ['id', 'in', [...drivers].filter(Boolean)]] : [['parent_id', '=', false]];
+      for await (const page of o.readAll('res.partner', domain, PFIELDS)) {
         db.exec('BEGIN');
         try {
           for (const p of page) {

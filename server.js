@@ -17,7 +17,7 @@ import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, a
 import { AGENTS } from './src/agents.js';
 import {
   MODELS, MODULES, ACTIVITY_TYPES, TEMPLATE_LABELS, publicMailConfig, saveMailConfig, testMail, compose, renderEmail, sendEmail, processScheduledEmails,
-  logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo, isMailConfigured,
+  logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo, isMailConfigured, recoverInterruptedEmails,
 } from './src/mail.js';
 import { runAgent, friendlyError } from './src/claude.js';
 import {
@@ -30,7 +30,7 @@ import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePubli
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
-import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, createInvite, findInvite, clearInvite } from './src/access.js';
+import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, maskDashboard, createInvite, findInvite, clearInvite } from './src/access.js';
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
@@ -45,10 +45,11 @@ app.set('case sensitive routing', true);
 // Confiance uniquement dans un proxy local (Caddy dans Docker, Tailscale serve…) : l'adresse IP réelle et le https viennent de lui
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 // Formulaires publics (connexion, kiosque) : petits messages seulement ; le reste accepte les photos et pièces jointes
-app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge'], express.json({ limit: '20kb' }));
+app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], express.json({ limit: '20kb' }));
+app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
 // Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
 // sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
-const UPLOAD_ROUTES = /^\/api\/(bills\/upload|attachments\/|website\/images|social\/images|settings\/(logo|home-bg))/;
+const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
 const jsonBody = express.json({ limit: '20mb' });
 const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
 app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
@@ -127,7 +128,7 @@ app.get('/site-media/:file', (req, res) => {
   if (!f) return res.status(404).end();
   res.set('Cache-Control', 'public, max-age=86400').set('X-Content-Type-Options', 'nosniff').sendFile(f);
 });
-app.post('/site-api/contact', express.json({ limit: '20kb' }), (req, res) => {
+app.post('/site-api/contact', (req, res) => {
   try { res.json(submitContact(req.body || {}, req.ip)); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 app.get('/home-bg', (req, res) => {
@@ -406,17 +407,7 @@ api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWit
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : accessGuard(req, res, next)));
 const needManager = (app) => (req, res, next) => (can(req.user, app, 'manager') ? next() : res.status(403).json({ error: 'Réservé aux administrateurs de cette application' }));
 
-api.get('/dashboard', (req, res) => {
-  const d = dashboard();
-  const u = req.user;
-  if (!can(u, 'ventes')) Object.assign(d, { salesMonth: null, salesYear: null, receivable: null, overdue: null, quotesPending: null, monthly: [] });
-  if (!can(u, 'banque')) Object.assign(d, { bank: null, unmatchedBank: null });
-  if (!can(u, 'achats')) d.payable = null;
-  if (!can(u, 'inventaire')) d.lowStock = [];
-  if (!can(u, 'atelier')) Object.assign(d, { ordersOpen: null, appointmentsToday: [] });
-  if (!can(u, 'vehicules')) d.inspectionsSoon = [];
-  res.json(d);
-});
+api.get('/dashboard', (req, res) => res.json(maskDashboard(dashboard(), req.user)));
 // Adresses du PC sur le réseau local (pour ouvrir le logiciel sur téléphone / tablette)
 api.get('/network', (req, res) => {
   const port = process.env.PORT || 3000;
@@ -1079,6 +1070,8 @@ api.delete('/mail/:id', wrap((req) => {
 }));
 // Rédaction assistée : Sophie (secrétariat) écrit le texte du mail
 api.post('/mail/draft-ai', wrap(async (req) => {
+  // Sans clé API, l'agent répond par un avertissement « mode démo » : il ne doit pas remplacer le texte de l'utilisateur
+  if (!aiConfigured()) throw new BusinessError('Rédaction par l\'IA indisponible : aucune clé Claude n\'est configurée (voir README → Activer les agents IA).');
   const info = recordInfo(checkModel(req.body.model), Number(req.body.record_id)) || {};
   const prompt = `Rédige le texte d'un e-mail professionnel à envoyer par le garage${info.name ? ` à ${info.name}` : ''}.
 Contexte : ${info.label || 'aucune fiche liée'}. Objet prévu : ${req.body.subject || '—'}.
@@ -1087,7 +1080,10 @@ Texte actuel :
 ${req.body.intro || ''}
 
 Réponds UNIQUEMENT avec le corps du message en texte brut (salutation, contenu, formule de politesse), sans objet ni commentaire. Si besoin, consulte les données avec tes outils.`;
-  try { return { intro: await runAgent('secretariat', [{ role: 'user', content: prompt }]) }; } catch (e) { throw new BusinessError(friendlyError(e)); }
+  let intro;
+  try { intro = await runAgent('secretariat', [{ role: 'user', content: prompt }], { user: req.user }); } catch (e) { throw new BusinessError(friendlyError(e)); }
+  if (!intro?.trim() || /^\(pas de réponse\)|^⚠️/.test(intro.trim())) throw new BusinessError('L\'IA n\'a pas pu rédiger ce message. Réessayez ou écrivez-le vous-même.');
+  return { intro };
 }));
 
 // ---------- Historique & activités (sur chaque fiche) ----------
@@ -1123,7 +1119,8 @@ api.post('/activities/:id/done', wrap((req) => { ownActivity(req); return comple
 api.delete('/activities/:id', wrap((req) => { ownActivity(req); run("UPDATE activities SET status='cancelled' WHERE id=?", req.params.id); return { ok: true }; }));
 
 // ---------- Copilote Nova : écoute, journal, résumé de fin de journée ----------
-api.get('/copilot', (req, res) => res.json({ config: copilotConfig(), journal: journalOf(req.query.date || today()), briefs: listBriefs(Number(req.query.limit) || 14), ai: aiConfigured() }));
+// Le résumé de fin de journée (chiffres de tout le garage) est destiné au gérant
+api.get('/copilot', (req, res) => res.json({ config: copilotConfig(), journal: journalOf(req.query.date || today()), briefs: req.user.role === 'admin' ? listBriefs(Number(req.query.limit) || 14) : [], ai: aiConfigured() }));
 api.put('/copilot/config', adminOnly, wrap((req) => { saveCopilotConfig(req.body); return copilotConfig(); }));
 api.post('/copilot/journal', wrap((req) => ({ id: addJournal(req.body.text, req.user.id, req.body.source === 'voice' ? 'voice' : 'text') })));
 api.delete('/copilot/journal/:id', wrap((req) => {
@@ -1133,8 +1130,8 @@ api.delete('/copilot/journal/:id', wrap((req) => {
   return { ok: true };
 }));
 api.post('/copilot/chat', wrap((req) => copilotChat(req.user, req.body.message, req.body.history || [])));
-api.post('/copilot/brief', wrap((req) => generateBrief({ date: req.body.date || today(), force: true })));
-api.get('/copilot/stats', (req, res) => res.json(dayStats(req.query.date || today())));
+api.post('/copilot/brief', adminOnly, wrap((req) => generateBrief({ date: isDate(req.body.date) ? req.body.date : today(), force: true })));
+api.get('/copilot/stats', (req, res) => res.json(dayStats(isDate(req.query.date) ? req.query.date : today(), req.user)));
 
 // ---------- Bureau virtuel IA ----------
 api.get('/agents', (req, res) => res.json(AGENTS.map(({ prompt, ...a }) => ({
@@ -1151,7 +1148,7 @@ api.post('/agents/:id/chat', wrap(async (req) => {
   if (!req.body.message?.trim()) throw new BusinessError('Message vide');
   if (!AGENTS.some((a) => a.id === req.params.id)) throw new BusinessError('Agent inconnu', 404);
   running.add(req.params.id);
-  try { return await chat(req.params.id, req.body.message.trim(), Number(req.body.conversation_id) || null); } finally { running.delete(req.params.id); }
+  try { return await chat(req.params.id, req.body.message.trim(), Number(req.body.conversation_id) || null, req.user); } finally { running.delete(req.params.id); }
 }));
 // Historique des conversations (consultable, recherche plein texte)
 api.get('/agent-conversations', (req, res) => res.json(listConversations({ agent: req.query.agent, q: req.query.q, limit: Math.min(Number(req.query.limit) || 60, 200) })));
@@ -1165,20 +1162,26 @@ api.delete('/agent-conversations/:cid', wrap((req) => { deleteConversation(req.p
 api.post('/agents/meeting', wrap(async (req) => {
   if (!req.body.question?.trim()) throw new BusinessError('Question vide');
   AGENTS.forEach((a) => running.add(a.id));
-  try { return await meeting(req.body.question.trim()); } finally { AGENTS.forEach((a) => running.delete(a.id)); }
+  try { return await meeting(req.body.question.trim(), req.user); } finally { AGENTS.forEach((a) => running.delete(a.id)); }
 }));
 const TASK_COLS = ['agent_id', 'title', 'prompt', 'schedule_type', 'schedule_time', 'schedule_day', 'run_at', 'next_run', 'active'];
 api.get('/agent-tasks', (req, res) => res.json(all(`SELECT * FROM agent_tasks ${req.query.agent ? 'WHERE agent_id=?' : ''} ORDER BY active DESC, next_run`, ...(req.query.agent ? [req.query.agent] : []))));
 api.post('/agent-tasks', wrap((req) => {
-  const t = { active: 1, ...req.body };
+  const t = { active: 1, ...req.body, created_by: req.user.id };
   if (!t.agent_id || !t.title || !t.prompt) throw new BusinessError('Agent, titre et consigne requis');
+  if (!AGENTS.some((a) => a.id === t.agent_id)) throw new BusinessError('Agent inconnu');
   t.next_run = computeNextRun(t);
-  return { id: insert('agent_tasks', t, TASK_COLS) };
+  return { id: insert('agent_tasks', t, [...TASK_COLS, 'created_by']) };
 }));
 api.put('/agent-tasks/:id', wrap((req) => {
   const cur = get('SELECT * FROM agent_tasks WHERE id=?', req.params.id);
+  if (!cur) throw new BusinessError('Tâche introuvable', 404);
   const t = { ...cur, ...req.body };
-  t.next_run = t.active ? computeNextRun({ ...t, last_run: t.schedule_type === 'once' && req.body.run_at ? null : t.last_run }) : null;
+  // Tâche « une seule fois » déjà exécutée : une nouvelle date (ou sa réactivation) la reprogramme vraiment
+  const rearm = t.schedule_type === 'once' && ((req.body.run_at && req.body.run_at !== cur.run_at) || (t.active && !cur.active));
+  if (rearm) { t.last_run = null; run('UPDATE agent_tasks SET last_run=NULL WHERE id=?', cur.id); }
+  t.next_run = t.active ? computeNextRun(t) : null;
+  if (t.active && t.schedule_type === 'once' && !t.next_run) throw new BusinessError('Choisissez une date à venir pour relancer cette tâche.');
   update('agent_tasks', req.params.id, t, TASK_COLS);
   return { ok: true };
 }));
@@ -1215,6 +1218,7 @@ const PORT = Number(process.env.PORT || 3000);
 // un deuxième lancement par erreur ne doit pas envoyer les e-mails une deuxième fois
 function startBackgroundJobs() {
   purgeSessions();
+  recoverInterruptedEmails();
   setInterval(() => { try { purgeSessions(); } catch (e) { console.error('Sessions', e); } }, 24 * 3600e3).unref();
   startScheduler();
   startAutomation();

@@ -1,6 +1,6 @@
 // CRM (inspiré d'Odoo) : pistes et opportunités dans un pipeline par étapes, sources, montants attendus,
 // probabilité, gagné / perdu, conversion en client et en devis. Les demandes du site web arrivent ici.
-import { db, all, get, run, insert, update, tx, round2, today } from './db.js';
+import { db, all, get, run, insert, update, tx, round2, today, isDate, likeFold } from './db.js';
 import { BusinessError, saveDocument } from './business.js';
 
 db.exec(`
@@ -25,6 +25,8 @@ if (!get('SELECT COUNT(*) n FROM crm_stages').n) {
   }
 }
 
+if (!all('PRAGMA table_info(crm_leads)').some((c) => c.name === 'lost_at')) db.exec('ALTER TABLE crm_leads ADD COLUMN lost_at TEXT');
+
 export const SOURCES = { site: 'Site web', telephone: 'Téléphone', social: 'Réseaux sociaux', passage: 'Passage au garage', recommandation: 'Recommandation', email: 'E-mail', manuel: 'Autre' };
 export const LOST_REASONS = ['Trop cher', 'Délai trop long', 'Parti chez un concurrent', 'Plus de réponse', 'Travaux reportés', 'Autre'];
 const LEAD_COLS = ['name', 'contact_name', 'email', 'phone', 'company', 'customer_id', 'vehicle_plate', 'vehicle_desc', 'service', 'description', 'stage_id',
@@ -36,12 +38,14 @@ const firstStage = () => stages()[0];
 export function listLeads({ q, status = 'open', user_id, source } = {}) {
   const where = [];
   const p = [];
-  if (status && status !== 'all') { where.push('l.status=?'); p.push(status); }
+  // « pipeline » : les opportunités en cours et celles gagnées récemment (colonne « Gagné » du tableau)
+  if (status === 'pipeline') where.push("(l.status='open' OR (l.status='won' AND COALESCE(l.won_at, '9999') >= date('now','localtime','-90 days')))"); // gagnées des 3 derniers mois
+  else if (status && status !== 'all') { where.push('l.status=?'); p.push(status); }
   if (user_id) { where.push('l.user_id=?'); p.push(Number(user_id)); }
   if (source) { where.push('l.source=?'); p.push(source); }
   if (q?.trim()) {
-    where.push('(l.name LIKE ? OR l.contact_name LIKE ? OR l.email LIKE ? OR l.phone LIKE ? OR l.vehicle_plate LIKE ? OR l.company LIKE ?)');
-    p.push(...Array(6).fill(`%${q.trim()}%`));
+    where.push("(fold(l.name) LIKE ? ESCAPE '\\' OR fold(l.contact_name) LIKE ? ESCAPE '\\' OR fold(l.email) LIKE ? ESCAPE '\\' OR l.phone LIKE ? ESCAPE '\\' OR fold(l.vehicle_plate) LIKE ? ESCAPE '\\' OR fold(l.company) LIKE ? ESCAPE '\\')");
+    p.push(...Array(6).fill(likeFold(q.trim())));
   }
   return all(`SELECT l.*, u.name AS user_name, u.color AS user_color, c.name AS customer_name, d.number AS quote_number,
       (SELECT COUNT(*) FROM activities a WHERE a.model='lead' AND a.record_id=l.id AND a.status='planned') AS activities,
@@ -63,47 +67,59 @@ export function saveLead(data, id = null) {
   if (!id && !d.name?.trim()) {
     d.name = [d.service, d.contact_name || d.company].filter(Boolean).join(' — ') || 'Nouvelle demande';
   }
-  if (d.name !== undefined) d.name = String(d.name).slice(0, 160);
+  // Titre vidé lors d'une modification : on garde l'ancien (il ne devient pas « null »)
+  if (id && (d.name === null || (typeof d.name === 'string' && !d.name.trim()))) delete d.name;
+  if (d.name !== undefined) d.name = String(d.name).trim().slice(0, 160);
+  if (d.deadline && !isDate(d.deadline)) throw new BusinessError('Date d\'échéance invalide');
+  // Le statut (gagnée / perdue) et les dates associées ne se changent que par les boutons prévus
+  delete d.status; delete d.won_at; delete d.lost_at; delete d.lost_reason; delete d.quote_id;
   if (d.expected_revenue !== undefined) d.expected_revenue = round2(Math.max(0, Number(d.expected_revenue) || 0));
   if (d.probability !== undefined) d.probability = Math.min(100, Math.max(0, Math.round(Number(d.probability) || 0)));
   if (d.priority !== undefined) d.priority = Math.min(3, Math.max(0, Number(d.priority) || 0));
   if (d.source !== undefined && !SOURCES[d.source]) d.source = 'manuel';
   if (id) {
-    if (d.stage_id) {
+    const cur = get('SELECT status, stage_id FROM crm_leads WHERE id=?', id);
+    if (!cur) throw new BusinessError('Opportunité introuvable', 404);
+    // Seul un vrai changement d'étape peut faire gagner (ou « dé-gagner ») l'opportunité
+    if (d.stage_id && Number(d.stage_id) !== cur.stage_id) {
       const s = get('SELECT * FROM crm_stages WHERE id=?', d.stage_id);
-      const cur = get('SELECT status FROM crm_leads WHERE id=?', id);
-      if (s && d.probability === undefined) d.probability = s.probability;
-      if (s?.is_won && cur?.status !== 'won') { d.status = 'won'; d.won_at = today(); }
-      else if (s && !s.is_won && cur?.status === 'won') { d.status = 'open'; d.won_at = null; }
-    }
+      if (!s) throw new BusinessError('Étape inconnue');
+      if (d.probability === undefined) d.probability = s.probability;
+      if (s.is_won && cur.status !== 'won') { d.status = 'won'; d.won_at = today(); }
+      else if (!s.is_won && cur.status === 'won') { d.status = 'open'; d.won_at = null; }
+    } else delete d.stage_id;
     update('crm_leads', id, d, LEAD_COLS);
     run('UPDATE crm_leads SET updated_at=CURRENT_TIMESTAMP WHERE id=?', id);
     return id;
   }
-  const st = firstStage();
-  return insert('crm_leads', { stage_id: st.id, probability: st.probability, status: 'open', source: 'manuel', ...d }, LEAD_COLS);
+  const st = (d.stage_id && get('SELECT * FROM crm_stages WHERE id=?', d.stage_id)) || firstStage();
+  return insert('crm_leads', { probability: st.probability, source: 'manuel', ...d, stage_id: st.id, status: st.is_won ? 'won' : 'open', won_at: st.is_won ? today() : null }, LEAD_COLS);
 }
 
 /** Déplacer une carte dans le pipeline (glisser-déposer). L'étape « Gagné » marque l'opportunité gagnée. */
 export function moveLead(id, stageId, sequence = 0) {
   const s = get('SELECT * FROM crm_stages WHERE id=?', stageId);
   if (!s) throw new BusinessError('Étape inconnue');
-  run('UPDATE crm_leads SET stage_id=?, probability=?, sequence=?, status=?, won_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
-    s.id, s.probability, sequence, s.is_won ? 'won' : 'open', s.is_won ? today() : null, id);
+  const cur = getLead(id);
+  // une opportunité déjà gagnée garde sa date de gain si on la redépose dans la colonne « Gagné »
+  run('UPDATE crm_leads SET stage_id=?, probability=?, sequence=?, status=?, won_at=?, lost_at=NULL, lost_reason=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+    s.id, s.probability, sequence, s.is_won ? 'won' : 'open', s.is_won ? (cur.status === 'won' && cur.won_at) || today() : null, id);
   return getLead(id);
 }
 
 export function markWon(id) {
   const won = get('SELECT id FROM crm_stages WHERE is_won=1 ORDER BY sequence LIMIT 1');
-  return moveLead(id, won?.id || stages().at(-1).id);
+  if (!won) throw new BusinessError('Aucune étape « Gagné » dans le pipeline : cochez « étape gagnante » sur une étape (CRM → Étapes).');
+  return moveLead(id, won.id);
 }
 export function markLost(id, reason) {
-  run("UPDATE crm_leads SET status='lost', lost_reason=?, probability=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", String(reason || 'Autre').slice(0, 120), id);
+  getLead(id);
+  run("UPDATE crm_leads SET status='lost', lost_reason=?, lost_at=?, won_at=NULL, probability=0, updated_at=CURRENT_TIMESTAMP WHERE id=?", String(reason || 'Autre').slice(0, 120), today(), id);
   return getLead(id);
 }
 export function restoreLead(id) {
   const st = firstStage();
-  run("UPDATE crm_leads SET status='open', lost_reason=NULL, stage_id=?, probability=? WHERE id=?", st.id, st.probability, id);
+  run("UPDATE crm_leads SET status='open', lost_reason=NULL, lost_at=NULL, won_at=NULL, stage_id=?, probability=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", st.id, st.probability, id);
   return getLead(id);
 }
 
@@ -132,8 +148,12 @@ export function createQuote(id) {
         || insert('vehicles', { customer_id, plate, model: l.vehicle_desc || null }, ['customer_id', 'plate', 'model']);
     }
     const docId = saveDocument({ type: 'quote', customer_id, vehicle_id, customer_complaint: [l.service, l.description].filter(Boolean).join(' — ') || l.name, lines: [] });
-    const quote = get('SELECT id FROM crm_stages WHERE name LIKE ? ORDER BY sequence LIMIT 1', 'Devis%');
-    run('UPDATE crm_leads SET quote_id=?, stage_id=COALESCE(?, stage_id), probability=MAX(probability, 60) WHERE id=?', docId, quote?.id ?? null, id);
+    // L'opportunité avance à l'étape « Devis… » seulement si elle est en cours et se trouve AVANT cette étape
+    // (une opportunité en négociation ou déjà gagnée ne recule pas)
+    const quote = get('SELECT id, sequence, probability FROM crm_stages WHERE name LIKE ? AND is_won=0 ORDER BY sequence LIMIT 1', 'Devis%');
+    const curSeq = get('SELECT sequence FROM crm_stages WHERE id=?', l.stage_id)?.sequence ?? 0;
+    if (quote && l.status === 'open' && curSeq < quote.sequence) run('UPDATE crm_leads SET quote_id=?, stage_id=?, probability=MAX(probability, ?) WHERE id=?', docId, quote.id, quote.probability, id);
+    else run('UPDATE crm_leads SET quote_id=? WHERE id=?', docId, id);
     return docId;
   });
 }
@@ -143,7 +163,8 @@ export function pipelineStats() {
   const open = get("SELECT COUNT(*) n, COALESCE(SUM(expected_revenue),0) rev, COALESCE(SUM(expected_revenue*probability/100.0),0) weighted FROM crm_leads WHERE status='open'");
   const month = today().slice(0, 7);
   const won = get("SELECT COUNT(*) n, COALESCE(SUM(expected_revenue),0) rev FROM crm_leads WHERE status='won' AND substr(won_at,1,7)=?", month);
-  const lostMonth = get("SELECT COUNT(*) n FROM crm_leads WHERE status='lost' AND substr(updated_at,1,7)=?", month).n;
+  // perdues ce mois : date de la perte (pour les anciennes fiches sans cette date, la dernière modification)
+  const lostMonth = get("SELECT COUNT(*) n FROM crm_leads WHERE status='lost' AND substr(COALESCE(lost_at, updated_at),1,7)=?", month).n;
   const closed = get("SELECT SUM(status='won') w, SUM(status='lost') l FROM crm_leads");
   const bySource = all("SELECT source, COUNT(*) n, SUM(status='won') won FROM crm_leads GROUP BY source ORDER BY n DESC");
   return {
@@ -155,13 +176,23 @@ export function pipelineStats() {
 
 // Étapes du pipeline modifiables
 export function saveStage(data, id = null) {
-  const d = { name: String(data.name || '').slice(0, 60), probability: Math.min(100, Math.max(0, Number(data.probability) || 0)), is_won: data.is_won ? 1 : 0, sequence: Number(data.sequence) || 10 };
+  // En modification, seuls les champs envoyés changent (renommer une étape ne lui retire pas « étape gagnante »)
+  const cur = id ? get('SELECT * FROM crm_stages WHERE id=?', id) : {};
+  if (id && !cur) throw new BusinessError('Étape introuvable', 404);
+  const d = {
+    name: String(data.name ?? cur.name ?? '').trim().slice(0, 60),
+    probability: Math.min(100, Math.max(0, Number(data.probability ?? cur.probability) || 0)),
+    is_won: (data.is_won ?? cur.is_won) ? 1 : 0,
+    sequence: Number(data.sequence ?? cur.sequence) || 10,
+  };
   if (!d.name) throw new BusinessError('Nom de l\'étape requis');
+  if (id && cur.is_won && !d.is_won && !get('SELECT 1 FROM crm_stages WHERE is_won=1 AND id!=?', id)) throw new BusinessError('Il faut garder une étape « Gagné » dans le pipeline');
   if (id) { update('crm_stages', id, d, ['name', 'probability', 'is_won', 'sequence']); return id; }
   return insert('crm_stages', d, ['name', 'probability', 'is_won', 'sequence']);
 }
 export function deleteStage(id) {
   if (get('SELECT COUNT(*) n FROM crm_leads WHERE stage_id=?', id).n) throw new BusinessError('Déplacez d\'abord les opportunités de cette étape');
   if (get('SELECT COUNT(*) n FROM crm_stages').n <= 2) throw new BusinessError('Il faut garder au moins deux étapes');
+  if (get('SELECT is_won FROM crm_stages WHERE id=?', id)?.is_won && !get('SELECT 1 FROM crm_stages WHERE is_won=1 AND id!=?', id)) throw new BusinessError('Il faut garder une étape « Gagné » dans le pipeline');
   run('DELETE FROM crm_stages WHERE id=?', id);
 }

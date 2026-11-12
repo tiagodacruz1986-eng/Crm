@@ -35,10 +35,12 @@ export function saveAccounts(input = {}) {
     if (!src) continue;
     if (src.disconnect) { delete out[k]; continue; }
     const idKey = k === 'facebook' ? 'page_id' : 'ig_user_id';
+    if (src[idKey] && !/^\d{5,30}$/.test(String(src[idKey]).trim())) throw new BusinessError(`${PLATFORMS[k].name} : l'identifiant doit être un nombre (pas une adresse web).`);
+    if (src[idKey]) src[idKey] = String(src[idKey]).trim();
     out[k] = {
       [idKey]: /^\d{5,30}$/.test(src[idKey] || '') ? src[idKey] : cur[k]?.[idKey] || '',
       token: src.token ? String(src.token).trim().slice(0, 600) : cur[k]?.token || '',
-      name: String(src.name ?? cur[k]?.name ?? '').slice(0, 80),
+      name: (src.name ? String(src.name).trim().slice(0, 80) : '') || cur[k]?.name || '', // champ laissé vide = nom inchangé
     };
   }
   setSetting('social', out);
@@ -60,13 +62,25 @@ export function savePost(data, userId, id = null) {
   for (const p of platforms) if (text.length > PLATFORMS[p].max) throw new BusinessError(`${PLATFORMS[p].name} : ${PLATFORMS[p].max} caractères maximum`);
   if (platforms.includes('instagram') && !data.image) throw new BusinessError('Instagram demande une image');
   const image = /^\/site-media\/[a-f0-9]{24}\.(png|jpg|webp)$/.test(data.image || '') ? data.image : null;
-  const link = /^https?:\/\/\S+$/.test(data.link || '') ? String(data.link).slice(0, 500) : null;
-  const scheduled = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(data.scheduled_at || '') ? data.scheduled_at.slice(0, 16) : null;
+  // Lien : « www.garage.lu/promo » est complété en https:// ; un lien illisible est signalé (il n'est plus retiré en silence)
+  let link = String(data.link || '').trim();
+  if (link && !/^https?:\/\//i.test(link)) link = 'https://' + link;
+  if (link && !/^https?:\/\/[^\s/]+\.[^\s]+$/i.test(link)) throw new BusinessError('Le lien n\'est pas une adresse web valide');
+  link = link ? link.slice(0, 500) : null;
+  let scheduled = null;
+  if (data.scheduled_at) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(data.scheduled_at) || Number.isNaN(new Date(data.scheduled_at).getTime())) throw new BusinessError('Date de programmation invalide');
+    scheduled = data.scheduled_at.slice(0, 16);
+  }
   const status = data.status === 'draft' ? 'draft' : scheduled ? 'scheduled' : 'draft';
+  // Une date passée publierait dans la minute : on la refuse
+  if (status === 'scheduled' && scheduled < localDateTime().slice(0, 16)) throw new BusinessError('La date de programmation est déjà passée');
   const row = { text: text.slice(0, 5000), platforms: JSON.stringify(platforms), image, link, scheduled_at: scheduled, status };
   if (id) {
     const cur = getPost(id);
     if (['published', 'partial'].includes(cur.status)) throw new BusinessError('Publication déjà publiée');
+    // une publication en erreur corrigée repart de zéro
+    run('UPDATE social_posts SET results=NULL, published_at=NULL WHERE id=?', id);
     update('social_posts', id, row, Object.keys(row));
     return id;
   }
@@ -83,13 +97,18 @@ async function graph(pathname, params) {
 /** Publie maintenant sur les réseaux connectés ; les autres sont marqués « à publier à la main ». */
 export async function publishPost(id, publicBase) {
   const p = getPost(id);
+  if (p.status === 'published') throw new BusinessError('Publication déjà publiée');
   const a = accounts();
   const imageUrl = p.image && publicBase ? `${publicBase.replace(/\/$/, '')}${p.image}` : null;
   const results = {};
   for (const platform of p.platforms) {
+    // Nouvel essai : ce qui est déjà publié n'est pas publié une deuxième fois
+    if (p.results?.[platform]?.ok) { results[platform] = p.results[platform]; continue; }
     try {
       if (platform === 'facebook') {
         if (!a.facebook?.token) throw new Error('Page Facebook non connectée');
+        // Facebook va chercher la photo sur internet : sans adresse publique https, elle serait abandonnée en silence
+        if (p.image && (!imageUrl || !/^https:/.test(imageUrl))) throw new Error('La photo ne peut pas être envoyée à Facebook : indiquez l\'adresse publique https du logiciel dans Paramètres.');
         const r = imageUrl
           ? await graph(`${a.facebook.page_id}/photos`, { url: imageUrl, caption: p.text + (p.link ? `\n${p.link}` : ''), access_token: a.facebook.token })
           : await graph(`${a.facebook.page_id}/feed`, { message: p.text, ...(p.link ? { link: p.link } : {}), access_token: a.facebook.token });
@@ -110,12 +129,13 @@ export async function publishPost(id, publicBase) {
   const auto = Object.entries(results).filter(([k]) => PLATFORMS[k].auto);
   const okAuto = auto.filter(([, r]) => r.ok).length;
   const status = !auto.length ? 'manual' : okAuto === auto.length ? (Object.values(results).some((r) => r.manual) ? 'partial' : 'published') : okAuto ? 'partial' : 'error';
-  run('UPDATE social_posts SET status=?, results=?, published_at=? WHERE id=?', status, JSON.stringify(results), okAuto ? localDateTime() : null, id);
+  run('UPDATE social_posts SET status=?, results=?, published_at=COALESCE(published_at, ?) WHERE id=?', status, JSON.stringify(results), okAuto ? localDateTime() : null, id);
   return getPost(id);
 }
 
 export function markManualDone(id) {
   const p = getPost(id);
+  if (!['manual', 'partial', 'error'].includes(p.status)) throw new BusinessError('Publiez d\'abord cette publication');
   const results = { ...(p.results || {}) };
   for (const k of p.platforms) if (!PLATFORMS[k].auto) results[k] = { ok: true, manual: true };
   const allOk = p.platforms.every((k) => results[k]?.ok);

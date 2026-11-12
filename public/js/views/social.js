@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, store, datetime } from '../api.js';
 import { route, go } from '../router.js';
+import { can } from '../apps.js';
 
 const STATUS = { draft: ['Brouillon', 'gray'], scheduled: ['Programmée', 'blue'], published: ['Publiée', 'green'], partial: ['En partie publiée', 'orange'], manual: ['À publier à la main', 'purple'], error: ['Erreur', 'red'] };
 const PICON = { facebook: 'f', instagram: '◎', google: 'G', linkedin: 'in', tiktok: '♪' };
@@ -104,7 +105,8 @@ export const Social = {
       acc[k].token = '';
     };
     const counts = computed(() => ({ scheduled: posts.value.filter((p) => p.status === 'scheduled').length, published: posts.value.filter((p) => p.status === 'published').length, todo: posts.value.filter((p) => ['manual', 'partial', 'error'].includes(p.status)).length }));
-    return { view, setView, meta, posts, edit, ai, month, acc, compose, openPost, dayPick, tapDay, pickedDay, toggle, limits, upload, saveDraft, schedule, publishNow, publish, manualDone, remove, copy, write, ideas, useIdea, days, shiftMonth, planOn, saveAccounts, counts, STATUS, PICON, datetime, store };
+    const canDelete = computed(() => can('social', 'manager')); // supprimer : réservé aux administrateurs de l'application
+    return { canDelete, view, setView, meta, posts, edit, ai, month, acc, compose, openPost, dayPick, tapDay, pickedDay, toggle, limits, upload, saveDraft, schedule, publishNow, publish, manualDone, remove, copy, write, ideas, useIdea, days, shiftMonth, planOn, saveAccounts, counts, STATUS, PICON, datetime, store };
   },
   template: `
   <div v-if="meta">
@@ -134,9 +136,10 @@ export const Social = {
         <div v-if="p.results" class="post-results small"><span v-for="(r, k) in p.results" :key="k" :class="r.ok ? 'pos' : r.manual ? 'muted' : 'neg'">{{ meta.platforms[k]?.name || k }} : {{ r.ok ? '✓' : r.error }}</span></div>
         <div class="btns" @click.stop>
           <button class="btn sm" @click="copy(p.text)"><Icon name="copy"/> Copier</button>
-          <button v-if="['draft', 'scheduled', 'error'].includes(p.status)" class="btn sm primary" @click="publish(p)"><Icon name="send"/> Publier maintenant</button>
+          <button v-if="['draft', 'scheduled', 'error'].includes(p.status)" class="btn sm primary" @click="publish(p)"><Icon name="send"/> {{ p.status === 'error' ? 'Réessayer' : 'Publier maintenant' }}</button>
+          <button v-if="p.status === 'partial' && p.platforms.some(k => meta.platforms[k].auto && !(p.results && p.results[k] && p.results[k].ok))" class="btn sm primary" @click="publish(p)"><Icon name="send"/> Réessayer</button>
           <template v-if="['manual', 'partial'].includes(p.status)"><a v-for="k in p.platforms.filter(x => !meta.platforms[x].auto)" :key="k" class="btn sm" :href="meta.platforms[k].url" target="_blank" rel="noopener">Ouvrir {{ meta.platforms[k].name }}</a><button class="btn sm" @click="manualDone(p)"><Icon name="check"/> C'est publié</button></template>
-          <button class="btn sm danger" @click="remove(p)">Supprimer</button>
+          <button v-if="canDelete" class="btn sm danger" @click="remove(p)">Supprimer</button>
         </div>
       </div>
       <Empty v-if="!posts.length" icon="📣" text="Aucune publication. Cliquez sur « Nouvelle publication » ou demandez des idées à l'IA."/>
@@ -206,7 +209,7 @@ export const Social = {
         </div>
       </div>
       <template #foot>
-        <button v-if="edit.id" class="btn danger" @click="remove(edit)">Supprimer</button><span style="flex:1"></span>
+        <button v-if="edit.id && canDelete" class="btn danger" @click="remove(edit)">Supprimer</button><span style="flex:1"></span>
         <button class="btn" @click="saveDraft">Brouillon</button>
         <button class="btn" :disabled="!edit.scheduled_at" @click="schedule"><Icon name="calendar-clock"/> Programmer</button>
         <button class="btn primary" @click="publishNow"><Icon name="send"/> Publier maintenant</button>

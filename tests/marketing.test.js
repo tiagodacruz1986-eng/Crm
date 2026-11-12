@@ -74,11 +74,16 @@ test('site : formulaire de contact → opportunité + activité, anti-robots', (
   assert.throws(() => W.submitContact({ name: 'Sans contact' }, '1.1.1.1'), /téléphone ou un e-mail/);
   assert.deepEqual(W.submitContact({ name: 'Robot', phone: '1', website: 'spam' }, '1.1.1.2'), { ok: true });
   assert.equal(db.get("SELECT COUNT(*) n FROM crm_leads WHERE contact_name='Robot'").n, 0);
-  W.submitContact({ name: 'Carla Pereira', phone: '+352 691 123 456', plate: 'zz 42', service: 'Freinage', message: 'Bruit', date: '2026-10-02' }, '1.1.1.3');
+  const wanted = db.localDate(new Date(Date.now() + 20 * 864e5)); // date souhaitée : dans 20 jours
+  W.submitContact({ name: 'Carla Pereira', phone: '+352 691 123 456', plate: 'zz 42', service: 'Freinage', message: 'Bruit', date: wanted }, '1.1.1.3');
   const lead = db.get("SELECT * FROM crm_leads WHERE contact_name='Carla Pereira'");
   assert.equal(lead.source, 'site');
   assert.equal(lead.vehicle_plate, 'ZZ 42');
-  assert.equal(lead.deadline, '2026-10-02');
+  assert.equal(lead.deadline, wanted);
+  // une date impossible ou passée est ignorée (pas d'erreur, pas d'échéance fantaisiste)
+  W.submitContact({ name: 'Date Passée', phone: '1', date: '1999-99-99' }, '1.1.1.4');
+  W.submitContact({ name: 'Date Tableau', phone: '1', date: ['2030-01-01'] }, '1.1.1.4');
+  assert.equal(db.get("SELECT deadline FROM crm_leads WHERE contact_name='Date Passée'").deadline, null);
   assert.ok(db.get("SELECT * FROM activities WHERE model='lead' AND record_id=?", lead.id));
   for (let i = 0; i < 5; i++) W.submitContact({ name: 'X' + i, phone: '1' }, '9.9.9.9');
   assert.throws(() => W.submitContact({ name: 'X6', phone: '1' }, '9.9.9.9'), /Trop de demandes/);
@@ -104,9 +109,15 @@ test('social : validation, publication Facebook (API simulée) et réseaux à la
     assert.equal(calls[0][0], 'https://graph.facebook.com/v21.0/123456789/feed');
     assert.equal(calls[0][1].message, 'Pneus hiver : prenez rendez-vous');
     assert.equal(S.markManualDone(id).status, 'published');
-    // Programmée dans le passé → publiée par le planificateur
-    const id2 = S.savePost({ text: 'Programmée', platforms: ['facebook'], scheduled_at: '2020-01-01T10:00' }, 1);
+    // Une date déjà passée est refusée (elle publierait dans la minute) ; un lien sans https:// est complété
+    assert.throws(() => S.savePost({ text: 'Trop tard', platforms: ['facebook'], scheduled_at: '2020-01-01T10:00' }, 1), /déjà passée/);
+    const future = db.localDateTime(new Date(Date.now() + 3600e3)).slice(0, 16);
+    const id2 = S.savePost({ text: 'Programmée', platforms: ['facebook'], scheduled_at: future, link: 'www.garage.lu/promo' }, 1);
     assert.equal(S.getPost(id2).status, 'scheduled');
+    assert.equal(S.getPost(id2).link, 'https://www.garage.lu/promo');
+    assert.equal(await S.publishDue(''), 0, 'pas encore l\'heure');
+    // L'heure arrive → publiée par le planificateur
+    db.run("UPDATE social_posts SET scheduled_at='2020-01-01T10:00' WHERE id=?", id2);
     assert.equal(await S.publishDue(''), 1);
     assert.equal(S.getPost(id2).status, 'published');
   } finally { globalThis.fetch = realFetch; }

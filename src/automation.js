@@ -3,6 +3,7 @@
 import { db, all, get, run, insert, today, localDate, getSettings } from './db.js';
 import { compose, sendEmail, createActivity, isMailConfigured } from './mail.js';
 import { autoCheckout } from './attendance.js';
+import { BusinessError } from './business.js';
 import { publishDue } from './social.js';
 
 db.exec(`
@@ -13,6 +14,8 @@ CREATE TABLE IF NOT EXISTS followups (
 CREATE TABLE IF NOT EXISTS appointment_reminders (
   appointment_id INTEGER PRIMARY KEY REFERENCES appointments(id) ON DELETE CASCADE, sent_at TEXT DEFAULT CURRENT_TIMESTAMP, status TEXT
 );`);
+// Date du rendez-vous au moment du rappel : un rendez-vous déplacé ensuite est rappelé de nouveau
+if (!all('PRAGMA table_info(appointment_reminders)').some((c) => c.name === 'start')) db.exec('ALTER TABLE appointment_reminders ADD COLUMN start TEXT');
 
 export const OPTION_DEFAULTS = {
   ventes: { quote_validity_days: 30, line_discounts: true, default_note: '' },
@@ -104,22 +107,30 @@ export async function runFollowups({ force = false } = {}) {
 /** Rappel envoyé au client la veille de son rendez-vous. */
 export async function runAppointmentReminders({ force = false } = {}) {
   const o = options().rendez_vous;
-  if ((!o.reminder || !isMailConfigured()) && !force) return { sent: 0 };
+  if (!isMailConfigured()) {
+    // Lancé à la main sans e-mail configuré : on le dit, au lieu de marquer les rappels comme « faits »
+    if (force) throw new BusinessError('L\'envoi d\'e-mails n\'est pas configuré (Paramètres → E-mails) : aucun rappel n\'a été envoyé.');
+    return { sent: 0, failed: 0 };
+  }
+  if (!o.reminder && !force) return { sent: 0, failed: 0 };
   const d = new Date(); d.setDate(d.getDate() + 1);
   const tomorrow = localDate(d);
-  const rows = all(`SELECT a.id, c.email FROM appointments a JOIN customers c ON c.id=a.customer_id
-    WHERE substr(a.start,1,10)=? AND a.status!='cancelled' AND c.email LIKE '%@%' AND a.id NOT IN (SELECT appointment_id FROM appointment_reminders)`, tomorrow);
+  // À rappeler : les rendez-vous de demain pas encore rappelés avec succès pour cette date (un envoi en échec est retenté)
+  const rows = all(`SELECT a.id, a.start, c.email FROM appointments a JOIN customers c ON c.id=a.customer_id
+    WHERE substr(a.start,1,10)=? AND COALESCE(a.status,'')!='cancelled' AND c.email LIKE '%@%'
+      AND NOT EXISTS (SELECT 1 FROM appointment_reminders r WHERE r.appointment_id=a.id AND r.status='sent' AND COALESCE(r.start, a.start)=a.start)`, tomorrow);
   let sent = 0;
+  const errors = [];
   for (const r of rows) {
     let status = 'sent';
     try {
       const m = compose('appointment', r.id, 'appointment_confirm');
       await sendEmail({ model: 'appointment', record_id: r.id, to: r.email, subject: `Rappel : ${m.subject}`, intro: m.intro, include_document: false });
       sent++;
-    } catch (e) { status = 'error: ' + e.message.slice(0, 100); }
-    insert('appointment_reminders', { appointment_id: r.id, status }, ['appointment_id', 'status']);
+    } catch (e) { status = 'error: ' + e.message.slice(0, 100); errors.push(`${r.email} : ${e.message}`); }
+    run('INSERT INTO appointment_reminders(appointment_id, status, start, sent_at) VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(appointment_id) DO UPDATE SET status=excluded.status, start=excluded.start, sent_at=excluded.sent_at', r.id, status, r.start);
   }
-  return { sent };
+  return { sent, failed: errors.length, errors: errors.slice(0, 5) };
 }
 
 // Planificateur : chaque tâche une fois par jour à son heure

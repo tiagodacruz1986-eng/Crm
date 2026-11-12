@@ -23,7 +23,7 @@ export const Crm = {
     const manager = computed(() => can('crm', 'manager'));
 
     const load = async () => {
-      const status = view.value === 'lost' ? 'lost' : view.value === 'list' ? 'all' : 'open';
+      const status = view.value === 'lost' ? 'lost' : view.value === 'list' ? 'all' : 'pipeline'; // tableau : en cours + gagnées récemment
       const params = new URLSearchParams({ status });
       if (q.value.trim()) params.set('q', q.value.trim());
       [leads.value, stats.value] = await Promise.all([GET('/crm/leads?' + params), GET('/crm/stats')]);

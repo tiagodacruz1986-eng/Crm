@@ -79,7 +79,11 @@ export const Attendance = {
       a.download = `presences_${period.from}_${period.to}.csv`;
       a.click();
     };
-    const users = computed(() => report.value.map((r) => ({ id: r.user_id, name: r.name })));
+    // Liste des employés pour « Ajouter un pointage » : toute l'équipe, pas seulement ceux qui ont pointé sur la période
+    // (le gérant sans aucun pointage manquait dans la liste)
+    const staff = ref([]);
+    onMounted(async () => { if (can('presences', 'manager')) staff.value = (await GET('/users').catch(() => [])).filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })); });
+    const users = computed(() => (staff.value.length ? staff.value : report.value.map((r) => ({ id: r.user_id, name: r.name }))));
     return { tab, setTab, me, team, report, entries, period, edit, busy, flash, now, manager, viewer, check, todayLive, progress, setPeriod, totals, newEntry, saveEntry, removeEntry, exportCsv, users, load,
       hours, time, date, store, elapsedSince };
   },

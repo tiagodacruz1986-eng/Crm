@@ -10,6 +10,10 @@ import path from 'node:path';
 const PORT = 3900 + Math.floor(Math.random() * 90);
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-audit-'));
+// Les modules importés directement par ce fichier (calculs, lecture de relevés) travaillent sur une base temporaire à part,
+// jamais sur les données réelles du garage
+const unitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-audit-unit-'));
+process.env.DATA_DIR = unitDir;
 let server, admin;
 
 async function call(method, url, body, tok, headers = {}) {
@@ -44,7 +48,7 @@ before(async () => {
   assert.equal(s.status, 200, out);
   admin = s.data.token;
 });
-after(() => { server.kill(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+after(() => { server.kill(); fs.rmSync(dataDir, { recursive: true, force: true }); fs.rmSync(unitDir, { recursive: true, force: true }); });
 
 test('droits : une majuscule dans l\'adresse ne contourne plus les droits', async () => {
   const zero = await userWith({});
@@ -271,4 +275,73 @@ test('banque : relevés CSV, virement sur deux factures, annulation', async () =
   const bal = (await A('GET', '/accounting/balance?from=2000-01-01&to=2100-01-01')).data;
   const rowsBal = Array.isArray(bal) ? bal : bal.rows || [];
   assert.equal(Math.round(rowsBal.reduce((s, r) => s + r.debit - r.credit, 0) * 100), 0);
+});
+
+test('CRM : colonne « Gagné », étapes, titre vide, devis qui ne fait pas reculer', async () => {
+  const meta = (await A('GET', '/crm/meta')).data;
+  const won = meta.stages.find((x) => x.is_won), nego = meta.stages.find((x) => /N[ée]go/i.test(x.name)), quoteStage = meta.stages.find((x) => /^Devis/i.test(x.name));
+  const id = (await A('POST', '/crm/leads', { name: 'Flotte taxis', contact_name: 'Max', phone: '691 000 111', expected_revenue: 900 })).data.id;
+  // Titre vidé : l'ancien est gardé (il ne devient pas « null »)
+  await A('PUT', `/crm/leads/${id}`, { name: null, phone: '691 000 222' });
+  assert.equal((await A('GET', `/crm/leads/${id}`)).data.name, 'Flotte taxis');
+  // « Nouveau devis » ne fait pas reculer une opportunité déjà en négociation
+  if (nego && quoteStage && nego.sequence > quoteStage.sequence) {
+    await A('POST', `/crm/leads/${id}/move`, { stage_id: nego.id });
+    assert.equal((await A('POST', `/crm/leads/${id}/quote`)).status, 200);
+    assert.equal((await A('GET', `/crm/leads/${id}`)).data.stage_id, nego.id);
+  }
+  // Gagnée : visible dans le tableau (statut « pipeline »), et un simple enregistrement ne la « dé-gagne » pas
+  assert.equal((await A('POST', `/crm/leads/${id}/won`)).data.status, 'won');
+  assert.ok((await A('GET', '/crm/leads?status=pipeline')).data.some((l) => l.id === id));
+  await A('PUT', `/crm/leads/${id}`, { ...(await A('GET', `/crm/leads/${id}`)).data, phone: '691 000 333' });
+  assert.equal((await A('GET', `/crm/leads/${id}`)).data.status, 'won');
+  // Renommer l'étape gagnante ne lui retire pas son rôle
+  assert.equal((await A('PUT', `/crm/stages/${won.id}`, { name: 'Gagné 🏆' })).status, 200);
+  assert.equal((await A('GET', '/crm/meta')).data.stages.find((x) => x.id === won.id).is_won, 1);
+  assert.equal((await A('PUT', `/crm/stages/${won.id}`, { is_won: false })).status, 400, 'il faut garder une étape « Gagné »');
+  // Perdue : date de perte enregistrée ; supprimée : ses activités disparaissent
+  const l2 = (await A('POST', '/crm/leads', { name: 'À supprimer' })).data.id;
+  await A('POST', '/activities', { model: 'lead', record_id: l2, summary: 'Rappeler le prospect', due_date: '2030-01-01' });
+  assert.ok((await A('POST', `/crm/leads/${l2}/lost`, { reason: 'Trop cher' })).data.lost_at);
+  await A('DELETE', `/crm/leads/${l2}`);
+  assert.equal((await A('GET', '/activities')).data.some((a) => a.summary === 'Rappeler le prospect'), false);
+});
+
+test('e-mails : envoi programmé dans le passé refusé, brouillon de facture non envoyé, contenu échappé', async () => {
+  const cust = (await A('POST', '/customers', { name: 'Mail <b>Test</b>', email: 'client@t.lu' })).data.id;
+  const inv = (await A('POST', '/documents', { type: 'invoice', customer_id: cust, lines: [{ kind: 'part', description: '<img src=x onerror=alert(1)>', quantity: 1, unit_price: 10, tax_rate: 17 }] })).data.id;
+  // Facture en brouillon : pas de modèle « Facture null », et pas d'envoi du document sans numéro
+  const c = (await A('GET', `/mail/compose?model=document&id=${inv}`)).data;
+  assert.equal(/null/.test(c.subject + c.intro), false);
+  assert.equal((await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'client@t.lu', subject: 'Facture', intro: 'x', include_document: true })).status, 400);
+  await A('POST', `/documents/${inv}/post`);
+  const html = (await A('POST', '/mail/preview', { model: 'document', record_id: inv, intro: 'Bonjour', include_document: true })).data.html;
+  assert.equal(/<img src=x/.test(html), false, 'le texte des lignes est échappé');
+  // Programmation : heure passée refusée (elle partait tout de suite), heure à venir acceptée puis annulable par un simple utilisateur
+  const past = await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'client@t.lu', subject: 'Facture', intro: 'x', scheduled_at: '2020-01-01T08:00' });
+  assert.equal(past.status, 400);
+  const user = await userWith({ emails: 'user', ventes: 'read' });
+  const later = await call('POST', '/mail/send', { model: 'document', record_id: inv, to: 'client@t.lu', subject: 'Facture', intro: 'x', scheduled_at: '2099-01-01T08:00' }, user.tok);
+  assert.equal(later.data.status, 'scheduled');
+  assert.equal((await call('DELETE', `/mail/${later.data.id}`, undefined, user.tok)).status, 200);
+  // Rédaction par l'IA sans clé : erreur claire, le texte de l'utilisateur n'est pas remplacé
+  assert.equal((await A('POST', '/mail/draft-ai', { intro: 'Mon texte' })).status, 400);
+});
+
+test('IA : les agents ne donnent à chacun que ce qu\'il a le droit de voir', async () => {
+  const AG = await import('../src/agents.js');
+  const chef = { id: 99, name: 'Chef', role: 'office', permissions: JSON.stringify({ ia: 'user', atelier: 'manager' }) };
+  assert.throws(() => AG.runTool('comptabilite', { depuis: '2026-01-01', jusqu_au: '2026-12-31' }, chef), /Accès refusé/);
+  assert.throws(() => AG.runTool('lister_documents', { type: 'invoice' }, chef), /Accès refusé/);
+  assert.doesNotThrow(() => AG.runTool('lister_documents', { type: 'order' }, chef));
+  const d = AG.runTool('tableau_de_bord', {}, chef);
+  assert.equal(d.bank, null);
+  assert.equal(d.salesMonth, null);
+  assert.notEqual(AG.runTool('tableau_de_bord', {}, null).bank, null, 'tâche du gérant : tout est visible');
+  // Chiffres du jour et résumé : réservés selon les droits
+  const u = await userWith({ ia: 'user' });
+  const st = (await call('GET', '/copilot/stats', undefined, u.tok)).data;
+  assert.equal('encaissements' in st || 'factures_emises' in st, false);
+  assert.equal((await call('POST', '/copilot/brief', {}, u.tok)).status, 403);
+  assert.deepEqual((await call('GET', '/copilot', undefined, u.tok)).data.briefs, []);
 });

@@ -6,7 +6,8 @@ import { go } from './router.js';
 export const meta = reactive({ loaded: false, modules: {}, types: {}, users: [], mail: null });
 export async function loadMeta(force) {
   if (meta.loaded && !force) return meta;
-  const [m, users, mail] = await Promise.all([GET('/activities/meta'), GET('/users'), GET('/mail/config')]);
+  // la configuration e-mail n'est qu'un plus : son absence ne doit jamais empêcher d'afficher les activités
+  const [m, users, mail] = await Promise.all([GET('/activities/meta'), GET('/users'), GET('/mail/config').catch(() => ({}))]);
   Object.assign(meta, m, { users: users.filter((u) => u.active), mail, loaded: true });
   return meta;
 }
@@ -21,7 +22,9 @@ export const MailComposer = {
   setup(props, { emit }) {
     const f = reactive({ to: '', cc: '', subject: '', intro: '', include_document: false, template: props.template || '', templates: [] });
     const when = ref('now');
-    const at = ref(`${today()}T08:00`);
+    // envoi programmé : par défaut demain matin (une heure déjà passée serait refusée)
+    const tomorrow = () => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const at = ref(`${tomorrow()}T08:00`);
     const preview = ref('');
     const busy = ref(false);
     const ai = reactive({ open: false, instruction: '', busy: false });
@@ -68,7 +71,7 @@ export const MailComposer = {
       <button class="btn sm" @click="showPreview">👁 Aperçu</button>
     </div>
     <div v-if="ai.open" class="btns"><input v-model="ai.instruction" style="flex:1" placeholder="Ex. : plus court, ton ferme, en allemand, proposer un rendez-vous mardi…" @keydown.enter="draft"><button class="btn primary sm" :disabled="ai.busy" @click="draft">{{ ai.busy ? 'Sophie écrit…' : 'Rédiger' }}</button></div>
-    <iframe v-if="preview" :srcdoc="preview" style="width:100%;height:340px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>
+    <iframe v-if="preview" :srcdoc="preview" sandbox="allow-same-origin" title="Aperçu de l'e-mail" style="width:100%;height:340px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>
     <div class="btns" style="border-top:1px solid var(--line);padding-top:12px">
       <label class="check"><input type="radio" value="now" v-model="when"> Envoyer maintenant</label>
       <label class="check"><input type="radio" value="later" v-model="when"> Programmer l'envoi</label>

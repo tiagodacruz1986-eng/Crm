@@ -26,7 +26,7 @@ export const ConfigPanel = {
       const r = await act(() => POST('/automation/followups'));
       toast(r.done.length ? `${r.done.length} relance(s) : ${r.done.map((d) => d.number + ' (' + d.name + ')').join(', ')}` : 'Aucune facture à relancer aujourd\'hui');
     };
-    const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); };
+    const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); if (r.failed) toast(`⚠ ${r.failed} rappel(s) non envoyé(s) : ${r.errors.join(' · ')}`, 'error'); };
     return { O, A, DAYS, toggleDay, addLevel, bgInput, uploadBg, removeBg, runFollowups, runReminders, s: props.s };
   },
   template: `

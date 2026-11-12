@@ -191,6 +191,19 @@ export function accessGuard(req, res, next) {
   next();
 }
 
+/** Tableau de bord : chaque chiffre n'est montré qu'à ceux qui ont l'application correspondante (écran d'accueil, agents IA). */
+export function maskDashboard(d, u) {
+  if (!u || u.role === 'admin') return d;
+  if (!can(u, 'ventes')) Object.assign(d, { salesMonth: null, salesYear: null, receivable: null, overdue: null, quotesPending: null, monthly: [] });
+  if (!can(u, 'banque')) Object.assign(d, { bank: null, unmatchedBank: null });
+  if (!can(u, 'achats')) d.payable = null;
+  if (!can(u, 'inventaire')) d.lowStock = [];
+  if (!can(u, 'atelier')) Object.assign(d, { ordersOpen: null, appointmentsToday: [] });
+  if (!can(u, 'vehicules')) d.inspectionsSoon = [];
+  if (!can(u, 'presences')) d.present = [];
+  return d;
+}
+
 // ---------- Invitations (partager un accès) ----------
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 export function createInvite(userId, days = 7) {

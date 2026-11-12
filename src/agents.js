@@ -2,6 +2,7 @@
 import { all, get, getSettings, today } from './db.js';
 import { dashboard, vatReport, profitAndLoss, getDocument } from './business.js';
 import { listActivities } from './mail.js';
+import { can, recordApp, maskDashboard, APPS } from './access.js';
 
 export const AGENTS = [
   {
@@ -138,10 +139,24 @@ export const TOOLS = [
   },
 ];
 
-export function runTool(name, input = {}) {
+// Application dont il faut le droit « Lecture » pour utiliser chaque outil : les agents IA ne lisent, pour un utilisateur,
+// que ce qu'il a lui-même le droit de voir (comme les écrans du logiciel).
+const TOOL_APP = { rechercher_clients: 'contacts', stock: 'inventaire', comptabilite: 'comptabilite', atelier_pointage: 'presences', planning: 'atelier', vehicules_a_relancer: 'vehicules' };
+function assertToolAccess(name, input, user) {
+  if (!user || user.role === 'admin') return; // user absent = tâche planifiée du gérant ou du système
+  let app = TOOL_APP[name];
+  if (name === 'lister_documents') app = input.type === 'order' ? 'atelier' : 'ventes';
+  if (name === 'detail_document') app = recordApp('document', input.id);
+  if (app && !can(user, app, 'read')) {
+    throw new Error(`Accès refusé : ${user.name || 'cet utilisateur'} n'a pas le droit « ${APPS.find((a) => a.key === app)?.name || app} ». Explique-lui simplement que tu ne peux pas lui donner cette information et qu'il peut demander l'accès au gérant.`);
+  }
+}
+
+export function runTool(name, input = {}, user = null) {
+  assertToolAccess(name, input, user);
   switch (name) {
     case 'tableau_de_bord':
-      return dashboard();
+      return maskDashboard(dashboard(), user);
     case 'rechercher_clients': {
       const q = `%${input.recherche || ''}%`;
       const cs = all(`SELECT DISTINCT c.* FROM customers c LEFT JOIN vehicles v ON v.customer_id=c.id
@@ -196,7 +211,9 @@ export function runTool(name, input = {}) {
         ORDER BY COALESCE(v.next_inspection, v.next_service_date)`, t, t, input.jours, t, t, input.jours);
     }
     case 'activites':
-      return listActivities({ scope: input.periode === 'all' ? undefined : input.periode }).map((a) => ({ type: a.type, resume: a.summary, note: a.note, echeance: a.due_date, assigne: a.user_name, fiche: a.record?.label, module: a.module }));
+      return listActivities({ scope: input.periode === 'all' ? undefined : input.periode })
+        .map((a) => { const app = user && user.role !== 'admin' ? recordApp(a.model, a.record_id) : null; return app && !can(user, app, 'read') ? { ...a, record: null } : a; })
+        .map((a) => ({ type: a.type, resume: a.summary, note: a.note, echeance: a.due_date, assigne: a.user_name, fiche: a.record?.label, module: a.module }));
     default:
       throw new Error(`Outil inconnu : ${name}`);
   }

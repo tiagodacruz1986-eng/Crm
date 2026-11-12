@@ -59,13 +59,13 @@ export async function runLoop({ system, messages, tools, execTool, webSearch = t
  * Fait travailler un agent sur une conversation. `messages` : [{role, content: string}]
  * Retourne le texte final de la réponse.
  */
-export async function runAgent(agentId, messages, { onStatus } = {}) {
+export async function runAgent(agentId, messages, { onStatus, user = null } = {}) {
   const agent = getAgent(agentId);
   if (!agent) throw new Error('Agent inconnu');
   if (!aiConfigured()) {
     return `⚠️ **Mode démo** — aucune clé API Claude n'est configurée.\n\nPour activer ${agent.name}, ajoutez \`ANTHROPIC_API_KEY=...\` dans le fichier \`.env\` puis redémarrez le logiciel (voir README).`;
   }
-  return runLoop({ system: systemPrompt(agent), messages, tools: TOOLS, execTool: (n, i) => runTool(n, i), onStatus });
+  return runLoop({ system: systemPrompt(agent), messages, tools: TOOLS, execTool: (n, i) => runTool(n, i, user), onStatus });
 }
 
 export const claudeClient = getClient;
@@ -80,7 +80,7 @@ export function friendlyError(e) {
 }
 
 // Conversation persistante avec un agent (rangée dans l'historique)
-export async function chat(agentId, userText, conversationId = null) {
+export async function chat(agentId, userText, conversationId = null, user = null) {
   if (!getAgent(agentId)) throw new Error('Agent inconnu');
   const cid = ensureConversation(agentId, conversationId, userText);
   addMessage(cid, agentId, 'user', userText);
@@ -88,7 +88,7 @@ export async function chat(agentId, userText, conversationId = null) {
   while (history.length && history[0].role !== 'user') history.shift();
   let reply;
   try {
-    reply = await runAgent(agentId, history);
+    reply = await runAgent(agentId, history, { user });
   } catch (e) {
     reply = `❌ ${friendlyError(e)}`;
   }
@@ -97,18 +97,18 @@ export async function chat(agentId, userText, conversationId = null) {
 }
 
 // Réunion : tous les agents répondent, puis le CIO fait la synthèse
-export async function meeting(question) {
+export async function meeting(question, user = null) {
   const others = AGENTS.filter((a) => a.id !== 'cio');
   const answers = await Promise.all(others.map(async (a) => {
     try {
-      return { agent: a, text: await runAgent(a.id, [{ role: 'user', content: `Réunion d'équipe — question du gérant : ${question}\n\nDonne ton point de vue d'expert en 10 lignes maximum.` }]) };
+      return { agent: a, text: await runAgent(a.id, [{ role: 'user', content: `Réunion d'équipe — question du gérant : ${question}\n\nDonne ton point de vue d'expert en 10 lignes maximum.` }], { user }) };
     } catch (e) {
       return { agent: a, text: `❌ ${friendlyError(e)}` };
     }
   }));
   const summaryPrompt = `Réunion d'équipe — question du gérant : ${question}\n\nAvis de l'équipe :\n\n${answers.map((r) => `### ${r.agent.name} (${r.agent.role})\n${r.text}`).join('\n\n')}\n\nFais la synthèse en tant que CIO : décisions recommandées, plan d'action priorisé (qui fait quoi, quand) et points de vigilance.`;
   let synthesis;
-  try { synthesis = await runAgent('cio', [{ role: 'user', content: summaryPrompt }]); } catch (e) { synthesis = `❌ ${friendlyError(e)}`; }
+  try { synthesis = await runAgent('cio', [{ role: 'user', content: summaryPrompt }], { user }); } catch (e) { synthesis = `❌ ${friendlyError(e)}`; }
   const content = `## Réunion : ${question}\n\n${answers.map((r) => `### ${r.agent.emoji} ${r.agent.name} — ${r.agent.role}\n${r.text}`).join('\n\n')}\n\n---\n\n## 🚀 Synthèse d'Alex (CIO)\n${synthesis}`;
   insert('agent_results', { agent_id: 'cio', title: `Réunion : ${question.slice(0, 80)}`, content }, ['agent_id', 'title', 'content']);
   return { answers: answers.map((r) => ({ agent_id: r.agent.id, text: r.text })), synthesis, content };

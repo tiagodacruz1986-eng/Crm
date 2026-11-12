@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
-import { dataDir, getSettings, setSetting, all, get } from './db.js';
+import { dataDir, getSettings, setSetting, all, get, isDate, today } from './db.js';
 import { aiConfigured, claudeClient, CLAUDE_MODEL } from './claude.js';
 import { saveLead, SOURCES } from './crm.js';
 import { createActivity } from './mail.js';
@@ -114,7 +114,8 @@ const GEN_SCHEMA = {
 export async function generateWebsite({ notes = '', tone = 'chaleureux et professionnel' } = {}) {
   const s = getSettings();
   const cfg = websiteConfig();
-  if (!aiConfigured()) return { ai: false, config: saveWebsite({ ...cfg, blocks: defaultBlocks() }) };
+  // Sans clé API, rien n'est modifié (auparavant, le site entier était remplacé par le modèle de départ)
+  if (!aiConfigured()) return { ai: false, config: cfg };
   const services = all("SELECT name, sale_price FROM products WHERE active=1 AND (is_service=1 OR labor_hours>0) ORDER BY name LIMIT 25");
   const resp = await claudeClient().messages.parse({
     model: CLAUDE_MODEL, max_tokens: 16000,
@@ -147,6 +148,8 @@ export function submitContact(body, ip) {
   if (!websiteConfig().published) throw Object.assign(new Error('Site non publié'), { status: 404 });
   if (body.website) return { ok: true }; // champ piège anti-robots
   const now = Date.now();
+  // (les adresses qui n'ont plus rien envoyé depuis 10 minutes sont oubliées, pour ne pas grossir sans fin)
+  if (hits.size > 500) for (const [k, v] of hits) if (!v.some((t) => now - t < 600_000)) hits.delete(k);
   const list = (hits.get(ip) || []).filter((t) => now - t < 600_000);
   if (list.length >= 5) throw Object.assign(new Error('Trop de demandes, réessayez plus tard ou appelez-nous.'), { status: 429 });
   hits.set(ip, [...list, now]);
@@ -155,7 +158,8 @@ export function submitContact(body, ip) {
   const email = str(body.email, 120).trim();
   if (!name || (!phone && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) throw Object.assign(new Error('Indiquez votre nom et un téléphone ou un e-mail valide.'), { status: 400 });
   const service = str(body.service, 80);
-  const wanted = /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : '';
+  // date souhaitée : une vraie date, pas dans le passé (sinon elle est simplement ignorée)
+  const wanted = isDate(body.date) && body.date >= today() ? body.date : '';
   const id = saveLead({
     name: `${service || 'Demande'} — ${name}`, contact_name: name, phone, email: email || null, vehicle_plate: str(body.plate, 15).toUpperCase() || null,
     service: service || null, description: [str(body.message, 2000), wanted ? `Date souhaitée : ${wanted.split('-').reverse().join('/')}` : ''].filter(Boolean).join('\n'),
@@ -163,7 +167,7 @@ export function submitContact(body, ip) {
   });
   const admin = get("SELECT id FROM users WHERE role='admin' AND active=1 ORDER BY id LIMIT 1");
   if (admin) {
-    createActivity({ model: 'lead', record_id: id, module: 'crm', type: 'call', summary: `Rappeler ${name} (demande du site web${service ? ' : ' + service : ''})`, due_date: new Date().toISOString().slice(0, 10), user_id: admin.id }, admin.id);
+    createActivity({ model: 'lead', record_id: id, module: 'crm', type: 'call', summary: `Rappeler ${name} (demande du site web${service ? ' : ' + service : ''})`, due_date: today(), user_id: admin.id }, admin.id);
   }
   return { ok: true };
 }
@@ -174,9 +178,9 @@ function block(b, ctx) {
   const title = b.title ? `<h2>${esc(b.title)}</h2>` : '';
   switch (b.type) {
     case 'hero': return `<section class="hero"${b.image ? ` style="--img:url('${esc(b.image)}')"` : ''}><div class="wrap"><h1>${esc(b.title)}</h1><p>${nl2br(b.subtitle)}</p>
-      <div class="cta"><a class="btn" href="#contact">${esc(b.cta_label || 'Prendre rendez-vous')}</a>${c.phone ? `<a class="btn ghost" href="tel:${esc(c.phone.replace(/\s/g, ''))}">📞 ${esc(c.phone)}</a>` : ''}</div></div></section>`;
+      <div class="cta">${ctx.contact ? `<a class="btn" href="${ctx.contact}">${esc(b.cta_label || 'Prendre rendez-vous')}</a>` : ''}${c.phone ? `<a class="btn ghost" href="tel:${esc(c.phone.replace(/\s/g, ''))}">📞 ${esc(c.phone)}</a>` : ''}</div></div></section>`;
     case 'services': return `<section class="wrap"><div class="head">${title}</div><div class="grid">${(b.items || []).map((i) => `<article class="card"><div class="ico">${esc(i.icon)}</div><h3>${esc(i.name)}</h3><p>${esc(i.text)}</p>${i.price ? `<b class="price">${esc(i.price)}</b>` : ''}</article>`).join('')}</div></section>`;
-    case 'promo': return `<section class="wrap"><div class="promo">${b.badge ? `<span class="badge">${esc(b.badge)}</span>` : ''}<h2>${esc(b.title)}</h2><p>${nl2br(b.text)}</p><a class="btn" href="#contact">J'en profite</a></div></section>`;
+    case 'promo': return `<section class="wrap"><div class="promo">${b.badge ? `<span class="badge">${esc(b.badge)}</span>` : ''}<h2>${esc(b.title)}</h2><p>${nl2br(b.text)}</p>${ctx.contact ? `<a class="btn" href="${ctx.contact}">J'en profite</a>` : ''}</div></section>`;
     case 'about': return `<section class="wrap about${b.image ? ' with-img' : ''}"><div>${title}<p>${nl2br(b.text)}</p></div>${b.image ? `<img src="${esc(b.image)}" alt="" loading="lazy">` : ''}</section>`;
     case 'reviews': return `<section class="wrap"><div class="head">${title}</div><div class="grid">${(b.items || []).map((i) => `<blockquote class="card"><div class="stars">${'★'.repeat(i.stars)}${'☆'.repeat(5 - i.stars)}</div><p>« ${esc(i.text)} »</p><cite>${esc(i.name)}</cite></blockquote>`).join('')}</div></section>`;
     case 'gallery': return (b.images || []).length ? `<section class="wrap"><div class="head">${title}</div><div class="gallery">${b.images.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join('')}</div></section>` : '';
@@ -209,7 +213,9 @@ export function renderSite({ preview = false } = {}) {
   const services = (blocks.find((b) => b.type === 'services')?.items || []).map((i) => i.name).filter(Boolean);
   const logo = s.layout?.logo_version ? `/logo?v=${s.layout.logo_version}` : null;
   const light = w.theme === 'light';
-  const body = blocks.map((b) => block(b, { c, s, services })).join('\n')
+  // Boutons « Rendez-vous » : vers le formulaire s'il est affiché, sinon vers le téléphone ou l'e-mail du garage
+  const contact = blocks.some((b) => b.type === 'contact') ? '#contact' : c.phone ? `tel:${esc(c.phone.replace(/\s/g, ''))}` : c.email ? `mailto:${esc(c.email)}` : null;
+  const body = blocks.map((b) => block(b, { c, s, services, contact })).join('\n')
     .replace(preview ? ' onsubmit="return sendForm(event)"' : '\u0000', ''); // pas de script dans l'aperçu
   const title = w.seo_title || `${c.name} — garage ${c.city || ''}`.trim();
   const ld = { '@context': 'https://schema.org', '@type': 'AutoRepair', name: c.name, telephone: c.phone || undefined, email: c.email || undefined,
@@ -248,7 +254,7 @@ details summary{cursor:pointer;font-weight:650}details p{margin-top:10px!importa
 @media(max-width:700px){.row,.about.with-img{grid-template-columns:1fr}.wrap{padding:40px 16px}.hero .wrap{padding:70px 16px}.promo{padding:26px}}
 </style></head><body>
 ${preview && !w.published ? '<div class="preview-bar">Aperçu — le site n\'est pas encore publié</div>' : ''}
-<header><div class="in">${logo ? `<img src="${logo}" alt="${esc(c.name)}">` : `<b>${esc(c.name)}</b>`}<a class="btn" href="#contact">Rendez-vous</a></div></header>
+<header><div class="in">${logo ? `<img src="${logo}" alt="${esc(c.name)}">` : `<b>${esc(c.name)}</b>`}${contact ? `<a class="btn" href="${contact}">Rendez-vous</a>` : ''}</div></header>
 <main>${body}</main>
 <footer>© ${new Date().getFullYear()} ${esc(c.name)}${c.vat_number && c.vat_number !== 'LU' ? ` · TVA ${esc(c.vat_number)}` : ''}${c.rcs ? ` · RCS ${esc(c.rcs)}` : ''}</footer>
 ${preview ? '' : `<script>

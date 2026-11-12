@@ -248,7 +248,7 @@ export const Office = {
     const openResult = async (r, e) => {
       if (e.target.open && !r.read) { await POST(`/agent-results/${r.id}/read`); r.read = 1; loadAgents(); }
     };
-    const deleteResult = async (r) => { await DEL('/agent-results/' + r.id); loadTasks(); };
+    const deleteResult = async (r) => { await act(() => DEL('/agent-results/' + r.id), 'Rapport supprimé'); loadTasks(); };
     const describe = (t) => {
       if (t.schedule_type === 'once') return `Une fois — ${datetime(t.run_at || t.next_run)}`;
       const base = { daily: 'Chaque jour', weekdays: 'Lun-ven', weekly: `Chaque ${DAYS[t.schedule_day]?.toLowerCase()}`, monthly: `Le ${t.schedule_day} du mois` }[t.schedule_type];

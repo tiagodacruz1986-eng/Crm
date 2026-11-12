@@ -1,7 +1,9 @@
 // Programmation des tâches des agents (une fois, chaque jour, chaque semaine, chaque mois).
-import { all, run, insert, localDateTime } from './db.js';
+import { db, all, get, run, insert, localDateTime } from './db.js';
 import { runAgent, friendlyError } from './claude.js';
 import { getAgent } from './agents.js';
+
+if (!all('PRAGMA table_info(agent_tasks)').some((c) => c.name === 'created_by')) db.exec('ALTER TABLE agent_tasks ADD COLUMN created_by INTEGER');
 
 export const running = new Set(); // agents en train de travailler (affiché dans le bureau 3D)
 
@@ -38,10 +40,12 @@ export async function executeTask(task) {
   run("UPDATE agent_tasks SET last_status='running' WHERE id=?", task.id);
   let content, status = 'ok';
   try {
+    // La tâche s'exécute avec les droits de la personne qui l'a créée (une ancienne tâche sans créateur : ceux du gérant)
+    const user = task.created_by ? get('SELECT id, name, role, permissions FROM users WHERE id=? AND active=1', task.created_by) || { id: 0, name: 'Utilisateur supprimé', role: 'office', permissions: '{}' } : null;
     content = await runAgent(task.agent_id, [{
       role: 'user',
       content: `Tâche programmée « ${task.title} » (exécution du ${new Date().toLocaleString('fr-LU')}).\n\n${task.prompt}\n\nProduis un rapport directement exploitable par le gérant.`,
-    }]);
+    }], { user });
   } catch (e) {
     content = `❌ ${friendlyError(e)}`;
     status = 'error';
@@ -71,7 +75,9 @@ export function startScheduler() {
   setTimeout(tick, 3_000);
   // Une tâche restée "running" (serveur arrêté) repart normalement
   for (const t of all("SELECT * FROM agent_tasks WHERE active=1 AND next_run IS NULL")) {
-    run('UPDATE agent_tasks SET next_run=? WHERE id=?', computeNextRun({ ...t, last_run: t.schedule_type === 'once' ? null : t.last_run }), t.id);
+    // une tâche « une seule fois » déjà exécutée ne repart pas toute seule au redémarrage
+    if (t.schedule_type === 'once' && t.last_run) run('UPDATE agent_tasks SET active=0 WHERE id=?', t.id);
+    else run('UPDATE agent_tasks SET next_run=? WHERE id=?', computeNextRun(t), t.id);
   }
 }
 

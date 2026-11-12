@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { db, all, get, run, insert, getSettings, round2, localDateTime, today } from './db.js';
-import { BusinessError, refreshTotals } from './business.js';
+import { BusinessError, refreshTotals, touchDocument } from './business.js';
 import { logMessage, createActivity } from './mail.js';
 
 const UPLOAD_DIR = path.join(process.env.DATA_DIR || path.resolve('data'), 'uploads');
@@ -57,13 +57,15 @@ export function setStage(docId, stage, by = 'Garage') {
   if (stageIndex(stage) < 0) throw new BusinessError('Étape inconnue');
   const d = get("SELECT id, stage, status FROM documents WHERE id=? AND type='order'", docId);
   if (!d) throw new BusinessError('OR introuvable', 404);
+  if (CLOSED.includes(d.status)) throw new BusinessError('Cet ordre de réparation est clôturé : son suivi ne peut plus être modifié.');
   if (d.stage === stage) return;
   run('UPDATE documents SET stage=? WHERE id=?', stage, docId);
-  // Le statut de l'atelier suit l'étape
-  if (d.status !== 'invoiced') {
-    const status = { parts: 'waiting_parts', repair: 'in_progress', quality: 'in_progress', ready: 'done' }[stage];
-    if (status) run('UPDATE documents SET status=? WHERE id=?', status, docId);
-  }
+  // Le statut de l'atelier suit l'étape (y compris en arrière : un OR « prêt » remis en réparation n'est plus « Terminé »)
+  const status = { parts: 'waiting_parts', repair: 'in_progress', quality: 'in_progress', ready: 'done' }[stage] || (d.status === 'done' ? 'in_progress' : null);
+  if (status && status !== d.status) run('UPDATE documents SET status=? WHERE id=?', status, docId);
+  // Véhicule prêt : les chronos de travail encore ouverts sur cet OR s'arrêtent
+  if (stage === 'ready') run("UPDATE time_entries SET end=? WHERE document_id=? AND kind='work' AND end IS NULL", localDateTime(), docId);
+  touchDocument(docId);
   const s = STAGES[stageIndex(stage)];
   insert('order_posts', { document_id: docId, author_role: 'system', author_name: by, body: `${s.icon} Étape : ${s.label}`, kind: 'stage' }, ['document_id', 'author_role', 'author_name', 'body', 'kind']);
   logMessage('document', docId, `${s.icon} Étape du suivi client : ${s.label} (${by})`, null, 'system');
@@ -72,10 +74,15 @@ export function setStage(docId, stage, by = 'Garage') {
 // Quand le statut change depuis l'atelier (Kanban, kiosque), la jauge avance si besoin
 export function stageFromStatus(docId, status) {
   const target = { waiting_parts: 'parts', done: 'ready' }[status];
-  const d = get('SELECT stage FROM documents WHERE id=?', docId);
-  if (target && d && stageIndex(target) > stageIndex(d.stage || 'received')) setStage(docId, target, 'Atelier');
-  else publish(docId);
+  const d = get('SELECT stage, status FROM documents WHERE id=?', docId);
+  if (d && !CLOSED.includes(d.status)) {
+    if (target && stageIndex(target) > stageIndex(d.stage || 'received')) return setStage(docId, target, 'Atelier');
+    // OR rouvert après « Prêt à récupérer » : le client ne doit plus voir « prêt »
+    if (d.stage === 'ready' && ['open', 'in_progress', 'waiting_parts'].includes(status)) return setStage(docId, status === 'waiting_parts' ? 'parts' : 'repair', 'Atelier');
+  }
+  publish(docId);
 }
+const CLOSED = ['invoiced', 'cancelled'];
 
 // ---------- Liens ----------
 export function getLinks(docId) {
@@ -123,6 +130,7 @@ export function addPost(docId, { role, name, body, isPublic = true, kind = 'mess
   if (kind === 'approval' && !(Number(amount) > 0)) throw new BusinessError('Indiquez le montant TTC des travaux proposés');
   const d = get("SELECT id, status FROM documents WHERE id=? AND type='order'", docId);
   if (!d) throw new BusinessError('OR introuvable', 404);
+  if (kind === 'approval' && CLOSED.includes(d.status)) throw new BusinessError('Cet ordre de réparation est clôturé : créez un nouvel OR pour des travaux supplémentaires.');
   const id = insert('order_posts', {
     document_id: docId, author_role: role, author_name: name, body: body?.trim() || null, public: role === 'customer' || kind === 'approval' ? 1 : isPublic ? 1 : 0,
     kind, amount: kind === 'approval' ? round2(amount) : null, media_file: file?.file, media_type: file?.type, media_name: file?.name,
@@ -145,23 +153,34 @@ export function answerApproval(docId, postId, answer) {
   if (p.answer) throw new BusinessError('Vous avez déjà répondu à cette demande');
   run('UPDATE order_posts SET answer=?, answered_at=? WHERE id=?', answer, localDateTime(), postId);
   const ok = answer === 'accepted';
-  if (ok) {
+  // OR déjà facturé ou annulé : la réponse est enregistrée, mais rien n'est ajouté à un OR clôturé (le garage est prévenu)
+  const closed = CLOSED.includes(get('SELECT status FROM documents WHERE id=?', docId)?.status);
+  if (ok && !closed) {
     // Les travaux acceptés sont ajoutés automatiquement à l'OR
     const tax = getSettings().workshop.default_tax;
     const seq = get('SELECT COALESCE(MAX(sequence),0)+1 AS n FROM document_lines WHERE document_id=?', docId).n;
     insert('document_lines', { document_id: docId, sequence: seq, kind: 'fee', description: `Accepté par le client : ${p.body}`, quantity: 1, unit_price: round2(p.amount / (1 + tax / 100)), tax_rate: tax, total_ht: round2(p.amount / (1 + tax / 100)) },
       ['document_id', 'sequence', 'kind', 'description', 'quantity', 'unit_price', 'tax_rate', 'total_ht']);
     refreshTotals(docId);
+    touchDocument(docId);
   }
   insert('order_posts', { document_id: docId, author_role: 'customer', author_name: 'Client', body: `${ok ? '✅ J\'accepte' : '❌ Je refuse'} : ${p.body} (${p.amount.toFixed(2)} € TTC)`, kind: 'answer' }, ['document_id', 'author_role', 'author_name', 'body', 'kind']);
-  logMessage('document', docId, `${ok ? '✅ Le client a ACCEPTÉ' : '❌ Le client a REFUSÉ'} : ${p.body} (${p.amount.toFixed(2)} € TTC)${ok ? ' — ligne ajoutée à l\'OR' : ''}`, null, 'system');
+  logMessage('document', docId, `${ok ? '✅ Le client a ACCEPTÉ' : '❌ Le client a REFUSÉ'} : ${p.body} (${p.amount.toFixed(2)} € TTC)${ok ? (closed ? ' — OR déjà clôturé : travaux à facturer à part' : ' — ligne ajoutée à l\'OR') : ''}`, null, 'system');
   const admin = get("SELECT id FROM users WHERE role='admin' AND active=1 ORDER BY id LIMIT 1");
-  if (admin) createActivity({ model: 'document', record_id: docId, type: 'todo', summary: `Client ${ok ? 'a accepté' : 'a refusé'} : ${p.body}`, due_date: today() }, admin.id);
+  if (admin) createActivity({ model: 'document', record_id: docId, type: 'todo', summary: `Client ${ok ? 'a accepté' : 'a refusé'} : ${p.body}${ok && closed ? ' (OR déjà clôturé : à facturer à part)' : ''}`, due_date: today() }, admin.id);
   publish(docId);
 }
 
 // ---------- Fichiers ----------
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp' };
+// En-tête encodé par le navigateur (nom de fichier, légende) ; une valeur mal encodée ne doit pas provoquer d'erreur
+const header = (req, name, fallback = '') => { try { return decodeURIComponent(req.headers[name] || '') || fallback; } catch { return fallback; } };
+const MB = 1024 * 1024;
+const ORDER_QUOTA = 2000 * MB; // photos et vidéos d'un même OR
+function folderSize(docId) {
+  const dir = path.join(UPLOAD_DIR, String(docId));
+  try { return fs.readdirSync(dir).reduce((s, f) => s + fs.statSync(path.join(dir, f)).size, 0); } catch { return 0; }
+}
 function saveUpload(docId, req) {
   const mime = (req.headers['content-type'] || '').split(';')[0].toLowerCase();
   const ext = EXT[mime];
@@ -171,7 +190,7 @@ function saveUpload(docId, req) {
   fs.mkdirSync(dir, { recursive: true });
   const file = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
   fs.writeFileSync(path.join(dir, file), req.body);
-  return { file: `${docId}/${file}`, type: mime.startsWith('video') ? 'video' : 'image', name: decodeURIComponent(req.headers['x-filename'] || file).slice(0, 120) };
+  return { file: `${docId}/${file}`, type: mime.startsWith('video') ? 'video' : 'image', name: header(req, 'x-filename', file).slice(0, 120) };
 }
 function sendMedia(res, docId, postId, role) {
   const p = get(`SELECT media_file FROM order_posts WHERE id=? AND document_id=? ${role === 'customer' ? 'AND public=1' : ''}`, postId, docId);
@@ -184,6 +203,7 @@ function sendMedia(res, docId, postId, role) {
 // ---------- Routes ----------
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).then((r) => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
 const raw = express.raw({ type: () => true, limit: '300mb' });
+const rawCustomer = express.raw({ type: () => true, limit: '60mb' });
 
 export function mountLive(app, api) {
   // Accès public par lien (mécanicien ou client)
@@ -194,33 +214,53 @@ export function mountLive(app, api) {
     run('UPDATE order_links SET last_seen=? WHERE token=?', localDateTime(), l.token);
     return l;
   };
+  // Écrire par un lien public (message, photo, étape) n'est plus possible une fois l'OR annulé, ou facturé depuis plus de 30 jours
+  const writable = (req) => {
+    const l = byToken(req);
+    const d = get('SELECT status, updated_at FROM documents WHERE id=?', l.document_id);
+    const old = d?.updated_at && Date.now() - new Date(d.updated_at.includes('T') ? d.updated_at : d.updated_at.replace(' ', 'T') + 'Z').getTime() > 30 * 864e5;
+    if (!d || d.status === 'cancelled' || (d.status === 'invoiced' && old)) throw new BusinessError('Ce dossier est clôturé. Pour toute question, contactez directement le garage.', 403);
+    return l;
+  };
+  // Dépôt de fichier : le lien, la taille annoncée et la place restante sont vérifiés AVANT de lire le fichier
+  const uploadGuard = (req, res, next) => {
+    try {
+      const l = writable(req);
+      const max = l.role === 'customer' ? 60 : 300;
+      if (Number(req.headers['content-length'] || 0) > max * MB) throw new BusinessError(`Fichier trop volumineux (${max} Mo maximum)`, 413);
+      if (folderSize(l.document_id) > ORDER_QUOTA) throw new BusinessError('Ce dossier contient déjà beaucoup de photos et de vidéos : contactez le garage.', 413);
+      req.link = l;
+      (l.role === 'customer' ? rawCustomer : raw)(req, res, next);
+    } catch (e) { next(e); }
+  };
   pub.get('/:token', wrap((req) => { const l = byToken(req); return feed(l.document_id, l.role); }));
   pub.get('/:token/events', (req, res, next) => { try { subscribe(byToken(req).document_id, res); } catch (e) { next(e); } });
   pub.get('/:token/media/:post', (req, res, next) => { try { const l = byToken(req); sendMedia(res, l.document_id, Number(req.params.post), l.role); } catch (e) { next(e); } });
-  pub.post('/:token/posts', express.json(), wrap((req) => {
-    const l = byToken(req);
+  pub.post('/:token/posts', wrap((req) => {
+    const l = writable(req);
     const name = l.role === 'customer' ? 'Client' : req.body.name || 'Mécanicien';
     return { id: addPost(l.document_id, { role: l.role, name, body: req.body.body, isPublic: req.body.public !== false, kind: l.role === 'mechanic' && req.body.kind === 'approval' ? 'approval' : 'message', amount: req.body.amount }) };
   }));
-  pub.post('/:token/upload', raw, wrap((req) => {
-    const l = byToken(req);
+  pub.post('/:token/upload', uploadGuard, wrap((req) => {
+    const l = req.link;
     const file = saveUpload(l.document_id, req);
-    return { id: addPost(l.document_id, { role: l.role, name: l.role === 'customer' ? 'Client' : decodeURIComponent(req.headers['x-author'] || 'Mécanicien'), body: decodeURIComponent(req.headers['x-caption'] || ''), isPublic: req.headers['x-public'] !== '0', file }) };
+    return { id: addPost(l.document_id, { role: l.role, name: l.role === 'customer' ? 'Client' : header(req, 'x-author', 'Mécanicien'), body: header(req, 'x-caption'), isPublic: req.headers['x-public'] !== '0', file }) };
   }));
-  pub.post('/:token/stage', express.json(), wrap((req) => {
-    const l = byToken(req);
+  pub.post('/:token/stage', wrap((req) => {
+    const l = writable(req);
     if (l.role !== 'mechanic') throw new BusinessError('Accès refusé', 403);
     setStage(l.document_id, req.body.stage, req.body.name || 'Mécanicien');
     return { ok: true };
   }));
-  pub.post('/:token/lines/:line', express.json(), wrap((req) => {
-    const l = byToken(req);
+  pub.post('/:token/lines/:line', wrap((req) => {
+    const l = writable(req);
     if (l.role !== 'mechanic') throw new BusinessError('Accès refusé', 403);
     run('UPDATE document_lines SET done=? WHERE id=? AND document_id=?', req.body.done ? 1 : 0, req.params.line, l.document_id);
+    touchDocument(l.document_id);
     publish(l.document_id);
     return { ok: true };
   }));
-  pub.post('/:token/posts/:post/answer', express.json(), wrap((req) => {
+  pub.post('/:token/posts/:post/answer', wrap((req) => {
     const l = byToken(req);
     if (l.role !== 'customer') throw new BusinessError('Seul le client peut répondre', 403);
     answerApproval(l.document_id, Number(req.params.post), req.body.answer);
@@ -242,6 +282,7 @@ export function mountLive(app, api) {
   api.post('/live/:id/posts', wrap((req) => ({ id: addPost(Number(req.params.id), { role: 'office', name: req.user.name, body: req.body.body, isPublic: req.body.public !== false, kind: req.body.kind === 'approval' ? 'approval' : 'message', amount: req.body.amount }) })));
   api.post('/live/:id/upload', raw, wrap((req) => {
     const id = Number(req.params.id);
-    return { id: addPost(id, { role: 'office', name: req.user.name, body: decodeURIComponent(req.headers['x-caption'] || ''), isPublic: req.headers['x-public'] !== '0', file: saveUpload(id, req) }) };
+    if (!get("SELECT 1 FROM documents WHERE id=? AND type='order'", id)) throw new BusinessError('OR introuvable', 404);
+    return { id: addPost(id, { role: 'office', name: req.user.name, body: header(req, 'x-caption'), isPublic: req.headers['x-public'] !== '0', file: saveUpload(id, req) }) };
   }));
 }
