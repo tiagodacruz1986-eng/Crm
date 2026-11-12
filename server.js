@@ -29,8 +29,8 @@ import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePubli
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
-import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, createInvite, findInvite, clearInvite } from './src/access.js';
-import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance } from './src/attendance.js';
+import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, createInvite, findInvite, clearInvite } from './src/access.js';
+import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
@@ -39,6 +39,8 @@ import { listConversations, conversationMessages, getConversation, updateConvers
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
 const app = express();
+// Adresses sensibles à la casse : /api/Customers n'existe pas (sinon les droits d'accès, comparés en minuscules, seraient contournables)
+app.set('case sensitive routing', true);
 // Confiance uniquement dans un proxy local (Caddy dans Docker, Tailscale serve…) : l'adresse IP réelle et le https viennent de lui
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 // Formulaires publics (connexion, kiosque) : petits messages seulement ; le reste accepte les photos et pièces jointes
@@ -136,7 +138,7 @@ app.get('/logo', (req, res) => {
 });
 app.use(express.static(path.resolve('public')));
 
-const api = express.Router();
+const api = express.Router({ caseSensitive: true });
 app.use('/api', api);
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).then((r) => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
 const staff = requireAuth(['admin', 'office']);
@@ -266,7 +268,7 @@ api.get('/kiosk/users', (req, res) => {
   const cfg = attendanceConfig();
   res.json({
     company: getSettings().company.name, logo: getSettings().layout?.logo_version ? `/logo?v=${getSettings().layout.logo_version}` : null,
-    pin: cfg.kiosk_pin || !isLocalRequest(req), badge: cfg.kiosk_badge,
+    pin: cfg.kiosk_pin || !isLocalRequest(req), badge: cfg.kiosk_badge && isLocalRequest(req),
     users: all(`SELECT u.id, u.name, u.color, u.role, u.job_title,
       (SELECT start FROM time_entries t WHERE t.user_id=u.id AND t.kind='presence' AND t.end IS NULL LIMIT 1) AS since
       FROM users u WHERE u.active=1 AND (u.pin_hash IS NOT NULL OR u.role='mechanic') ORDER BY u.name`),
@@ -274,8 +276,9 @@ api.get('/kiosk/users', (req, res) => {
 });
 // Tentatives de PIN limitées (anti-devinette) : 5 essais par personne et par 5 minutes
 const pinTries = new Map();
-function checkPin(u, pin) {
-  const k = u.id;
+// (compteur séparé pour le réseau du garage : des essais venus d'internet ne bloquent jamais la tablette de l'atelier)
+function checkPin(u, pin, origin = 'lan') {
+  const k = `${u.id}:${origin}`;
   const now = Date.now();
   const e = pinTries.get(k) || { n: 0, t: now };
   if (now - e.t > 300_000) { e.n = 0; e.t = now; }
@@ -292,13 +295,15 @@ api.post('/kiosk/login', wrap((req) => {
     if (!u.pin_hash) throw new BusinessError(local ? 'Aucun code PIN : le gérant doit en créer un dans Paramètres → Utilisateurs' : 'Hors du réseau du garage, un code PIN est obligatoire : le gérant doit en créer un dans Paramètres → Utilisateurs', 401);
     // Depuis internet : en plus de la limite par personne, 10 codes faux max. par adresse et par quart d'heure
     if (!local) guard([`kiosk:${req.ip}`]);
-    try { checkPin(u, req.body.pin); } catch (e) { if (!local && e.status === 401) failed([`kiosk:${req.ip}`]); throw e; }
+    try { checkPin(u, req.body.pin, local ? 'lan' : req.ip); } catch (e) { if (!local && e.status === 401) failed([`kiosk:${req.ip}`]); throw e; }
   }
   return { token: createSession(u.id, 'kiosk'), user: { id: u.id, name: u.name, color: u.color, role: u.role } };
 }));
 // Badge (lecteur de code-barres / carte) : arrivée ou départ direct, comme Odoo
 api.post('/kiosk/badge', wrap((req) => {
   if (!attendanceConfig().kiosk_badge) throw new BusinessError('Badges désactivés', 403);
+  // Le badge remplace le code PIN : il n'est accepté que sur le réseau du garage
+  if (!isLocalRequest(req)) throw new BusinessError('Le badge ne fonctionne que sur le réseau du garage', 403);
   const badge = String(req.body.badge || '').trim();
   guard([`badge:${req.ip}`], 20);
   const u = badge.length >= 3 ? get('SELECT id FROM users WHERE badge=? AND active=1', badge) : null;
@@ -321,7 +326,14 @@ function kioskState(userId) {
   const todayHours = round2(all("SELECT * FROM time_entries WHERE user_id=? AND kind='work' AND start>=?", userId, dayStart).reduce((s, t) => s + durationHours(t), 0));
   return { presence, work, orders, todayHours };
 }
-const fullKioskState = (u) => ({ ...kioskState(u.id), attendance: statusOf(u.id), show_orders: u.role === 'mechanic' || attendanceConfig().kiosk_show_orders });
+// Les OR sont réservés aux mécaniciens et, si l'option est active, aux personnes du bureau qui ont le droit Atelier
+const seesOrders = (u) => u.role === 'mechanic' || (attendanceConfig().kiosk_show_orders && can(u, 'atelier', 'read'));
+const worksOrders = (req, res, next) => (req.user.role === 'mechanic' || can(req.user, 'atelier', 'user') ? next() : res.status(403).json({ error: 'Il faut le droit « Utilisateur » sur Atelier pour travailler sur un OR' }));
+const fullKioskState = (u) => {
+  const show = seesOrders(u);
+  const s = kioskState(u.id);
+  return { ...s, orders: show ? s.orders : [], attendance: statusOf(u.id), show_orders: show };
+};
 api.get('/kiosk/state', mech, (req, res) => res.json(fullKioskState(req.user)));
 api.post('/kiosk/attendance', mech, wrap((req) => checkInOut(req.user.id, { action: req.body.action, source: 'kiosk' })));
 function stopWork(userId, now) {
@@ -339,6 +351,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
       stopWork(uid, now);
       run("UPDATE time_entries SET end=? WHERE user_id=? AND kind='presence' AND end IS NULL", now, uid);
     } else if (action === 'start') {
+      if (req.user.role !== 'mechanic' && !can(req.user, 'atelier', 'user')) throw new BusinessError('Il faut le droit « Utilisateur » sur Atelier pour travailler sur un OR', 403);
       if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
       stopWork(uid, now);
       const d = get("SELECT id, status FROM documents WHERE id=? AND type='order'", document_id);
@@ -351,7 +364,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
   });
   return fullKioskState(req.user);
 }));
-api.post('/kiosk/orders/:id', mech, wrap((req) => {
+api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
   const id = Number(req.params.id);
   const d = get("SELECT * FROM documents WHERE id=? AND type='order'", id);
   if (!d || d.status === 'invoiced') throw new BusinessError('OR non modifiable');
@@ -368,7 +381,7 @@ api.post('/kiosk/orders/:id', mech, wrap((req) => {
   return fullKioskState(req.user);
 }));
 // Lien "photos & messages" du mécanicien pour un OR
-api.post('/kiosk/orders/:id/live', mech, wrap((req) => ({ url: `/suivi.html?t=${ensureLink(Number(req.params.id), 'mechanic')}` })));
+api.post('/kiosk/orders/:id/live', mech, worksOrders, wrap((req) => ({ url: `/suivi.html?t=${ensureLink(Number(req.params.id), 'mechanic')}` })));
 
 // ---------- Tout le reste nécessite une connexion bureau ----------
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : staff(req, res, next)));
@@ -514,8 +527,12 @@ api.post('/appointments/:id/order', wrap((req) => {
 api.get('/documents', (req, res) => {
   const where = ['1=1'];
   const p = [];
-  if (req.query.type) { where.push('d.type IN (' + req.query.type.split(',').map(() => '?').join(',') + ')'); p.push(...req.query.type.split(',')); }
-  if (req.query.status) { where.push('d.status IN (' + req.query.status.split(',').map(() => '?').join(',') + ')'); p.push(...req.query.status.split(',')); }
+  const types = queryList(req.query.type), statuses = queryList(req.query.status);
+  if (types.length) { where.push('d.type IN (' + types.map(() => '?').join(',') + ')'); p.push(...types); }
+  if (statuses.length) { where.push('d.status IN (' + statuses.map(() => '?').join(',') + ')'); p.push(...statuses); }
+  // Sans le droit Atelier on ne voit pas les OR ; sans le droit Ventes on ne voit que les OR
+  if (!can(req.user, 'atelier')) where.push("d.type!='order'");
+  if (!can(req.user, 'ventes')) where.push("d.type='order'");
   if (req.query.customer_id) { where.push('d.customer_id=?'); p.push(req.query.customer_id); }
   if (req.query.overdue) { where.push("d.status IN ('posted','partial') AND d.due_date<?"); p.push(today()); }
   if (req.query.q) { const q = `%${req.query.q}%`; where.push('(d.number LIKE ? OR c.name LIKE ? OR v.plate LIKE ?)'); p.push(q, q, q); }
@@ -589,17 +606,21 @@ api.delete('/purchases/:id', wrap((req) => {
   run('DELETE FROM purchases WHERE id=?', req.params.id);
   return { ok: true };
 }));
-api.post('/purchases/:id/order', wrap((req) => {
+// Option « validation des achats » : au-delà du seuil, un achat encore en brouillon doit passer par un administrateur des achats
+function assertApproved(req) {
   const o = options().achats;
-  const p = get('SELECT total FROM purchases WHERE id=?', req.params.id);
-  if (o.approval && p && p.total >= o.approval_amount && !can(req.user, 'achats', 'manager')) {
-    throw new BusinessError(`Commande de ${p.total.toFixed(2)} € : au-delà de ${o.approval_amount} €, elle doit être validée par un administrateur des achats.`, 403);
+  const p = get('SELECT total, status FROM purchases WHERE id=?', req.params.id);
+  if (o.approval && p && p.status === 'draft' && p.total >= o.approval_amount && !can(req.user, 'achats', 'manager')) {
+    throw new BusinessError(`Achat de ${p.total.toFixed(2)} € : au-delà de ${o.approval_amount} €, il doit être validé par un administrateur des achats.`, 403);
   }
+}
+api.post('/purchases/:id/order', wrap((req) => {
+  assertApproved(req);
   run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", req.params.id);
   return { ok: true };
 }));
-api.post('/purchases/:id/receive', wrap((req) => { receivePurchase(Number(req.params.id)); return { ok: true }; }));
-api.post('/purchases/:id/post', wrap((req) => { postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
+api.post('/purchases/:id/receive', wrap((req) => { assertApproved(req); receivePurchase(Number(req.params.id)); return { ok: true }; }));
+api.post('/purchases/:id/post', wrap((req) => { assertApproved(req); postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
 api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
 api.post('/purchases/:id/reanalyze', wrap((req) => reanalyze(Number(req.params.id))));
 
@@ -708,8 +729,7 @@ api.get('/payments', (req, res) => res.json(all(`SELECT p.*, d.number AS documen
 
 // ---------- Pointage (vue bureau) ----------
 api.get('/timesheets', (req, res) => {
-  const from = req.query.from || today();
-  const to = req.query.to || today();
+  const { from, to } = datePeriod(req.query.from || today(), req.query.to || today());
   const entries = all(`SELECT t.*, u.name AS user_name, u.color, d.number AS document_number, v.plate FROM time_entries t JOIN users u ON u.id=t.user_id
     LEFT JOIN documents d ON d.id=t.document_id LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE substr(t.start,1,10) BETWEEN ? AND ? ORDER BY t.start`, from, to);
   for (const e of entries) e.hours = round2(durationHours(e));
@@ -721,17 +741,33 @@ api.get('/timesheets', (req, res) => {
   });
   res.json({ entries, users });
 });
-api.put('/timesheets/:id', wrap((req) => { update('time_entries', req.params.id, req.body, ['start', 'end', 'note', 'document_id']); return { ok: true }; }));
-api.delete('/timesheets/:id', wrap((req) => { run('DELETE FROM time_entries WHERE id=?', req.params.id); return { ok: true }; }));
+// Corriger ou supprimer un pointage : réservé aux administrateurs des présences (comme /attendance)
+api.put('/timesheets/:id', needManager('presences'), wrap((req) => {
+  const cur = get('SELECT * FROM time_entries WHERE id=?', req.params.id);
+  if (!cur) throw new BusinessError('Pointage introuvable', 404);
+  const b = req.body || {};
+  const start = b.start ?? cur.start, end = b.end === undefined ? cur.end : b.end || null;
+  if (!validDateTime(start)) throw new BusinessError('Heure de début invalide');
+  if (end && !validDateTime(end)) throw new BusinessError('Heure de fin invalide');
+  if (end && end <= start) throw new BusinessError('La fin doit être après le début');
+  update('time_entries', cur.id, { ...b, start, end }, ['start', 'end', 'note', 'document_id']);
+  return { ok: true };
+}));
+api.delete('/timesheets/:id', needManager('presences'), wrap((req) => { run('DELETE FROM time_entries WHERE id=?', req.params.id); return { ok: true }; }));
 
 // ---------- Utilisateurs & paramètres ----------
 // ---------- Utilisateurs et droits d'accès ----------
 const USER_COLS = ['name', 'email', 'role', 'color', 'hourly_cost', 'active', 'password_hash', 'pin_hash', 'permissions', 'job_title', 'badge'];
 api.get('/users', (req, res) => {
   const admin = req.user.role === 'admin';
+  if (!admin) {
+    // Le coût horaire n'est visible qu'avec un droit sur les présences (administrateur) ou la comptabilité
+    const cost = can(req.user, 'presences', 'manager') || can(req.user, 'comptabilite', 'read');
+    return res.json(all(`SELECT id, name, role, color, active, job_title${cost ? ', hourly_cost' : ''} FROM users ORDER BY active DESC, role, name`));
+  }
   res.json(all(`SELECT id, name, email, role, color, hourly_cost, active, job_title, last_login, pin_hash IS NOT NULL AS has_pin,
-      ${admin ? "permissions, badge, invite_hash IS NOT NULL AND invite_expires > strftime('%Y-%m-%dT%H:%M:%fZ','now') AS invited, password_hash IS NOT NULL AS has_password" : '0 AS invited'}
-    FROM users ORDER BY active DESC, role, name`).map((u) => (admin ? { ...u, permissions: normalizePerms(u.permissions ?? PRESETS.bureau.perms) } : u)));
+      permissions, badge, invite_hash IS NOT NULL AND invite_expires > strftime('%Y-%m-%dT%H:%M:%fZ','now') AS invited, password_hash IS NOT NULL AS has_password
+    FROM users ORDER BY active DESC, role, name`).map((u) => ({ ...u, permissions: normalizePerms(u.permissions ?? PRESETS.bureau.perms) })));
 });
 api.get('/access/meta', adminOnly, (req, res) => res.json({ apps: APPS, levels: LEVELS, labels: LEVEL_LABELS, presets: PRESETS }));
 function userData(b, creating) {
@@ -864,7 +900,7 @@ api.post('/automation/followups', adminOnly, wrap(() => runFollowups({ force: tr
 api.post('/automation/reminders', adminOnly, wrap(() => runAppointmentReminders({ force: true })));
 
 // ---------- Import Odoo ----------
-api.get('/odoo', (req, res) => res.json({ config: publicOdooConfig(), job: odooJob, last: getSettings().odoo_last_import || null }));
+api.get('/odoo', adminOnly, (req, res) => res.json({ config: publicOdooConfig(), job: odooJob, last: getSettings().odoo_last_import || null }));
 api.put('/odoo', adminOnly, wrap((req) => { saveOdooConfig(req.body); return { config: publicOdooConfig() }; }));
 api.post('/odoo/test', adminOnly, wrap(() => testConnection()));
 api.post('/odoo/import', adminOnly, wrap((req) => {
@@ -921,20 +957,39 @@ api.post('/chatter/:model/:id/note', wrap((req) => {
 }));
 api.get('/activities/meta', (req, res) => res.json({ modules: MODULES, types: ACTIVITY_TYPES, templates: TEMPLATE_LABELS }));
 api.get('/activities/counts', (req, res) => res.json(activityCounts(req.user.id)));
-api.get('/activities', (req, res) => res.json(listActivities({
-  user_id: req.query.mine ? req.user.id : req.query.user_id || null, module: req.query.module || null,
-  model: req.query.model || null, record_id: req.query.record_id || null, status: req.query.status || 'planned', scope: req.query.scope,
-})));
+// La fiche liée (nom du client, e-mail…) n'est montrée qu'à ceux qui ont le droit de la lire
+const canReadRecord = (u, model, id) => { const app = recordApp(model, id); return !app || can(u, app, 'read'); };
+api.get('/activities', (req, res) => {
+  if (req.query.model && !canReadRecord(req.user, req.query.model, req.query.record_id)) return res.status(403).json({ error: 'Accès refusé à cette fiche' });
+  res.json(listActivities({
+    user_id: req.query.mine ? req.user.id : req.query.user_id || null, module: req.query.module || null,
+    model: req.query.model || null, record_id: req.query.record_id || null, status: req.query.status || 'planned', scope: req.query.scope,
+  }).map((a) => (a.record && !canReadRecord(req.user, a.model, a.record_id) ? { ...a, record: null } : a)));
+});
 api.post('/activities', wrap((req) => ({ id: createActivity({ ...req.body, model: checkModel(req.body.model) }, req.user.id) })));
-api.put('/activities/:id', wrap((req) => { update('activities', req.params.id, req.body, ACTIVITY_COLS.filter((c) => !['created_by', 'model', 'record_id'].includes(c))); return { ok: true }; }));
-api.post('/activities/:id/done', wrap((req) => completeActivity(Number(req.params.id), req.body.feedback, req.user.id)));
-api.delete('/activities/:id', wrap((req) => { run("UPDATE activities SET status='cancelled' WHERE id=?", req.params.id); return { ok: true }; }));
+// Modifier, terminer ou annuler une activité : la personne à qui elle est confiée, celle qui l'a créée,
+// ou quelqu'un qui a le droit « Utilisateur » sur la fiche concernée
+function ownActivity(req) {
+  const a = get('SELECT * FROM activities WHERE id=?', req.params.id);
+  if (!a) throw new BusinessError('Activité introuvable', 404);
+  const u = req.user, app = recordApp(a.model, a.record_id);
+  if (u.role !== 'admin' && a.user_id !== u.id && a.created_by !== u.id && !(app && can(u, app, 'user'))) throw new BusinessError('Cette activité est confiée à quelqu\'un d\'autre', 403);
+  return a;
+}
+api.put('/activities/:id', wrap((req) => { ownActivity(req); update('activities', req.params.id, req.body, ACTIVITY_COLS.filter((c) => !['created_by', 'model', 'record_id'].includes(c))); return { ok: true }; }));
+api.post('/activities/:id/done', wrap((req) => { ownActivity(req); return completeActivity(Number(req.params.id), req.body?.feedback, req.user.id); }));
+api.delete('/activities/:id', wrap((req) => { ownActivity(req); run("UPDATE activities SET status='cancelled' WHERE id=?", req.params.id); return { ok: true }; }));
 
 // ---------- Copilote Nova : écoute, journal, résumé de fin de journée ----------
 api.get('/copilot', (req, res) => res.json({ config: copilotConfig(), journal: journalOf(req.query.date || today()), briefs: listBriefs(Number(req.query.limit) || 14), ai: aiConfigured() }));
 api.put('/copilot/config', adminOnly, wrap((req) => { saveCopilotConfig(req.body); return copilotConfig(); }));
 api.post('/copilot/journal', wrap((req) => ({ id: addJournal(req.body.text, req.user.id, req.body.source === 'voice' ? 'voice' : 'text') })));
-api.delete('/copilot/journal/:id', wrap((req) => { run('DELETE FROM journal WHERE id=?', req.params.id); return { ok: true }; }));
+api.delete('/copilot/journal/:id', wrap((req) => {
+  const j = get('SELECT user_id FROM journal WHERE id=?', req.params.id);
+  if (j && req.user.role !== 'admin' && j.user_id !== req.user.id) throw new BusinessError('Seul l\'auteur de la note (ou le gérant) peut la supprimer', 403);
+  run('DELETE FROM journal WHERE id=?', req.params.id);
+  return { ok: true };
+}));
 api.post('/copilot/chat', wrap((req) => copilotChat(req.user, req.body.message, req.body.history || [])));
 api.post('/copilot/brief', wrap((req) => generateBrief({ date: req.body.date || today(), force: true })));
 api.get('/copilot/stats', (req, res) => res.json(dayStats(req.query.date || today())));

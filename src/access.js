@@ -86,42 +86,106 @@ const PREFIXES = [
   ['/mail', 'emails'],
   ['/crm', 'crm'], ['/website', 'site'], ['/social', 'social'],
 ];
-// Routes accessibles à tout utilisateur connecté (lecture de son propre pointage, recherche filtrée…)
-const OPEN = [/^\/attendance\/me$/, /^\/attendance\/check$/, /^\/mail\/(compose|preview)$/, /^\/copilot\/journal/];
+// Routes accessibles à tout utilisateur connecté (lecture de son propre pointage, notes du journal…)
+const OPEN = [/^\/attendance\/me$/, /^\/attendance\/check$/, /^\/copilot\/journal/];
+// Composer ou prévisualiser un e-mail ne demande pas l'application E-mails (mais bien le droit de lire la fiche liée)
+const MAIL_OPEN = /^\/mail\/(compose|preview)$/;
+const MAIL_RECORD = /^\/mail\/(compose|preview|send|draft-ai)$/;
 const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/];
+// Suppressions courantes (annuler son e-mail programmé, effacer une conversation IA, retirer une pièce jointe) :
+// le niveau « Utilisateur » suffit ; les autres suppressions restent réservées aux administrateurs de l'application.
+const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/];
 
-function documentApp(req) {
-  const typeApp = (t) => (t === 'order' ? 'atelier' : t ? 'ventes' : null);
-  const m = /^\/documents\/(\d+)/.exec(req.path);
-  if (m) return typeApp(get('SELECT type FROM documents WHERE id=?', Number(m[1]))?.type) || 'ventes';
-  return typeApp(req.query.type || req.body?.type) || 'ventes';
+const typeApp = (t) => (t === 'order' ? 'atelier' : 'ventes');
+/** Types de documents demandés dans l'adresse (?type=order,quote ou ?type=order&type=quote). */
+export const queryList = (v) => [].concat(v ?? []).map(String).join(',').split(',').map((x) => x.trim()).filter(Boolean);
+
+/** Application qui protège une fiche : ses pièces jointes, son historique, ses activités et ses e-mails suivent ce droit. */
+export function recordApp(model, id) {
+  switch (model) {
+    case 'document': return typeApp(get('SELECT type FROM documents WHERE id=?', Number(id) || 0)?.type);
+    case 'customer': case 'supplier': return 'contacts';
+    case 'vehicle': return 'vehicules';
+    case 'product': return 'inventaire';
+    case 'purchase': return 'achats';
+    case 'appointment': return 'atelier';
+    case 'lead': return 'crm';
+    default: return null;
+  }
 }
 
+// Applications à contrôler pour une route /documents (une liste [a, b] signifie « l'une des deux »)
+function documentApps(req, path, read) {
+  const m = /^\/documents\/(\d+)/.exec(path);
+  if (m) return [typeApp(get('SELECT type FROM documents WHERE id=?', Number(m[1]))?.type)];
+  if (!read) return [typeApp(req.body?.type)];
+  const types = queryList(req.query.type);
+  // Sans type : la liste est filtrée ensuite selon les droits (voir GET /documents)
+  return types.length ? [...new Set(types.map(typeApp))] : [['ventes', 'atelier']];
+}
+
+/**
+ * Droits nécessaires pour une requête : liste de [application, niveau] à satisfaire TOUS.
+ * « application » peut être une liste : l'une d'elles suffit.
+ */
 export function requiredAccess(req) {
-  if (OPEN.some((r) => r.test(req.path))) return null;
-  const hit = PREFIXES.find(([p]) => (p.endsWith('-') ? req.path.startsWith(p) : req.path === p || req.path.startsWith(p + '/')));
-  if (!hit) return null;
-  const app = hit[1] || documentApp(req);
-  let level = req.method === 'GET' || req.method === 'HEAD' || READ_POSTS.some((r) => r.test(req.path)) ? 'read' : req.method === 'DELETE' ? 'manager' : 'user';
-  const extra = [];
+  // Les adresses sont comparées en minuscules et sans « / » final (Express les accepte aussi)
+  const path = req.path.toLowerCase().replace(/\/+$/, '') || '/';
+  const read = req.method === 'GET' || req.method === 'HEAD';
+  if (OPEN.some((r) => r.test(path))) return null;
+  if (read && path === '/mail/config') return null; // sans secret : sert aux activités de tout le monde
+  let m;
+  // Pièces jointes et historique : mêmes droits que la fiche à laquelle ils sont attachés
+  if ((m = /^\/(attachments|chatter)\/([a-z_]+)\/(\d+)/.exec(path))) {
+    const app = recordApp(m[2], m[3]);
+    return app ? [[app, read ? 'read' : 'user']] : null;
+  }
+  if ((m = /^\/attachment\/(\d+)$/.exec(path))) {
+    const a = get('SELECT model, record_id FROM attachments WHERE id=?', Number(m[1]));
+    const app = a && recordApp(a.model, a.record_id);
+    return app ? [[app, read ? 'read' : 'user']] : null;
+  }
+  // Planifier une activité sur une fiche : il faut pouvoir lire cette fiche
+  if (path === '/activities' && req.method === 'POST') {
+    const app = recordApp(req.body?.model, req.body?.record_id);
+    return app ? [[app, 'read']] : null;
+  }
+  // Le plan comptable (simple liste de comptes) sert aussi aux achats et aux fiches fournisseurs
+  if (read && path === '/accounting/accounts') return [[['comptabilite', 'achats', 'contacts'], 'read']];
+
+  const need = [];
+  const hit = PREFIXES.find(([p]) => (p.endsWith('-') ? path.startsWith(p) : path === p || path.startsWith(p + '/')));
+  if (hit && !MAIL_OPEN.test(path)) {
+    const level = read || READ_POSTS.some((r) => r.test(path)) ? 'read' : req.method === 'DELETE' && !USER_DELETES.some((r) => r.test(path)) ? 'manager' : 'user';
+    for (const app of hit[1] ? [hit[1]] : documentApps(req, path, read)) need.push([app, level]);
+  }
+  // E-mail lié à une fiche (facture, relevé client…) : il faut pouvoir lire cette fiche
+  if (MAIL_RECORD.test(path)) {
+    const app = read ? recordApp(req.query.model, req.query.id) : recordApp(req.body?.model, req.body?.record_id);
+    if (app) need.push([app, 'read']);
+  }
   // Convertir un OR en facture (ou un devis en OR) demande aussi les droits sur l'application cible
-  if (/^\/documents\/\d+\/convert$/.test(req.path) && req.body?.type) extra.push([req.body.type === 'order' ? 'atelier' : 'ventes', 'user']);
-  if (/^\/documents\/\d+\/payments$/.test(req.path)) extra.push(['banque', 'user']);
-  return [[app, level], ...extra];
+  if (/^\/documents\/\d+\/convert$/.test(path) && req.body?.type) need.push([typeApp(req.body.type), 'user']);
+  // Encaisser une facture client ou payer une facture fournisseur touche à la banque
+  if (/^\/(documents|purchases)\/\d+\/payments$/.test(path)) need.push(['banque', 'user']);
+  // « Commander le stock bas » crée des commandes fournisseurs
+  if (path === '/stock/reorder') need.push(['achats', 'user']);
+  return need.length ? need : null;
 }
 
 /** Middleware : refuse l'accès si l'utilisateur n'a pas le niveau requis sur l'application. */
 export function accessGuard(req, res, next) {
   const u = req.user;
   if (!u) return next();
-  if (u.session_kind === 'kiosk' && !req.path.startsWith('/kiosk')) return res.status(403).json({ error: 'Session kiosque : accès limité au pointage' });
+  if (u.session_kind === 'kiosk' && !req.path.toLowerCase().startsWith('/kiosk')) return res.status(403).json({ error: 'Session kiosque : accès limité au pointage' });
   if (u.role === 'admin') return next();
   const need = requiredAccess(req);
   if (!need) return next();
   for (const [app, level] of need) {
-    if (!can(u, app, level)) {
-      const a = APPS.find((x) => x.key === app);
-      return res.status(403).json({ error: `Accès refusé : il faut le droit « ${LEVEL_LABELS[level]} » sur ${a?.name || app}. Demandez au gérant (Paramètres → Utilisateurs).` });
+    const apps = [].concat(app);
+    if (!apps.some((a) => can(u, a, level))) {
+      const names = apps.map((a) => APPS.find((x) => x.key === a)?.name || a).join(' ou ');
+      return res.status(403).json({ error: `Accès refusé : il faut le droit « ${LEVEL_LABELS[level]} » sur ${names}. Demandez au gérant (Paramètres → Utilisateurs).` });
     }
   }
   next();
