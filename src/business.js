@@ -481,6 +481,13 @@ export function vatReport(from, to) {
     GROUP BY l.account_code, l.tax_rate ORDER BY l.account_code, l.tax_rate`, from, to);
   const collected = rows.filter((r) => r.account_code === '461411').map((r) => ({ rate: r.tax_rate, base: r.base, tax: r.tax }));
   const deductible = rows.filter((r) => r.account_code === '421611').map((r) => ({ rate: r.tax_rate, base: r.base, tax: -r.tax }));
+  // Chiffre d'affaires et achats à 0 % (exonéré, intracommunautaire) : aucune écriture de TVA, mais la base doit figurer dans la déclaration
+  const zeroSales = get(`SELECT ROUND(SUM(CASE WHEN d.type='credit_note' THEN -l.total_ht ELSE l.total_ht END),2) v FROM document_lines l JOIN documents d ON d.id=l.document_id
+    WHERE d.type IN ('invoice','credit_note') AND d.status NOT IN ('draft','cancelled') AND d.date BETWEEN ? AND ? AND l.kind!='text' AND COALESCE(l.tax_rate,0)=0`, from, to).v;
+  if (zeroSales) collected.unshift({ rate: 0, base: zeroSales, tax: 0 });
+  const zeroPurchases = get(`SELECT ROUND(SUM(l.total_ht),2) v FROM purchase_lines l JOIN purchases p ON p.id=l.purchase_id
+    WHERE p.posted=1 AND p.date BETWEEN ? AND ? AND COALESCE(l.tax_rate,0)=0`, from, to).v;
+  if (zeroPurchases) deductible.unshift({ rate: 0, base: zeroPurchases, tax: 0 });
   const totalCollected = round2(collected.reduce((s, r) => s + r.tax, 0));
   const totalDeductible = round2(deductible.reduce((s, r) => s + r.tax, 0));
   return { from, to, collected, deductible, totalCollected, totalDeductible, due: round2(totalCollected - totalDeductible) };

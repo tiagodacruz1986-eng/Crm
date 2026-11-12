@@ -127,10 +127,11 @@ Protections actives quand le logiciel est joint depuis internet : code d'install
 [Render](https://render.com) héberge le logiciel et lui donne une adresse **https://….onrender.com** qui fonctionne partout (Wi-Fi, 4G), sans PC allumé au garage. Le fichier `render.yaml` prépare tout : image Docker, centre de données de **Francfort** (UE), disque pour les données, protections « serveur internet ».
 
 1. Cliquez sur le bouton ci-dessus et créez un compte Render (ou connectez-vous).
-2. Render affiche le service **garage-manager** avec un disque de 1 Go : le disque demande une **offre payante** (tarifs : [render.com/pricing](https://render.com/pricing)) ; sans disque, tout serait effacé à chaque redémarrage. Collez votre clé Claude dans `ANTHROPIC_API_KEY` si vous voulez les agents IA (facultatif), puis validez.
+2. Render affiche le service **garage-manager** avec un disque de 1 Go : le disque demande une **offre payante** (tarifs : [render.com/pricing](https://render.com/pricing)) ; sans disque, tout serait effacé à chaque redémarrage. Validez.
 3. Attendez la fin de la construction (quelques minutes), puis ouvrez l'adresse affichée en haut de la page du service.
 4. Pour créer le compte du gérant, un **code d'installation** est demandé : il s'affiche dans l'onglet **Logs** du service, sur la ligne « Code d'installation ».
-5. Sur iPhone : ouvrez l'adresse dans **Safari** → *Partager* → *Sur l'écran d'accueil*. Sur Android : Chrome → *Installer l'application*.
+5. Agents IA (facultatif) : dans Render, onglet **Environment** du service → *Add Environment Variable* → `ANTHROPIC_API_KEY` = votre clé Claude, puis *Save* (le logiciel redémarre). Sans clé, les agents restent en mode démo.
+6. Sur iPhone : ouvrez l'adresse dans **Safari** → *Partager* → *Sur l'écran d'accueil*. Sur Android : Chrome → *Installer l'application*.
 
 Bon à savoir : chaque nouvelle version publiée sur GitHub est installée automatiquement (réglage *Auto-Deploy* du service pour le couper) ; pendant une mise à jour, le logiciel est brièvement indisponible. Vous pouvez ajouter votre propre nom de domaine dans *Settings → Custom Domains* de Render, puis le saisir comme adresse publique dans les Paramètres du logiciel. Les données sont chez Render : informez-en vos clients dans votre politique de confidentialité.
 

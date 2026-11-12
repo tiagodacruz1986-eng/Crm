@@ -146,6 +146,8 @@ app.use(express.static(path.resolve('public')));
 
 const api = express.Router({ caseSensitive: true });
 app.use('/api', api);
+// Un identifiant de fiche est toujours un nombre (/customers/abc n'existe pas ; sans ce contrôle, « abc » pouvait créer une nouvelle fiche)
+api.param('id', (req, res, next, v) => (/^\d{1,15}$/.test(v) || /^\/agents\//.test(req.path) ? next() : res.status(404).json({ error: 'Introuvable' })));
 // Une requête sans corps (ou avec un corps qui n'est pas un objet JSON) est traitée comme un formulaire vide
 api.use((req, res, next) => { if (req.body === undefined || req.body === null) req.body = {}; next(); });
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).then((r) => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
