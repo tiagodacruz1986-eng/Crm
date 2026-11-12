@@ -37,6 +37,7 @@ export function statusOf(userId) {
 
 /** Arrivée ou départ (bascule), comme le gros bouton d'Odoo. `action` force 'in' ou 'out'. */
 export function checkInOut(userId, { action, source = 'web' } = {}) {
+  if (action && !['in', 'out'].includes(action)) throw new BusinessError('Action inconnue');
   const now = localDateTime();
   return tx(() => {
     const open = openPresence(userId);

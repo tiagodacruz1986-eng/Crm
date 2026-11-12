@@ -101,14 +101,18 @@ export const Planning = {
     const onCustomer = async (c) => { edit.value.vehicles = c ? (await GET('/customers/' + c.id)).vehicles : []; edit.value.vehicle_id = edit.value.vehicles[0]?.id || null; };
     const save = async () => {
       const { vehicles, ...a } = edit.value;
+      let id = a.id;
       if (a.id) await act(() => PUT('/appointments/' + a.id, a), 'Rendez-vous modifié');
-      else await act(() => POST('/appointments', a), 'Rendez-vous créé');
+      else id = (await act(() => POST('/appointments', a), 'Rendez-vous créé')).id;
       edit.value = null; load();
+      return id;
     };
     const remove = async () => { await act(() => DEL('/appointments/' + edit.value.id)); edit.value = null; load(); };
     const arrive = async () => {
-      if (!edit.value.id) await save();
-      const r = await act(() => POST(`/appointments/${edit.value.id}/order`), 'OR créé');
+      // Rendez-vous pas encore enregistré : on l'enregistre d'abord (la fenêtre se ferme), puis on crée l'OR
+      const id = edit.value.id || await save();
+      edit.value = null;
+      const r = await act(() => POST(`/appointments/${id}/order`), 'OR créé');
       go('/document/' + r.id);
     };
     const hoursList = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);

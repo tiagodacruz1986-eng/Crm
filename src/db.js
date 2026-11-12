@@ -180,7 +180,20 @@ export function tx(fn) {
   }
 }
 
-export const round2 = (n) => Math.round((Number(n) || 0) * 100 + Number.EPSILON) / 100;
+// Arrondi au centime, « demi-centime vers le haut » : 2,125 → 2,13 et 1,005 → 1,01
+// (les nombres à virgule de l'ordinateur stockent 1,005 comme 1,00499999… : on compense cette erreur infime)
+// Recherche insensible aux majuscules ET aux accents (« élodie » trouve « Élodie », « muller » trouve « Müller »)
+export const fold = (v) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+db.function('fold', { deterministic: true }, (v) => (v === null ? null : fold(v)));
+/** Motif LIKE pour une recherche « contient » : les caractères %, _ et \\ tapés par l'utilisateur sont pris tels quels. */
+export const likeFold = (q) => `%${fold(q).replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+
+export const round2 = (n) => {
+  const x = Number(n) || 0;
+  return (Math.sign(x) * Math.round(Math.abs(x) * 100 * (1 + 1e-12))) / 100 || 0;
+};
+/** Vraie date au format AAAA-MM-JJ. */
+export const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(s + 'T12:00:00').getTime()) && localDate(new Date(s + 'T12:00:00')) === s;
 export const today = () => localDate(new Date());
 export function localDate(d) {
   const z = (n) => String(n).padStart(2, '0');

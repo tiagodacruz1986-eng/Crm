@@ -3,7 +3,17 @@ import { reactive } from 'vue';
 
 export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false });
 
-export async function api(method, url, body) {
+// Requêtes d'écriture en cours : un double clic sur un bouton renvoie la même réponse au lieu d'enregistrer deux fois
+const inflight = new Map();
+export function api(method, url, body) {
+  if (method === 'GET') return request(method, url, body);
+  const key = `${method} ${url} ${typeof body === 'string' ? body : JSON.stringify(body ?? null)}`;
+  if (inflight.has(key)) return inflight.get(key);
+  const p = request(method, url, body).finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+async function request(method, url, body) {
   const res = await fetch('/api' + url, {
     method,
     credentials: 'same-origin',
@@ -13,7 +23,7 @@ export async function api(method, url, body) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !url.startsWith('/auth')) { store.user = null; }
-  if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Erreur ${res.status}`), { status: res.status });
   return data;
 }
 export const GET = (u) => api('GET', u);

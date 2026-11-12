@@ -3,6 +3,7 @@ import { GET, POST, PUT, DEL, act, toast, money, date, datetime, hours, today, s
 import { route, go, leaveGuards } from '../router.js';
 import { LivePanel } from '../live-panel.js';
 import { DocPrint } from '../doc-print.js';
+import { lineTotal, computeTotals } from '../totals.js';
 
 export const DocumentList = {
   setup() {
@@ -155,15 +156,8 @@ export const DocumentEditor = {
     onMounted(() => { leaveGuards.add(leaveOk); window.addEventListener('beforeunload', onUnload); });
     onUnmounted(() => { leaveGuards.delete(leaveOk); window.removeEventListener('beforeunload', onUnload); });
     const showDiscount = computed(() => store.settings?.options?.ventes?.line_discounts !== false || (doc.value?.lines || []).some((l) => l.discount));
-    const lineTotal = (l) => (l.kind === 'text' ? 0 : Math.round((l.quantity || 0) * (l.unit_price || 0) * (1 - (l.discount || 0) / 100) * 100) / 100);
-    const totals = computed(() => {
-      const byRate = {};
-      let sub = 0;
-      for (const l of doc.value?.lines || []) { if (l.kind === 'text') continue; const t = lineTotal(l); sub += t; byRate[l.tax_rate] = (byRate[l.tax_rate] || 0) + t; }
-      const taxes = Object.entries(byRate).map(([r, b]) => ({ rate: r, base: b, amount: Math.round(b * r) / 100 }));
-      const tax = taxes.reduce((a, t) => a + t.amount, 0);
-      return { sub, taxes, tax, total: sub + tax };
-    });
+    // Mêmes règles de calcul que le serveur (totals.js) : l'écran affiche le montant qui sera enregistré et comptabilisé
+    const totals = computed(() => computeTotals(doc.value?.lines));
 
     const addLine = (kind) => {
       const base = { kind, description: '', quantity: 1, unit_price: 0, discount: 0, tax_rate: s.default_tax, product_id: null };
@@ -200,7 +194,13 @@ export const DocumentEditor = {
         go('/document/' + id);
         return id;
       }
-      await act(() => PUT('/documents/' + doc.value.id, payload), silent ? null : 'Enregistré');
+      try {
+        await act(() => PUT('/documents/' + doc.value.id, payload), silent ? null : 'Enregistré');
+      } catch (e) {
+        // Le mécanicien (kiosque), le client (suivi) ou un collègue a modifié le document pendant qu'il était ouvert ici
+        if (e.status === 409 && confirm('Ce document a été modifié entre-temps par quelqu\'un d\'autre (atelier, client ou collègue).\n\nRecharger la dernière version ? Vos modifications non enregistrées seront perdues.')) { dirty.value = false; await load(); }
+        throw e;
+      }
       await load();
       return doc.value.id;
     };

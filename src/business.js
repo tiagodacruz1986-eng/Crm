@@ -1,5 +1,5 @@
 // Logique métier : documents (devis / OR / factures), stock, comptabilité, paiements.
-import { all, get, run, insert, update, tx, round2, today, nextNumber, getSettings, localDate } from './db.js';
+import { all, get, run, insert, update, tx, round2, today, nextNumber, getSettings, localDate, isDate } from './db.js';
 
 export const DOC_COLS = [
   'type', 'number', 'status', 'customer_id', 'vehicle_id', 'mileage', 'date', 'due_date', 'reference',
@@ -31,7 +31,7 @@ export function computeTotals(lines) {
     byRate[rate] = (byRate[rate] || 0) + t;
   }
   const taxes = Object.entries(byRate).map(([rate, base]) => ({
-    rate: Number(rate), base: round2(base), amount: round2((base * Number(rate)) / 100),
+    rate: Number(rate), base: round2(base), amount: round2((round2(base) * Number(rate)) / 100),
   }));
   const tax_total = round2(taxes.reduce((s, t) => s + t.amount, 0));
   subtotal = round2(subtotal);
@@ -74,40 +74,73 @@ function isLocked(doc) {
   return doc.type === 'invoice' || doc.type === 'credit_note' ? doc.status !== 'draft' : doc.status === 'invoiced';
 }
 
+/** Échéance d'une facture : délai de paiement du client, sinon celui du garage. */
+function dueDate(date, customerId) {
+  const cust = customerId ? get('SELECT payment_terms FROM customers WHERE id=?', customerId) : null;
+  const days = Number(cust?.payment_terms ?? getSettings().workshop.payment_terms) || 0;
+  const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + days);
+  return localDate(d);
+}
+/** Marque le document comme modifié (les écrans ouverts ailleurs le sauront avant d'écraser ces changements). */
+export function touchDocument(id) { run('UPDATE documents SET updated_at=? WHERE id=?', new Date().toISOString(), id); }
+
+const num = (v, label) => {
+  const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
+  if (!Number.isFinite(n)) throw new BusinessError(`${label} : nombre invalide`);
+  return n;
+};
+/** Ligne de document contrôlée : quantité, prix, remise (0 à 100 %) et TVA sont de vrais nombres. */
+function cleanLine(l, defaultTax) {
+  if (!l || typeof l !== 'object') throw new BusinessError('Ligne invalide');
+  if (l.kind === 'text') return { ...l, quantity: 1, unit_price: 0, discount: 0, tax_rate: Number(l.tax_rate) || 0 };
+  const line = { ...l, quantity: num(l.quantity ?? 1, 'Quantité'), unit_price: num(l.unit_price ?? 0, 'Prix unitaire'), discount: num(l.discount ?? 0, 'Remise'), tax_rate: num(l.tax_rate ?? defaultTax ?? 0, 'TVA') };
+  if (line.discount < 0 || line.discount > 100) throw new BusinessError('La remise doit être comprise entre 0 et 100 %');
+  if (line.tax_rate < 0 || line.tax_rate > 100) throw new BusinessError('Taux de TVA invalide');
+  return line;
+}
+
 export function saveDocument(data, id = null) {
+  if (!data || typeof data !== 'object') throw new BusinessError('Document vide');
   return tx(() => {
     const s = getSettings();
+    for (const k of ['date', 'due_date']) if (data[k] && !isDate(data[k])) throw new BusinessError(k === 'date' ? 'Date du document invalide' : 'Date d\'échéance invalide');
+    if (data.customer_id && !get('SELECT 1 FROM customers WHERE id=?', data.customer_id)) throw new BusinessError('Client introuvable');
+    if (data.vehicle_id && !get('SELECT 1 FROM vehicles WHERE id=?', data.vehicle_id)) throw new BusinessError('Véhicule introuvable');
+    if (data.mileage !== undefined && data.mileage !== null && data.mileage !== '' && !(Number(data.mileage) >= 0)) throw new BusinessError('Kilométrage invalide');
+    let keepDone = {};
     if (id) {
       const cur = get('SELECT * FROM documents WHERE id=?', id);
       if (!cur) throw new BusinessError('Document introuvable', 404);
+      // Quelqu'un d'autre (mécanicien au kiosque, client sur le suivi, collègue) a modifié le document depuis son ouverture :
+      // on refuse d'écraser ses changements
+      if (data.updated_at && cur.updated_at && data.updated_at !== cur.updated_at) {
+        throw new BusinessError('Ce document a été modifié entre-temps (atelier, client ou collègue). Rechargez la page pour voir la dernière version, puis refaites votre modification.', 409);
+      }
       if (isLocked(cur)) {
         // Seules les notes internes restent modifiables sur un document verrouillé
-        update('documents', id, { internal_notes: data.internal_notes }, ['internal_notes']);
+        update('documents', id, { internal_notes: data.internal_notes, updated_at: new Date().toISOString() }, ['internal_notes', 'updated_at']);
         return id;
       }
-      const { type, number, parent_id, ...rest } = data;
-      update('documents', id, { ...rest, updated_at: new Date().toISOString() }, [...DOC_COLS, 'updated_at'].filter((c) => !['type', 'number', 'parent_id'].includes(c)));
+      // Le type, le numéro et le statut ne se changent jamais ici (statut : boutons dédiés, validation, conversion, kiosque)
+      const { type, number, parent_id, status, ...rest } = data;
+      if (rest.date === '' || rest.date === null) delete rest.date;
+      update('documents', id, { ...rest, updated_at: new Date().toISOString() }, [...DOC_COLS, 'updated_at'].filter((c) => !['type', 'number', 'parent_id', 'status'].includes(c)));
+      keepDone = Object.fromEntries(all('SELECT id, done FROM document_lines WHERE document_id=?', id).map((l) => [l.id, l.done]));
     } else {
       const type = data.type;
       if (!['quote', 'order', 'invoice', 'credit_note'].includes(type)) throw new BusinessError('Type de document invalide');
       const status = { quote: 'draft', order: 'open', invoice: 'draft', credit_note: 'draft' }[type];
       const date = data.date || today();
       const number = type === 'quote' || type === 'order' ? nextNumber(type, date) : null;
-      let due = data.due_date;
-      if (!due && type === 'invoice') {
-        const cust = data.customer_id ? get('SELECT payment_terms FROM customers WHERE id=?', data.customer_id) : null;
-        const days = cust?.payment_terms ?? s.workshop.payment_terms;
-        const d = new Date(date); d.setDate(d.getDate() + Number(days || 0)); due = localDate(d);
-      }
-      id = insert('documents', { ...data, type, status, number, date, due_date: due }, DOC_COLS);
+      const due = data.due_date || (type === 'invoice' ? dueDate(date, data.customer_id) : null);
+      id = insert('documents', { ...data, type, status, number, date, due_date: due, updated_at: new Date().toISOString() }, [...DOC_COLS, 'updated_at']);
     }
     if (Array.isArray(data.lines)) {
+      const lines = data.lines.map((l) => cleanLine(l, s.workshop.default_tax));
       run('DELETE FROM document_lines WHERE document_id=?', id);
-      data.lines.forEach((l, i) => {
-        insert('document_lines', {
-          ...l, id: undefined, document_id: id, sequence: i, total_ht: lineTotal(l),
-          quantity: l.quantity ?? 1, tax_rate: l.tax_rate ?? s.workshop.default_tax,
-        }, LINE_COLS);
+      lines.forEach((l, i) => {
+        // « Fait » est coché par le mécanicien au kiosque : on garde sa coche plutôt que celle de l'écran du bureau
+        insert('document_lines', { ...l, id: undefined, document_id: id, sequence: i, total_ht: lineTotal(l), done: l.id in keepDone ? keepDone[l.id] : l.done }, LINE_COLS);
       });
     }
     refreshTotals(id);
@@ -132,21 +165,29 @@ export function convertDocument(id, targetType) {
     const allowed = { quote: ['order', 'invoice'], order: ['invoice'], invoice: ['credit_note'] };
     if (!allowed[src.type]?.includes(targetType)) throw new BusinessError('Conversion impossible');
     if (targetType === 'credit_note' && src.status === 'draft') throw new BusinessError('La facture doit être validée');
+    // Une seule conversion : un double clic ne doit pas créer deux factures (ou deux OR) pour le même travail
+    const kids = src.children.filter((c) => c.type === targetType && c.status !== 'cancelled');
+    const NAMES = { order: 'Un ordre de réparation', invoice: 'Une facture', credit_note: 'Une note de crédit' };
+    if (targetType !== 'credit_note') {
+      if (src.status === 'cancelled') throw new BusinessError('Ce document est annulé');
+      if (kids.length || src.status === 'invoiced') throw new BusinessError(`${NAMES[targetType]} existe déjà pour ce document${kids[0] ? ` (${kids[0].number || 'brouillon'})` : ''}.`);
+    } else {
+      if (kids.some((c) => c.status === 'draft')) throw new BusinessError('Une note de crédit en brouillon existe déjà pour cette facture : complétez-la ou supprimez-la.');
+      if (round2(kids.reduce((a, c) => a + c.total, 0)) >= src.total - 0.009) throw new BusinessError('Cette facture a déjà été entièrement créditée.');
+    }
     const date = today();
     const status = { order: 'open', invoice: 'draft', credit_note: 'draft' }[targetType];
     const number = targetType === 'order' ? nextNumber('order', date) : null;
-    let due = null;
-    if (targetType === 'invoice') {
-      const d = new Date(date); d.setDate(d.getDate() + Number(getSettings().workshop.payment_terms || 0)); due = localDate(d);
-    }
+    const due = targetType === 'invoice' ? dueDate(date, src.customer_id) : null;
     const newId = insert('documents', {
-      ...src, type: targetType, status, number, date, due_date: due, parent_id: src.id,
+      ...src, type: targetType, status, number, date, due_date: due, parent_id: src.id, updated_at: new Date().toISOString(),
       reference: targetType === 'credit_note' ? `Avoir sur ${src.number}` : src.reference,
-    }, DOC_COLS);
+    }, [...DOC_COLS, 'updated_at']);
     src.lines.forEach((l, i) => insert('document_lines', { ...l, document_id: newId, sequence: i, done: 0 }, LINE_COLS));
     refreshTotals(newId);
     if (src.type === 'quote') run("UPDATE documents SET status='accepted' WHERE id=?", src.id);
     if (src.type === 'order' && targetType === 'invoice') run("UPDATE documents SET status='invoiced' WHERE id=?", src.id);
+    touchDocument(src.id);
     return newId;
   });
 }
@@ -159,6 +200,14 @@ export function postInvoice(id) {
     if (d.status !== 'draft') throw new BusinessError('Document déjà validé');
     if (!d.customer_id) throw new BusinessError('Client obligatoire');
     if (!d.lines.some((l) => l.kind !== 'text')) throw new BusinessError('La facture est vide');
+    if (d.total < 0) throw new BusinessError('Le total est négatif : pour rembourser un client, créez une note de crédit depuis la facture.');
+    if (d.date && !isDate(d.date)) throw new BusinessError('Date du document invalide');
+    if (d.type === 'credit_note' && d.parent_id) {
+      // Le total des notes de crédit ne peut pas dépasser la facture d'origine
+      const parent = get('SELECT total, number FROM documents WHERE id=?', d.parent_id);
+      const credited = get("SELECT COALESCE(SUM(total),0) v FROM documents WHERE parent_id=? AND type='credit_note' AND status NOT IN ('draft','cancelled') AND id!=?", d.parent_id, id).v;
+      if (parent && round2(credited + d.total) > parent.total + 0.009) throw new BusinessError(`Cette note de crédit dépasse le montant restant à créditer sur la facture ${parent.number} (${round2(parent.total - credited).toFixed(2)} €).`);
+    }
     const date = d.date || today();
     const number = nextNumber(d.type, date);
     const sign = d.type === 'credit_note' ? -1 : 1;
@@ -187,9 +236,12 @@ export function postInvoice(id) {
       if (!t.amount) continue;
       lines.push({ ...ml('461411', d.customer_id, `TVA ${t.rate}%`, -sign * t.amount), tax_rate: t.rate, tax_base: sign * t.base });
     }
-    createMove({ journal_code: 'VTE', date, ref: number, label: `${d.type === 'credit_note' ? 'Avoir' : 'Facture'} ${d.customer_name}`, document_id: id }, lines);
+    // (une facture à 0 € — geste commercial — n'a pas d'écriture comptable)
+    if (lines.some((l) => l.debit || l.credit)) createMove({ journal_code: 'VTE', date, ref: number, label: `${d.type === 'credit_note' ? 'Avoir' : 'Facture'} ${d.customer_name}`, document_id: id }, lines);
 
-    run("UPDATE documents SET number=?, status='posted', posted_at=?, date=? WHERE id=?", number, new Date().toISOString(), date, id);
+    run("UPDATE documents SET number=?, status='posted', posted_at=?, date=?, updated_at=? WHERE id=?", number, new Date().toISOString(), date, new Date().toISOString(), id);
+    // Une facture à 0 € est soldée tout de suite (sinon elle resterait « à payer » et serait relancée)
+    refreshPaymentStatus(id);
     // Un avoir solde automatiquement la facture d'origine à hauteur de son montant
     if (d.type === 'credit_note' && d.parent_id) {
       const parent = get('SELECT * FROM documents WHERE id=?', d.parent_id);
@@ -213,6 +265,7 @@ function ml(account_code, customerId, label, signedAmount) {
 
 export function createMove(move, lines) {
   // Date de verrouillage (option Comptabilité) : aucune écriture avant ou à cette date
+  if (!isDate(move.date)) throw new BusinessError('Date de l\'écriture invalide');
   const lock = getSettings().options?.comptabilite?.lock_date;
   if (lock && move.date && move.date <= lock) throw new BusinessError(`Période clôturée : aucune écriture possible au ${move.date.split('-').reverse().join('/')} (verrouillage au ${lock.split('-').reverse().join('/')}).`);
   const debit = round2(lines.reduce((s, l) => s + (l.debit || 0), 0));
@@ -246,12 +299,17 @@ export function registerPayment({ document_id, purchase_id, amount, date = today
   return tx(() => {
     amount = round2(amount);
     if (!(amount > 0)) throw new BusinessError('Montant invalide');
+    date = date || today();
+    if (!isDate(date)) throw new BusinessError('Date du paiement invalide');
+    // Un paiement ne peut pas dépasser le reste à payer (faute de frappe, double clic…)
+    const cap = (residual) => { if (amount > residual + 0.009) throw new BusinessError(residual > 0.009 ? `Le montant dépasse le reste à payer (${residual.toFixed(2)} €).` : 'Ce document est déjà entièrement payé.'); };
     const payAcc = bank_account_code || METHOD_ACCOUNT[method] || '5131';
     const journal = method === 'cash' ? 'CAI' : 'BNK';
     if (document_id) {
       const d = get('SELECT d.*, c.name AS customer_name FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.id=?', document_id);
       if (!d || !['invoice', 'credit_note'].includes(d.type) || d.status === 'draft') throw new BusinessError('Facture non validée');
       const refund = d.type === 'credit_note'; // remboursement d'un avoir au client
+      cap(round2(d.total - d.amount_paid));
       const pid = insert('payments', { direction: refund ? 'out' : 'in', date, amount, method, document_id, customer_id: d.customer_id, reference, note, bank_line_id },
         ['direction', 'date', 'amount', 'method', 'document_id', 'customer_id', 'reference', 'note', 'bank_line_id']);
       const label = `${refund ? 'Remboursement' : 'Encaissement'} ${d.number}`;
@@ -259,20 +317,21 @@ export function registerPayment({ document_id, purchase_id, amount, date = today
         { account_code: payAcc, label, debit: refund ? 0 : amount, credit: refund ? amount : 0 },
         { account_code: '4011', partner_type: 'customer', partner_id: d.customer_id, label, debit: refund ? amount : 0, credit: refund ? 0 : amount },
       ]);
-      run('UPDATE documents SET amount_paid=amount_paid+? WHERE id=?', amount, document_id);
+      run('UPDATE documents SET amount_paid=ROUND(amount_paid+?,2), updated_at=? WHERE id=?', amount, new Date().toISOString(), document_id);
       refreshPaymentStatus(document_id);
       return pid;
     }
     if (purchase_id) {
       const p = get('SELECT p.*, s.name AS supplier_name FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?', purchase_id);
       if (!p || !p.posted) throw new BusinessError('Facture fournisseur non comptabilisée');
+      cap(round2(p.total - p.amount_paid));
       const pid = insert('payments', { direction: 'out', date, amount, method, purchase_id, supplier_id: p.supplier_id, reference, note, bank_line_id },
         ['direction', 'date', 'amount', 'method', 'purchase_id', 'supplier_id', 'reference', 'note', 'bank_line_id']);
       createMove({ journal_code: journal, date, ref: p.supplier_ref || p.number, label: `Paiement ${p.supplier_name}`, payment_id: pid, bank_line_id }, [
         { account_code: '4411', partner_type: 'supplier', partner_id: p.supplier_id, label: `Paiement ${p.number}`, debit: amount, credit: 0 },
         { account_code: payAcc, label: `Paiement ${p.number}`, debit: 0, credit: amount },
       ]);
-      run('UPDATE purchases SET amount_paid=amount_paid+? WHERE id=?', amount, purchase_id);
+      run('UPDATE purchases SET amount_paid=ROUND(amount_paid+?,2) WHERE id=?', amount, purchase_id);
       refreshPurchasePayment(purchase_id);
       return pid;
     }
@@ -307,9 +366,14 @@ export function getPurchase(id) {
 
 export function savePurchase(data, id = null) {
   return tx(() => {
+    if (!data || typeof data !== 'object') throw new BusinessError('Achat vide');
+    for (const k of ['date', 'due_date']) if (data[k] && !isDate(data[k])) throw new BusinessError(k === 'date' ? 'Date de l\'achat invalide' : 'Date d\'échéance invalide');
+    if (data.supplier_id && !get('SELECT 1 FROM suppliers WHERE id=?', data.supplier_id)) throw new BusinessError('Fournisseur introuvable');
     if (id) {
       const cur = get('SELECT * FROM purchases WHERE id=?', id);
+      if (!cur) throw new BusinessError('Achat introuvable', 404);
       if (cur.posted) { update('purchases', id, { notes: data.notes }, ['notes']); return id; }
+      if (data.date === '' || data.date === null) data = { ...data, date: undefined };
       update('purchases', id, data, PURCHASE_COLS.filter((c) => c !== 'number' && c !== 'status'));
     } else {
       id = insert('purchases', { ...data, status: 'draft', number: nextNumber('purchase', data.date || today()), date: data.date || today() }, PURCHASE_COLS);
@@ -317,8 +381,10 @@ export function savePurchase(data, id = null) {
     if (Array.isArray(data.lines)) {
       const received = Object.fromEntries(all('SELECT id, received_qty FROM purchase_lines WHERE purchase_id=?', id).map((l) => [l.id, l.received_qty]));
       run('DELETE FROM purchase_lines WHERE purchase_id=?', id);
-      for (const l of data.lines) {
-        insert('purchase_lines', { ...l, purchase_id: id, received_qty: received[l.id] || 0, total_ht: lineTotal({ ...l, kind: 'part' }) }, PLINE_COLS);
+      for (const raw of data.lines) {
+        const l = cleanLine({ ...raw, kind: 'part', discount: 0 }, 17);
+        if (l.product_id && !get('SELECT 1 FROM products WHERE id=?', l.product_id)) throw new BusinessError('Article introuvable');
+        insert('purchase_lines', { ...l, purchase_id: id, received_qty: received[raw.id] || 0, total_ht: lineTotal(l) }, PLINE_COLS);
       }
     }
     const t = computeTotals(all('SELECT * FROM purchase_lines WHERE purchase_id=?', id).map((l) => ({ ...l, kind: 'part' })));
@@ -347,6 +413,8 @@ export function postPurchase(id) {
     const p = getPurchase(id);
     if (p.posted) throw new BusinessError('Déjà comptabilisée');
     if (!p.supplier_id) throw new BusinessError('Fournisseur obligatoire');
+    if (!p.lines.length || !p.total) throw new BusinessError('La facture fournisseur est vide : ajoutez au moins une ligne avec un montant.');
+    if (p.total < 0) throw new BusinessError('Le total est négatif : encodez une facture fournisseur avec un montant positif.');
     const supplier = get('SELECT default_account FROM suppliers WHERE id=?', p.supplier_id);
     const byAcc = {};
     for (const l of p.lines) {

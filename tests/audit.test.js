@@ -118,3 +118,117 @@ test('droits : documents filtrés par type, corrections de pointage réservées'
   const rep = await A('GET', '/attendance/report?from=2026-03-02&to=2026-03-08');
   assert.equal(rep.data.find((r) => r.user_id === pres.id).worked, 8);
 });
+
+test('calculs : arrondi au demi-centime, mêmes totaux partout', async () => {
+  const cust = (await A('POST', '/customers', { name: 'Arrondi' })).data.id;
+  // 1,50 € à 17 % = 0,255 € de TVA → 0,26 € (et non 0,25) ; 1 × 1,005 = 1,01
+  const id = (await A('POST', '/documents', { type: 'invoice', customer_id: cust, lines: [
+    { kind: 'part', description: 'A', quantity: 1, unit_price: 1.5, tax_rate: 17 },
+    { kind: 'part', description: 'B', quantity: 1, unit_price: 1.005, tax_rate: 0 },
+    { kind: 'part', description: 'sans quantité', unit_price: 10, tax_rate: 3 },
+  ] })).data.id;
+  const d = (await A('GET', `/documents/${id}`)).data;
+  assert.equal(d.taxes.find((t) => t.rate === 17).amount, 0.26);
+  assert.equal(d.lines[1].total_ht, 1.01);
+  assert.equal(d.lines[2].quantity, 1);
+  assert.equal(d.lines[2].total_ht, 10, 'quantité par défaut prise en compte dans le total de la ligne');
+  assert.equal(d.subtotal, 12.51);
+  assert.equal(d.total, 13.07);
+  assert.equal((await A('POST', `/documents/${id}/post`)).status, 200, 'écriture équilibrée');
+  // Le calcul de l'écran (public/js/totals.js) donne exactement le même résultat que le serveur
+  const { computeTotals } = await import('../public/js/totals.js');
+  const t = computeTotals(d.lines);
+  assert.deepEqual([t.sub, t.tax, t.total], [d.subtotal, d.tax_total, d.total]);
+  // Remise et dates contrôlées
+  assert.equal((await A('POST', '/documents', { type: 'quote', customer_id: cust, lines: [{ kind: 'part', description: 'x', quantity: 1, unit_price: 10, discount: 150 }] })).status, 400);
+  assert.equal((await A('POST', '/documents', { type: 'invoice', customer_id: cust, date: 'garbage', lines: [] })).status, 400);
+  assert.equal((await A('POST', `/documents/${id}/payments`, { amount: 1, date: 'hello' })).status, 400);
+});
+
+test('facturation : une seule facture par OR, avoirs plafonnés, paiements plafonnés', async () => {
+  const cust = (await A('POST', '/customers', { name: 'Double', payment_terms: 45 })).data.id;
+  const line = { kind: 'labor', description: 'Main-d\'œuvre', quantity: 2, unit_price: 50, tax_rate: 17 };
+  const or = (await A('POST', '/documents', { type: 'order', customer_id: cust, lines: [line] })).data.id;
+  // Double clic sur « Facturer » : les deux requêtes partent en même temps
+  const [a, b] = await Promise.all([A('POST', `/documents/${or}/convert`, { type: 'invoice' }), A('POST', `/documents/${or}/convert`, { type: 'invoice' })]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 400], 'une seule facture créée');
+  const inv = (a.status === 200 ? a : b).data.id;
+  const invoice = (await A('GET', `/documents/${inv}`)).data;
+  const days = Math.round((new Date(invoice.due_date) - new Date(invoice.date)) / 864e5);
+  assert.equal(days, 45, 'délai de paiement du client repris à la conversion');
+  // Supprimer la facture brouillon libère l'OR
+  assert.equal((await A('GET', `/documents/${or}`)).data.status, 'invoiced');
+  assert.equal((await A('DELETE', `/documents/${inv}`)).status, 200);
+  assert.equal((await A('GET', `/documents/${or}`)).data.status, 'done');
+  const inv2 = (await A('POST', `/documents/${or}/convert`, { type: 'invoice' })).data.id;
+  // Le statut ne se force pas par l'enregistrement
+  await A('PUT', `/documents/${inv2}`, { status: 'paid' });
+  assert.equal((await A('GET', `/documents/${inv2}`)).data.status, 'draft');
+  assert.equal((await A('POST', `/documents/${inv2}/post`)).status, 200);
+  // Paiements : pas plus que le reste dû (117 €)
+  assert.equal((await A('POST', `/documents/${inv2}/payments`, { amount: 200 })).status, 400);
+  assert.equal((await A('POST', `/documents/${inv2}/payments`, { amount: 17 })).status, 200);
+  // Avoirs : un seul brouillon à la fois, jamais plus que la facture
+  const cn = await A('POST', `/documents/${inv2}/convert`, { type: 'credit_note' });
+  assert.equal(cn.status, 200);
+  assert.equal((await A('POST', `/documents/${inv2}/convert`, { type: 'credit_note' })).status, 400, 'un avoir en brouillon existe déjà');
+  assert.equal((await A('POST', `/documents/${cn.data.id}/post`)).status, 200);
+  assert.equal((await A('POST', `/documents/${inv2}/convert`, { type: 'credit_note' })).status, 400, 'facture entièrement créditée');
+  // Facture à 0 € : soldée tout de suite
+  const free = (await A('POST', '/documents', { type: 'invoice', customer_id: cust, lines: [{ ...line, discount: 100 }] })).data.id;
+  assert.equal((await A('POST', `/documents/${free}/post`)).status, 200);
+  assert.equal((await A('GET', `/documents/${free}`)).data.status, 'paid');
+});
+
+test('atelier : le bureau n\'écrase plus les saisies du mécanicien', async () => {
+  const cust = (await A('POST', '/customers', { name: 'Atelier' })).data.id;
+  const mech = (await A('POST', '/users', { name: 'Paulo', role: 'mechanic', pin: '4321' })).data.id;
+  const or = (await A('POST', '/documents', { type: 'order', customer_id: cust, lines: [{ kind: 'labor', description: 'Vidange', quantity: 1, unit_price: 80, tax_rate: 17 }] })).data.id;
+  const opened = (await A('GET', `/documents/${or}`)).data; // le bureau ouvre l'OR
+  await A('PUT', '/settings', { attendance: { kiosk_pin: false } });
+  const k = (await call('POST', '/kiosk/login', { user_id: mech })).data.token;
+  assert.equal((await call('POST', `/kiosk/orders/${or}`, { diagnosis: 'Fuite au carter', line_id: opened.lines[0].id, done: true, mileage: 123456 }, k)).status, 200);
+  assert.equal((await call('POST', `/kiosk/orders/${or}`, { mileage: 'abc' }, k)).status, 400);
+  // Le bureau enregistre sa version, ouverte avant le passage du mécanicien : refusé, rien n'est perdu
+  const stale = await A('PUT', `/documents/${or}`, { ...opened, notes: 'note du bureau' });
+  assert.equal(stale.status, 409);
+  const fresh = (await A('GET', `/documents/${or}`)).data;
+  assert.equal(fresh.diagnosis, 'Fuite au carter');
+  assert.equal(fresh.lines[0].done, 1);
+  // Après rechargement, l'enregistrement passe et la coche « fait » du mécanicien est conservée
+  assert.equal((await A('PUT', `/documents/${or}`, { ...fresh, notes: 'note du bureau', lines: fresh.lines.map((l) => ({ ...l, done: 0 })) })).status, 200);
+  assert.equal((await A('GET', `/documents/${or}`)).data.lines[0].done, 1);
+});
+
+test('fiches : formulaires contrôlés, pas d\'héritage après suppression, stock', async () => {
+  assert.equal((await A('POST', '/customers', {})).status, 400);
+  assert.match((await A('POST', '/customers', { name: '' })).data.error, /Champ obligatoire : Nom/);
+  assert.equal((await A('POST', '/customers')).status, 400, 'requête sans corps');
+  assert.equal((await A('POST', '/vehicles', { plate: 1234, customer_id: 99999 })).status, 400);
+  assert.equal((await A('POST', '/appointments', { start: 'demain', end: 'plus tard' })).status, 400);
+  assert.equal((await A('POST', '/appointments', { start: '2026-05-01T10:00', end: '2026-05-01T09:00' })).status, 400);
+  assert.equal((await A('PUT', '/customers/99999', { name: 'x' })).status, 404);
+  const prod = (await A('POST', '/products', { name: 'Filtre', sale_price: '12,50', purchase_price: 8 })).data.id;
+  assert.equal((await A('GET', `/products/${prod}`)).data.sale_price, 12.5, 'virgule décimale acceptée');
+  assert.equal((await A('POST', '/products', { name: 'P', purchase_price: 'abc' })).status, 400);
+  // Inventaire : champ vide refusé (ne met plus le stock à zéro)
+  await A('POST', `/products/${prod}/adjust`, { qty: 7 });
+  assert.equal((await A('POST', `/products/${prod}/adjust`, { qty: '' })).status, 400);
+  assert.equal((await A('GET', `/products/${prod}`)).data.qty_on_hand, 7);
+  // Fiche supprimée : ses notes et pièces jointes ne passent pas à la fiche suivante
+  const old = (await A('POST', '/customers', { name: 'Ancien' })).data.id;
+  await A('POST', `/chatter/customer/${old}/note`, { body: 'Note confidentielle' });
+  await A('POST', `/attachments/customer/${old}`, Buffer.from('x'), { 'Content-Type': 'application/pdf', 'X-Filename': 'carte.pdf' });
+  await A('DELETE', `/customers/${old}`);
+  const next = (await A('POST', '/customers', { name: 'Nouveau' })).data.id;
+  assert.equal(next, old, 'le numéro est repris par la fiche suivante');
+  assert.equal((await A('GET', `/chatter/customer/${next}`)).data.messages.length, 0);
+  assert.equal((await A('GET', `/attachments/customer/${next}`)).data.length, 0);
+  // Recherche sans accents ni majuscules, plaque sans espace
+  const c = (await A('POST', '/customers', { name: 'Élodie Müller' })).data.id;
+  await A('POST', '/vehicles', { customer_id: c, plate: 'ab 1234' });
+  assert.equal((await A('GET', '/customers?q=elodie mu')).data.length, 1);
+  assert.equal((await A('GET', '/vehicles?q=AB1234')).data.length, 1);
+  assert.equal((await A('GET', '/search?q=ÉLODIE')).data.customers.length, 1);
+  assert.equal((await A('GET', '/customers?q=%25')).data.length, 0, 'le caractère % est cherché tel quel');
+});

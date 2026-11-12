@@ -6,11 +6,12 @@ import os from 'node:os';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { db, dataDir, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime } from './src/db.js';
+import { db, dataDir, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime, isDate, likeFold } from './src/db.js';
 import { hashSecret, verifySecret, createSession, currentUser, requireAuth } from './src/auth.js';
 import {
   BusinessError, createMove, getDocument, saveDocument, convertDocument, postInvoice, registerPayment, addStockMove,
   getPurchase, savePurchase, receivePurchase, postPurchase, dashboard, trialBalance, vatReport, profitAndLoss, durationHours,
+  touchDocument,
 } from './src/business.js';
 import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, PROVIDERS } from './src/bank.js';
 import { AGENTS } from './src/agents.js';
@@ -140,6 +141,8 @@ app.use(express.static(path.resolve('public')));
 
 const api = express.Router({ caseSensitive: true });
 app.use('/api', api);
+// Une requête sans corps (ou avec un corps qui n'est pas un objet JSON) est traitée comme un formulaire vide
+api.use((req, res, next) => { if (req.body === undefined || req.body === null) req.body = {}; next(); });
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).then((r) => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
 const staff = requireAuth(['admin', 'office']);
 const adminOnly = requireAuth(['admin']);
@@ -343,6 +346,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
   const now = localDateTime();
   const uid = req.user.id;
   const { action, document_id, note } = req.body;
+  let resumed = null;
   tx(() => {
     const presence = get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid);
     if (action === 'in') {
@@ -356,19 +360,28 @@ api.post('/kiosk/clock', mech, wrap((req) => {
       stopWork(uid, now);
       const d = get("SELECT id, status FROM documents WHERE id=? AND type='order'", document_id);
       if (!d) throw new BusinessError('OR introuvable');
+      if (['invoiced', 'cancelled'].includes(d.status)) throw new BusinessError('Cet OR est clôturé');
       insert('time_entries', { user_id: uid, kind: 'work', document_id, start: now, note }, ['user_id', 'kind', 'document_id', 'start', 'note']);
-      if (d.status === 'open') run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, document_id);
+      // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
+      if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, document_id); touchDocument(document_id); resumed = document_id; }
     } else if (action === 'stop') {
       stopWork(uid, now);
     } else throw new BusinessError('Action inconnue');
   });
+  if (resumed) stageFromStatus(resumed, 'in_progress');
   return fullKioskState(req.user);
 }));
 api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
   const id = Number(req.params.id);
   const d = get("SELECT * FROM documents WHERE id=? AND type='order'", id);
   if (!d || d.status === 'invoiced') throw new BusinessError('OR non modifiable');
-  const { line_id, done, diagnosis, status, mileage, note } = req.body;
+  const { line_id, done, diagnosis, status, note } = req.body;
+  let mileage = null;
+  if (!blank(req.body.mileage)) {
+    mileage = Number(req.body.mileage);
+    if (!Number.isInteger(mileage) || mileage < 0 || mileage > 9_999_999) throw new BusinessError('Kilométrage invalide');
+  }
+  touchDocument(id);
   if (line_id !== undefined) run('UPDATE document_lines SET done=? WHERE id=? AND document_id=?', done ? 1 : 0, line_id, id);
   if (diagnosis !== undefined) run('UPDATE documents SET diagnosis=? WHERE id=?', diagnosis, id);
   if (mileage) { run('UPDATE documents SET mileage=? WHERE id=?', mileage, id); if (d.vehicle_id) run('UPDATE vehicles SET mileage=MAX(COALESCE(mileage,0),?) WHERE id=?', mileage, d.vehicle_id); }
@@ -407,39 +420,93 @@ api.get('/network', (req, res) => {
   res.json({ lan: internet ? [] : lanUrls(port), internet_server: internet, secure_url: secureUrl(req), current: `${req.protocol}://${req.get('host')}`, is_https: req.secure, port: Number(port) });
 });
 api.get('/search', (req, res) => {
-  const q = `%${req.query.q || ''}%`;
+  const q = likeFold(req.query.q || '');
+  const plate = likeFold(String(req.query.q || '').replace(/\s/g, ''));
+  const u = req.user;
+  // Documents : seulement les types que l'utilisateur a le droit de voir (filtré AVANT la limite de 8 résultats)
+  const docTypes = [can(u, 'ventes') ? "d.type!='order'" : null, can(u, 'atelier') ? "d.type='order'" : null].filter(Boolean);
   res.json({
-    customers: !can(req.user, 'contacts') ? [] : all('SELECT id, name, company, phone, city FROM customers WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? OR mobile LIKE ? OR email LIKE ? LIMIT 8', q, q, q, q, q),
-    vehicles: !can(req.user, 'vehicules') ? [] : all(`SELECT v.id, v.plate, v.make, v.model, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE REPLACE(v.plate,' ','') LIKE REPLACE(?,' ','') OR v.vin LIKE ? OR v.model LIKE ? LIMIT 8`, q, q, q),
-    documents: all('SELECT d.id, d.type, d.number, d.status, d.total, c.name AS customer_name FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.number LIKE ? OR d.reference LIKE ? ORDER BY d.id DESC LIMIT 8', q, q).filter((d) => can(req.user, d.type === 'order' ? 'atelier' : 'ventes')),
-    products: !can(req.user, 'inventaire') ? [] : all('SELECT id, ref, name, qty_on_hand, sale_price FROM products WHERE ref LIKE ? OR name LIKE ? OR ean LIKE ? LIMIT 8', q, q, q),
+    customers: !can(u, 'contacts') ? [] : all(`SELECT id, name, company, phone, city FROM customers WHERE fold(name) LIKE ? ESCAPE '\\' OR fold(company) LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\' OR mobile LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\' LIMIT 8`, q, q, q, q, q),
+    vehicles: !can(u, 'vehicules') ? [] : all(`SELECT v.id, v.plate, v.make, v.model, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE fold(REPLACE(v.plate,' ','')) LIKE ? ESCAPE '\\' OR fold(v.vin) LIKE ? ESCAPE '\\' OR fold(v.model) LIKE ? ESCAPE '\\' LIMIT 8`, plate, q, q),
+    documents: !docTypes.length ? [] : all(`SELECT d.id, d.type, d.number, d.status, d.total, c.name AS customer_name FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE (fold(d.number) LIKE ? ESCAPE '\\' OR fold(d.reference) LIKE ? ESCAPE '\\') AND (${docTypes.join(' OR ')}) ORDER BY d.id DESC LIMIT 8`, q, q),
+    products: !can(u, 'inventaire') ? [] : all(`SELECT id, ref, name, qty_on_hand, sale_price FROM products WHERE fold(ref) LIKE ? ESCAPE '\\' OR fold(name) LIKE ? ESCAPE '\\' OR ean LIKE ? ESCAPE '\\' LIMIT 8`, q, q, q),
   });
 });
 
 // ---------- CRUD générique ----------
-function crud(name, table, columns, { list, detail, beforeSave } = {}) {
+const FIELD_LABELS = { name: 'Nom', start: 'Début', end: 'Fin', payment_terms: 'Délai de paiement', year: 'Année', mileage: 'Kilométrage', next_service_km: 'Prochain entretien (km)',
+  first_registration: 'Première immatriculation', next_inspection: 'Contrôle technique', next_service_date: 'Prochain entretien', purchase_price: 'Prix d\'achat', sale_price: 'Prix de vente',
+  tax_rate: 'TVA', qty_min: 'Stock minimum', labor_hours: 'Temps barème', opening_balance: 'Solde initial', customer_id: 'Client', vehicle_id: 'Véhicule', supplier_id: 'Fournisseur', mechanic_id: 'Mécanicien', document_id: 'Document' };
+const label = (k) => FIELD_LABELS[k] || k;
+const blank = (v) => v === undefined || v === null || v === '';
+/**
+ * Contrôle d'un formulaire avant l'enregistrement : champs obligatoires, vrais nombres (virgule acceptée),
+ * vraies dates, fiches liées existantes. Une erreur claire en français plutôt qu'une erreur technique.
+ */
+function cleanBody(body, { required = [], numbers = [], dates = [], datetimes = [], refs = {} } = {}, creating) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BusinessError('Données manquantes');
+  const d = { ...body };
+  for (const k of required) {
+    if (typeof d[k] === 'string') d[k] = d[k].trim();
+    if (creating ? blank(d[k]) : k in d && blank(d[k])) throw new BusinessError(`Champ obligatoire : ${label(k)}`);
+    if (!blank(d[k]) && typeof d[k] !== 'string') d[k] = String(d[k]);
+  }
+  for (const k of numbers) {
+    if (!(k in d)) continue;
+    if (blank(d[k])) { d[k] = null; continue; }
+    const n = typeof d[k] === 'string' ? Number(d[k].trim().replace(',', '.')) : Number(d[k]);
+    if (!Number.isFinite(n) || typeof d[k] === 'object') throw new BusinessError(`${label(k)} : nombre invalide`);
+    d[k] = n;
+  }
+  for (const k of dates) if (!blank(d[k]) && !isDate(d[k])) throw new BusinessError(`${label(k)} : date invalide`);
+  for (const k of datetimes) if (!blank(d[k]) && !validDateTime(d[k])) throw new BusinessError(`${label(k)} : date ou heure invalide`);
+  for (const [k, table] of Object.entries(refs)) if (!blank(d[k]) && !get(`SELECT 1 FROM ${table} WHERE id=?`, d[k])) throw new BusinessError(`${label(k)} introuvable`);
+  return d;
+}
+/** Efface ce qui était attaché à une fiche supprimée (sinon la fiche suivante, qui reprend son numéro, en hériterait). */
+function forgetRecord(model, id) {
+  for (const a of listAttachments(model, id)) deleteAttachment(a.id);
+  run('DELETE FROM messages WHERE model=? AND record_id=?', model, id);
+  run('DELETE FROM activities WHERE model=? AND record_id=?', model, id);
+  run("UPDATE emails SET status='cancelled' WHERE model=? AND record_id=? AND status='scheduled'", model, id);
+  run('UPDATE emails SET model=NULL, record_id=NULL WHERE model=? AND record_id=?', model, id);
+}
+function crud(name, table, columns, { list, detail, beforeSave, spec, check, model } = {}) {
+  const prepare = (req, creating) => {
+    let d = cleanBody(req.body, spec, creating);
+    if (beforeSave) d = beforeSave(d);
+    if (check) check(d, creating ? null : get(`SELECT * FROM ${table} WHERE id=?`, req.params.id));
+    return d;
+  };
   api.get(`/${name}`, (req, res) => res.json(list ? list(req) : all(`SELECT * FROM ${table} ORDER BY id DESC`)));
   api.get(`/${name}/:id`, wrap((req) => {
     const r = detail ? detail(Number(req.params.id)) : get(`SELECT * FROM ${table} WHERE id=?`, req.params.id);
     if (!r) throw new BusinessError('Introuvable', 404);
     return r;
   }));
-  api.post(`/${name}`, wrap((req) => { const d = beforeSave ? beforeSave(req.body) : req.body; return { id: insert(table, d, columns) }; }));
-  api.put(`/${name}/:id`, wrap((req) => { const d = beforeSave ? beforeSave(req.body) : req.body; update(table, req.params.id, d, columns); return { id: Number(req.params.id) }; }));
+  api.post(`/${name}`, wrap((req) => ({ id: insert(table, prepare(req, true), columns) })));
+  api.put(`/${name}/:id`, wrap((req) => {
+    if (!get(`SELECT 1 FROM ${table} WHERE id=?`, req.params.id)) throw new BusinessError('Introuvable', 404);
+    update(table, req.params.id, prepare(req, false), columns);
+    return { id: Number(req.params.id) };
+  }));
   api.delete(`/${name}/:id`, wrap((req) => {
-    try { run(`DELETE FROM ${table} WHERE id=?`, req.params.id); } catch { throw new BusinessError('Suppression impossible : cet élément est utilisé ailleurs.'); }
+    try {
+      tx(() => { run(`DELETE FROM ${table} WHERE id=?`, req.params.id); if (model) forgetRecord(model, Number(req.params.id)); });
+    } catch (e) { if (e instanceof BusinessError) throw e; throw new BusinessError('Suppression impossible : cet élément est utilisé ailleurs.'); }
     return { ok: true };
   }));
 }
 
-const upperPlate = (b) => ({ ...b, plate: b.plate ? b.plate.toUpperCase().trim() : b.plate, vin: b.vin ? b.vin.toUpperCase().trim() : b.vin });
+const upperPlate = (b) => ({ ...b, plate: b.plate ? String(b.plate).toUpperCase().trim() : b.plate, vin: b.vin ? String(b.vin).toUpperCase().trim() : b.vin });
 
 crud('customers', 'customers', ['type', 'name', 'company', 'vat_number', 'email', 'phone', 'mobile', 'address', 'zip', 'city', 'country', 'payment_terms', 'notes', 'marketing_ok'], {
+  model: 'customer', spec: { required: ['name'], numbers: ['payment_terms'] },
   list: (req) => {
-    const q = `%${req.query.q || ''}%`;
+    const q = likeFold(req.query.q || '');
     return all(`SELECT c.*, (SELECT COUNT(*) FROM vehicles WHERE customer_id=c.id) AS vehicle_count,
       (SELECT ROUND(SUM(total-amount_paid),2) FROM documents WHERE customer_id=c.id AND type='invoice' AND status IN ('posted','partial')) AS balance
-      FROM customers c WHERE c.name LIKE ? OR c.company LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.mobile LIKE ? ORDER BY c.name LIMIT 500`, q, q, q, q, q);
+      FROM customers c WHERE fold(c.name) LIKE ? ESCAPE '\\' OR fold(c.company) LIKE ? ESCAPE '\\' OR fold(c.email) LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\' OR c.mobile LIKE ? ESCAPE '\\' ORDER BY c.name LIMIT 500`, q, q, q, q, q);
   },
   detail: (id) => {
     const c = get('SELECT * FROM customers WHERE id=?', id);
@@ -450,11 +517,14 @@ crud('customers', 'customers', ['type', 'name', 'company', 'vat_number', 'email'
   },
 });
 crud('vehicles', 'vehicles', ['customer_id', 'plate', 'vin', 'make', 'model', 'version', 'fuel', 'year', 'first_registration', 'mileage', 'color', 'engine_code', 'tyre_size', 'next_inspection', 'next_service_date', 'next_service_km', 'notes'], {
-  beforeSave: upperPlate,
+  beforeSave: upperPlate, model: 'vehicle',
+  spec: { numbers: ['year', 'mileage', 'next_service_km'], dates: ['first_registration', 'next_inspection', 'next_service_date'], refs: { customer_id: 'customers' } },
   list: (req) => {
-    const q = `%${req.query.q || ''}%`;
+    const q = likeFold(req.query.q || '');
+    // la plaque se retrouve avec ou sans espace (« AB1234 » trouve « AB 1234 »)
     return all(`SELECT v.*, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id
-      WHERE v.plate LIKE ? OR v.vin LIKE ? OR v.make LIKE ? OR v.model LIKE ? OR c.name LIKE ? ORDER BY v.id DESC LIMIT 500`, q, q, q, q, q);
+      WHERE fold(v.plate) LIKE ? ESCAPE '\\' OR fold(REPLACE(v.plate,' ','')) LIKE ? ESCAPE '\\' OR fold(v.vin) LIKE ? ESCAPE '\\' OR fold(v.make) LIKE ? ESCAPE '\\' OR fold(v.model) LIKE ? ESCAPE '\\' OR fold(c.name) LIKE ? ESCAPE '\\' ORDER BY v.id DESC LIMIT 500`,
+    q, likeFold(String(req.query.q || '').replace(/\s/g, '')), q, q, q, q);
   },
   detail: (id) => {
     const v = get('SELECT v.*, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE v.id=?', id);
@@ -466,13 +536,15 @@ crud('vehicles', 'vehicles', ['customer_id', 'plate', 'vin', 'make', 'model', 'v
   },
 });
 crud('suppliers', 'suppliers', ['name', 'vat_number', 'email', 'phone', 'address', 'zip', 'city', 'country', 'iban', 'website', 'default_account', 'notes'], {
+  model: 'supplier', spec: { required: ['name'] },
   list: () => all(`SELECT s.*, (SELECT ROUND(SUM(total-amount_paid),2) FROM purchases WHERE supplier_id=s.id AND posted=1 AND status!='paid') AS balance FROM suppliers s ORDER BY name`),
 });
 crud('products', 'products', ['ref', 'ean', 'name', 'category', 'brand', 'supplier_id', 'purchase_price', 'sale_price', 'tax_rate', 'qty_min', 'location', 'unit', 'is_service', 'labor_hours', 'active'], {
+  model: 'product', spec: { required: ['name'], numbers: ['purchase_price', 'sale_price', 'tax_rate', 'qty_min', 'labor_hours'], refs: { supplier_id: 'suppliers' } },
   list: (req) => {
-    const q = `%${req.query.q || ''}%`;
+    const q = likeFold(req.query.q || '');
     return all(`SELECT p.*, s.name AS supplier_name FROM products p LEFT JOIN suppliers s ON s.id=p.supplier_id
-      WHERE (p.name LIKE ? OR p.ref LIKE ? OR p.ean LIKE ? OR p.brand LIKE ?) ${req.query.low ? 'AND p.qty_on_hand<=p.qty_min AND p.qty_min>0 AND p.is_service=0' : ''}
+      WHERE (fold(p.name) LIKE ? ESCAPE '\\' OR fold(p.ref) LIKE ? ESCAPE '\\' OR p.ean LIKE ? ESCAPE '\\' OR fold(p.brand) LIKE ? ESCAPE '\\') ${req.query.low ? 'AND p.qty_on_hand<=p.qty_min AND p.qty_min>0 AND p.is_service=0' : ''}
       ORDER BY p.name LIMIT 1000`, q, q, q, q);
   },
   detail: (id) => {
@@ -484,8 +556,10 @@ crud('products', 'products', ['ref', 'ean', 'name', 'category', 'brand', 'suppli
 api.post('/products/:id/adjust', wrap((req) => {
   const p = get('SELECT * FROM products WHERE id=?', req.params.id);
   if (!p) throw new BusinessError('Article introuvable', 404);
-  const target = Number(req.body.qty);
-  if (Number.isNaN(target)) throw new BusinessError('Quantité invalide');
+  // Champ laissé vide = pas de quantité comptée (et surtout pas « zéro »)
+  if (blank(req.body.qty) || typeof req.body.qty === 'boolean') throw new BusinessError('Indiquez la quantité comptée');
+  const target = typeof req.body.qty === 'string' ? Number(req.body.qty.replace(',', '.')) : Number(req.body.qty);
+  if (!Number.isFinite(target)) throw new BusinessError('Quantité invalide');
   const diff = round2(target - p.qty_on_hand);
   if (diff) addStockMove({ product_id: p.id, qty: diff, kind: 'adjust', unit_cost: p.purchase_price, note: req.body.note || 'Inventaire', user_id: req.user.id });
   return { ok: true, diff };
@@ -495,7 +569,9 @@ api.get('/stock/moves', (req, res) => res.json(all(`SELECT m.*, p.ref, p.name, d
 api.get('/stock/valuation', (req, res) => res.json(get('SELECT ROUND(SUM(qty_on_hand*purchase_price),2) AS purchase_value, ROUND(SUM(qty_on_hand*sale_price),2) AS sale_value, COUNT(*) AS items FROM products WHERE active=1 AND is_service=0 AND qty_on_hand>0')));
 // Proposition de réapprovisionnement groupée par fournisseur
 api.post('/stock/reorder', wrap(() => {
-  const low = all('SELECT * FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND supplier_id IS NOT NULL');
+  // Les articles déjà en commande (brouillon ou commandé, pas encore reçus) ne sont pas recommandés une deuxième fois
+  const low = all(`SELECT * FROM products p WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND supplier_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM purchase_lines l JOIN purchases pu ON pu.id=l.purchase_id WHERE l.product_id=p.id AND pu.posted=0 AND pu.status IN ('draft','ordered') AND l.received_qty < l.quantity)`);
   const bySupplier = {};
   for (const p of low) (bySupplier[p.supplier_id] ||= []).push(p);
   const created = [];
@@ -505,10 +581,14 @@ api.post('/stock/reorder', wrap(() => {
       lines: items.map((p) => ({ product_id: p.id, description: `${p.ref || ''} ${p.name}`.trim(), quantity: Math.max(1, p.qty_min * 2 - p.qty_on_hand), unit_price: p.purchase_price, tax_rate: p.tax_rate })),
     }));
   }
-  return { created };
+  const lowCount = (extra) => get(`SELECT COUNT(*) n FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND ${extra}`).n;
+  return { created, already_ordered: lowCount('supplier_id IS NOT NULL') - low.length, no_supplier: lowCount('supplier_id IS NULL') };
 }));
 
 crud('appointments', 'appointments', ['customer_id', 'vehicle_id', 'mechanic_id', 'start', 'end', 'title', 'notes', 'status', 'document_id', 'courtesy_car'], {
+  model: 'appointment',
+  spec: { required: ['start', 'end'], datetimes: ['start', 'end'], refs: { customer_id: 'customers', vehicle_id: 'vehicles', mechanic_id: 'users', document_id: 'documents' } },
+  check: (d, cur) => { const st = d.start ?? cur?.start, en = d.end ?? cur?.end; if (st && en && en <= st) throw new BusinessError('La fin du rendez-vous doit être après le début'); },
   list: (req) => all(`SELECT a.*, c.name AS customer_name, c.phone AS customer_phone, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color, d.number AS document_number
     FROM appointments a LEFT JOIN customers c ON c.id=a.customer_id LEFT JOIN vehicles v ON v.id=a.vehicle_id LEFT JOIN users u ON u.id=a.mechanic_id LEFT JOIN documents d ON d.id=a.document_id
     WHERE substr(a.start,1,10) BETWEEN ? AND ? ORDER BY a.start`, req.query.from || '0000', req.query.to || '9999'),
@@ -550,10 +630,21 @@ api.delete('/documents/:id', wrap((req) => {
   const d = get('SELECT * FROM documents WHERE id=?', req.params.id);
   if (!d) throw new BusinessError('Introuvable', 404);
   if ((d.type === 'invoice' || d.type === 'credit_note') && d.status !== 'draft') throw new BusinessError('Une facture validée ne peut pas être supprimée : créez une note de crédit.');
+  if (get("SELECT 1 FROM payments WHERE document_id=?", d.id)) throw new BusinessError('Ce document a des paiements enregistrés : il ne peut pas être supprimé.');
   tx(() => {
     run('UPDATE documents SET parent_id=NULL WHERE parent_id=?', d.id);
     run('UPDATE appointments SET document_id=NULL WHERE document_id=?', d.id);
+    run('DELETE FROM order_links WHERE document_id=?', d.id);
+    run('DELETE FROM order_posts WHERE document_id=?', d.id);
     run('DELETE FROM documents WHERE id=?', d.id);
+    forgetRecord('document', d.id);
+    // La facture brouillon d'un OR est supprimée : l'OR redevient « Terminé » et peut de nouveau être facturé
+    const parent = d.parent_id && d.type === 'invoice' ? get('SELECT * FROM documents WHERE id=?', d.parent_id) : null;
+    if (parent?.type === 'order' && parent.status === 'invoiced' && !get("SELECT 1 FROM documents WHERE parent_id=? AND type='invoice'", parent.id)) {
+      run("UPDATE documents SET status='done' WHERE id=?", parent.id);
+      touchDocument(parent.id);
+      stageFromStatus(parent.id, 'done');
+    }
   });
   return { ok: true };
 }));
@@ -563,6 +654,7 @@ api.post('/documents/:id/status', wrap((req) => {
   if (!allowed[d?.type]?.includes(req.body.status)) throw new BusinessError('Statut invalide');
   if (d.status === 'invoiced') throw new BusinessError('OR déjà facturé');
   run('UPDATE documents SET status=? WHERE id=?', req.body.status, d.id);
+  touchDocument(d.id);
   if (d.type === 'order') stageFromStatus(d.id, req.body.status);
   return { ok: true };
 }));
@@ -603,7 +695,7 @@ api.delete('/purchases/:id', wrap((req) => {
   const p = get('SELECT * FROM purchases WHERE id=?', req.params.id);
   if (p?.posted) throw new BusinessError('Achat comptabilisé : suppression impossible');
   if (get('SELECT 1 FROM purchase_lines WHERE purchase_id=? AND received_qty>0', req.params.id)) throw new BusinessError('Marchandise déjà réceptionnée');
-  run('DELETE FROM purchases WHERE id=?', req.params.id);
+  tx(() => { run('DELETE FROM purchases WHERE id=?', req.params.id); forgetRecord('purchase', Number(req.params.id)); });
   return { ok: true };
 }));
 // Option « validation des achats » : au-delà du seuil, un achat encore en brouillon doit passer par un administrateur des achats
@@ -860,7 +952,7 @@ api.get('/crm/leads', (req, res) => res.json(listLeads(req.query)));
 api.get('/crm/leads/:id', wrap((req) => getLead(Number(req.params.id))));
 api.post('/crm/leads', wrap((req) => ({ id: saveLead({ user_id: req.user.id, ...req.body }) })));
 api.put('/crm/leads/:id', wrap((req) => ({ id: saveLead(req.body, Number(req.params.id)) })));
-api.delete('/crm/leads/:id', wrap((req) => { run('DELETE FROM crm_leads WHERE id=?', req.params.id); return { ok: true }; }));
+api.delete('/crm/leads/:id', wrap((req) => { tx(() => { run('DELETE FROM crm_leads WHERE id=?', req.params.id); forgetRecord('lead', Number(req.params.id)); }); return { ok: true }; }));
 api.post('/crm/leads/:id/move', wrap((req) => moveLead(Number(req.params.id), Number(req.body.stage_id), Number(req.body.sequence) || 0)));
 api.post('/crm/leads/:id/won', wrap((req) => markWon(Number(req.params.id))));
 api.post('/crm/leads/:id/lost', wrap((req) => markLost(Number(req.params.id), req.body.reason)));
@@ -1055,8 +1147,17 @@ api.delete('/agent-results/:id', (req, res) => { run('DELETE FROM agent_results 
 app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.resolve('public/index.html')));
 api.use((req, res) => res.status(404).json({ error: 'Route inconnue' }));
 app.use((err, req, res, _next) => {
-  if (!(err instanceof BusinessError)) console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Erreur serveur' });
+  if (err instanceof BusinessError) return res.status(err.status || 400).json({ error: err.message });
+  // Requête mal formée (JSON invalide, fichier trop gros…) : erreur du client, pas du serveur
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Requête illisible (JSON invalide)' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Fichier ou message trop volumineux' });
+  // Contraintes de la base (champ obligatoire vide, fiche liée absente…) : message compréhensible, sans texte SQL
+  if (err.code === 'ERR_SQLITE_ERROR' && /constraint failed/i.test(err.message || '')) {
+    const m = /NOT NULL constraint failed: \w+\.(\w+)/.exec(err.message);
+    return res.status(400).json({ error: m ? `Champ obligatoire : ${label(m[1])}` : /FOREIGN KEY/.test(err.message) ? 'Une fiche liée est introuvable ou encore utilisée ailleurs.' : 'Enregistrement impossible : cette valeur existe déjà.' });
+  }
+  console.error(err);
+  res.status(err.status && err.status < 500 ? err.status : 500).json({ error: err.status && err.status < 500 ? err.message : 'Erreur interne du logiciel. Réessayez ; si le problème persiste, consultez le journal du serveur.' });
 });
 
 const PORT = Number(process.env.PORT || 3000);

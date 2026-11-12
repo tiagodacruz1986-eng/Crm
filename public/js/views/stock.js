@@ -1,5 +1,6 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, num, date, datetime, today, TAX_RATES } from '../api.js';
+import { round2, computeTotals } from '../totals.js';
 
 // Envoi d'un fichier brut (PDF, photo) à l'API
 async function uploadFile(url, file) {
@@ -30,7 +31,10 @@ export const ProductList = {
     onMounted(load);
     const reorder = async () => {
       const r = await act(() => POST('/stock/reorder'));
-      if (!r.created.length) return act(async () => { throw new Error('Aucun article sous le seuil avec un fournisseur défini'); });
+      if (!r.created.length) {
+        const why = r.already_ordered ? `${r.already_ordered} article(s) sous le seuil sont déjà en commande (voir Achats).` : r.no_supplier ? `${r.no_supplier} article(s) sous le seuil n'ont pas de fournisseur : indiquez-le sur la fiche article.` : 'Aucun article sous le seuil de stock.';
+        return toast(why, 'error');
+      }
       go(r.created.length === 1 ? '/purchase/' + r.created[0] : '/purchases');
     };
     return { rows, q, low, load, tab, moves, loadMoves, valuation, reorder, go, money, num, datetime, MOVE_KIND };
@@ -119,7 +123,7 @@ export const ProductDetail = {
     <Modal v-if="adj" title="Inventaire / correction de stock" @close="adj = null">
       <label>Quantité réellement en stock<input v-model.number="adj.qty" type="number" step="0.01"></label>
       <label>Motif<input v-model="adj.note"></label>
-      <template #foot><button class="btn primary" @click="adjust">Valider</button></template>
+      <template #foot><button class="btn primary" :disabled="adj.qty === '' || adj.qty === null || adj.qty === undefined" @click="adjust">Valider</button></template>
     </Modal>
   </div>`,
 };
@@ -224,15 +228,12 @@ export const PurchaseEditor = {
     };
     onMounted(async () => {
       suppliers.value = await GET('/suppliers');
-      accounts.value = (await GET('/accounting/accounts')).filter((a) => a.type === 'expense' || a.code.startsWith('2') || a.code.startsWith('3'));
+      accounts.value = (await GET('/accounting/accounts').catch(() => [])).filter((a) => a.type === 'expense' || a.code.startsWith('2') || a.code.startsWith('3'));
       load();
     });
-    const lineTotal = (l) => Math.round((l.quantity || 0) * (l.unit_price || 0) * 100) / 100;
-    const totals = computed(() => {
-      const sub = (p.value?.lines || []).reduce((s, l) => s + lineTotal(l), 0);
-      const tax = (p.value?.lines || []).reduce((s, l) => s + lineTotal(l) * (l.tax_rate || 0) / 100, 0);
-      return { sub, tax: Math.round(tax * 100) / 100, total: Math.round((sub + tax) * 100) / 100 };
-    });
+    const lineTotal = (l) => round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+    // TVA arrondie par taux, comme sur le serveur : mêmes totaux que dans la liste et en comptabilité
+    const totals = computed(() => computeTotals((p.value?.lines || []).map((l) => ({ ...l, kind: 'part', discount: 0 }))));
     const addLine = () => p.value.lines.push({ description: '', quantity: 1, unit_price: 0, tax_rate: 17, product_id: null, account_code: null });
     const pickProduct = (l, x) => { if (x) Object.assign(l, { product_id: x.id, description: `${x.ref ? x.ref + ' — ' : ''}${x.name}`, unit_price: x.purchase_price, tax_rate: x.tax_rate }); };
     const save = async () => {
@@ -319,7 +320,7 @@ export const SupplierList = {
     const edit = ref(null);
     const accounts = ref([]);
     const load = async () => { rows.value = await GET('/suppliers'); };
-    onMounted(async () => { load(); accounts.value = (await GET('/accounting/accounts')).filter((a) => a.type === 'expense'); });
+    onMounted(async () => { load(); accounts.value = (await GET('/accounting/accounts').catch(() => [])).filter((a) => a.type === 'expense'); });
     const save = async () => {
       const s = edit.value;
       if (s.id) await act(() => PUT('/suppliers/' + s.id, s), 'Enregistré'); else await act(() => POST('/suppliers', s), 'Fournisseur créé');

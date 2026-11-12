@@ -2,6 +2,7 @@
 // Utilisé pour l'impression / PDF et pour l'aperçu en direct des paramètres (avec un document d'exemple).
 import { computed, watchEffect, onUnmounted } from 'vue';
 import { money, date, DOC_TYPES, store } from './api.js';
+import { lineTotal, computeTotals } from './totals.js';
 
 export const LAYOUT_TEMPLATES = [
   { id: 'moderne', name: 'Moderne', desc: 'Épuré, titre en couleur' },
@@ -46,7 +47,6 @@ export function sampleDocument(type = 'invoice') {
   };
 }
 
-const lineTotal = (l) => (l.kind === 'text' ? 0 : Math.round((l.quantity || 0) * (l.unit_price || 0) * (1 - (l.discount || 0) / 100) * 100) / 100);
 const TITLES = { order: 'Ordre de réparation' };
 const PAPER = { A4: ['210mm', '297mm'], Letter: ['216mm', '279mm'] };
 
@@ -59,14 +59,8 @@ export const DocPrint = {
     const font = computed(() => (LAYOUT_FONTS.find((f) => f.id === L.value.font) || LAYOUT_FONTS[0]).css);
     const paper = computed(() => PAPER[L.value.paper] || PAPER.A4);
     const vars = computed(() => ({ '--p': L.value.primary || '#2563eb', '--s': L.value.secondary || '#0f172a', '--font': font.value, '--pw': paper.value[0], '--ph': paper.value[1] }));
-    const totals = computed(() => {
-      const byRate = {};
-      let sub = 0;
-      for (const l of props.doc?.lines || []) { if (l.kind === 'text') continue; const t = lineTotal(l); sub += t; byRate[l.tax_rate] = (byRate[l.tax_rate] || 0) + t; }
-      const taxes = Object.entries(byRate).map(([rate, base]) => ({ rate, base, amount: Math.round(base * rate) / 100 }));
-      const tax = taxes.reduce((a, t) => a + t.amount, 0);
-      return { sub, taxes, total: Math.round((sub + tax) * 100) / 100 };
-    });
+    // Mêmes règles de calcul que le serveur : le document imprimé porte le montant enregistré en comptabilité
+    const totals = computed(() => computeTotals(props.doc?.lines));
     const hasDiscount = computed(() => L.value.show_discount !== false && (props.doc?.lines || []).some((l) => l.discount));
     const validity = computed(() => store.settings?.options?.ventes?.quote_validity_days || 30);
     const title = computed(() => TITLES[props.doc?.type] || DOC_TYPES[props.doc?.type] || 'Document');
