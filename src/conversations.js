@@ -13,6 +13,11 @@ if (!all('PRAGMA table_info(agent_messages)').some((c) => c.name === 'conversati
   db.exec('ALTER TABLE agent_messages ADD COLUMN conversation_id INTEGER');
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_msg_conv ON agent_messages(conversation_id, id)');
+// Chaque conversation appartient à la personne qui l'a ouverte (les anciennes, sans propriétaire, restent visibles du gérant)
+if (!all('PRAGMA table_info(agent_conversations)').some((c) => c.name === 'user_id')) db.exec('ALTER TABLE agent_conversations ADD COLUMN user_id INTEGER');
+if (!all('PRAGMA table_info(agent_results)').some((c) => c.name === 'user_id')) db.exec('ALTER TABLE agent_results ADD COLUMN user_id INTEGER');
+/** Cette conversation est-elle visible de cet utilisateur ? (le gérant voit tout ; `user` absent = le système) */
+export const ownsConversation = (c, user) => Boolean(c) && (!user || user.role === 'admin' || c.user_id === user.id);
 
 // Anciens messages (avant l'historique) : une conversation « Discussions précédentes » par agent
 for (const { agent_id: agentId } of all('SELECT DISTINCT agent_id FROM agent_messages WHERE conversation_id IS NULL')) {
@@ -27,12 +32,12 @@ const titleOf = (text) => {
 };
 
 /** Conversation existante (vérifiée pour cet agent) ou nouvelle, titrée d'après la première question. */
-export function ensureConversation(agentId, conversationId, firstText) {
+export function ensureConversation(agentId, conversationId, firstText, user = null) {
   if (conversationId) {
     const c = get('SELECT * FROM agent_conversations WHERE id=? AND agent_id=?', conversationId, agentId);
-    if (c) return c.id;
+    if (ownsConversation(c, user)) return c.id;
   }
-  return insert('agent_conversations', { agent_id: agentId, title: titleOf(firstText || 'Nouvelle conversation') }, ['agent_id', 'title']);
+  return insert('agent_conversations', { agent_id: agentId, title: titleOf(firstText || 'Nouvelle conversation'), user_id: user?.id ?? null }, ['agent_id', 'title', 'user_id']);
 }
 
 export function addMessage(conversationId, agentId, role, content) {
@@ -44,9 +49,10 @@ export const historyOf = (conversationId, limit = 30) =>
   all('SELECT role, content FROM agent_messages WHERE conversation_id=? ORDER BY id DESC LIMIT ?', conversationId, limit).reverse();
 
 /** Liste des conversations (d'un agent ou de toute l'équipe), avec recherche plein texte. */
-export function listConversations({ agent, q, limit = 60 } = {}) {
+export function listConversations({ agent, q, limit = 60, user = null } = {}) {
   const where = [];
   const params = [];
+  if (user && user.role !== 'admin') { where.push('c.user_id=?'); params.push(user.id); }
   if (agent) { where.push('c.agent_id=?'); params.push(agent); }
   if (q?.trim()) {
     where.push('(c.title LIKE ? OR EXISTS (SELECT 1 FROM agent_messages m WHERE m.conversation_id=c.id AND m.content LIKE ?))');

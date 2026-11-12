@@ -65,7 +65,6 @@ export function setStage(docId, stage, by = 'Garage') {
   if (status && status !== d.status) run('UPDATE documents SET status=? WHERE id=?', status, docId);
   // Véhicule prêt : les chronos de travail encore ouverts sur cet OR s'arrêtent
   if (stage === 'ready') run("UPDATE time_entries SET end=? WHERE document_id=? AND kind='work' AND end IS NULL", localDateTime(), docId);
-  touchDocument(docId);
   const s = STAGES[stageIndex(stage)];
   insert('order_posts', { document_id: docId, author_role: 'system', author_name: by, body: `${s.icon} Étape : ${s.label}`, kind: 'stage' }, ['document_id', 'author_role', 'author_name', 'body', 'kind']);
   logMessage('document', docId, `${s.icon} Étape du suivi client : ${s.label} (${by})`, null, 'system');

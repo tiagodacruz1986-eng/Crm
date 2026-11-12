@@ -223,9 +223,13 @@ export const DocumentEditor = {
     const canCancelPay = computed(() => can('banque', 'manager'));
     const cancelPay = async (p) => {
       if (!confirm(`Annuler le paiement de ${money(p.amount)} du ${date(p.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
+      if (dirty.value) await save(true);
       await act(() => DEL('/payments/' + p.id), 'Paiement annulé'); await load();
     };
-    const pay = async (p) => { await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); };
+    // (notes internes en cours de saisie : enregistrées avant, pour ne pas être perdues au rechargement)
+    const pay = async (p) => { if (dirty.value) await save(true); await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); };
+    // Le suivi en direct a changé (étape, accord du client…) : l'OR affiché se met à jour tant qu'aucune saisie n'est en cours
+    const onLive = async () => { if (!dirty.value && doc.value?.id) await load(); };
     const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); dirty.value = false; history.back(); };
     const print = async () => { if (dirty.value && !locked.value) await save(true); setTimeout(() => window.print(), 100); };
 
@@ -241,7 +245,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -352,7 +356,7 @@ export const DocumentEditor = {
           <div v-if="dirty && !locked" class="muted small" style="margin-top:10px">● Modifications non enregistrées</div>
           <Teleport to="body"><button v-if="dirty && !locked" class="btn primary save-fab" @click="save()">Enregistrer</button></Teleport>
         </div>
-        <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id"/>
+        <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id" @changed="onLive"/>
         <div class="card" v-if="doc.type==='order' && !isNew">
           <h2>⏱️ Temps atelier</h2>
           <div class="totals"><span class="muted">Heures vendues</span><b>{{ hours(doc.hours_sold) }}</b><span class="muted">Heures pointées</span><b :class="doc.hours_spent > doc.hours_sold ? 'neg' : 'pos'">{{ hours(doc.hours_spent) }}</b></div>

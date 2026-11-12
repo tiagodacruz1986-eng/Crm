@@ -6,7 +6,8 @@ import { MailComposer } from './mail.js';
 export const LivePanel = {
   props: { docId: [Number, String] },
   components: { MailComposer },
-  setup(props) {
+  emits: ['changed'],
+  setup(props, { emit }) {
     const d = ref(null);
     const text = ref('');
     const isPublic = ref(true);
@@ -19,7 +20,8 @@ export const LivePanel = {
     onMounted(() => {
       load();
       es = new EventSource(`/api/live/${props.docId}/events`);
-      es.onmessage = load;
+      // un changement (étape, message, accord du client…) : le suivi se recharge et prévient l'écran de l'OR
+      es.onmessage = async () => { await load(); emit('changed'); };
     });
     onUnmounted(() => es?.close());
     const link = (role) => d.value?.links.find((l) => l.role === role);

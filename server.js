@@ -36,7 +36,7 @@ import { options, cleanOptions, startAutomation, runFollowups, runAppointmentRem
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
-import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation } from './src/conversations.js';
+import { listConversations, conversationMessages, getConversation, updateConversation, deleteConversation, ownsConversation } from './src/conversations.js';
 import { startScheduler, computeNextRun, executeTask, running } from './src/scheduler.js';
 
 const app = express();
@@ -146,6 +146,9 @@ app.use(express.static(path.resolve('public')));
 
 const api = express.Router({ caseSensitive: true });
 app.use('/api', api);
+// Aucune adresse de l'API ne contient de caractère encodé (« %31 » pour « 1 »…) : on les refuse, car les règles de droits
+// lisent l'adresse telle qu'elle est écrite alors que le serveur la décode ensuite
+api.use((req, res, next) => (req.path.includes('%') ? res.status(400).json({ error: 'Adresse invalide' }) : next()));
 // Un identifiant de fiche est toujours un nombre (/customers/abc n'existe pas ; sans ce contrôle, « abc » pouvait créer une nouvelle fiche)
 api.param('id', (req, res, next, v) => (/^\d{1,15}$/.test(v) || /^\/agents\//.test(req.path) ? next() : res.status(404).json({ error: 'Introuvable' })));
 // Une requête sans corps (ou avec un corps qui n'est pas un objet JSON) est traitée comme un formulaire vide
@@ -366,12 +369,12 @@ api.post('/kiosk/clock', mech, wrap((req) => {
       if (req.user.role !== 'mechanic' && !can(req.user, 'atelier', 'user')) throw new BusinessError('Il faut le droit « Utilisateur » sur Atelier pour travailler sur un OR', 403);
       if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
       stopWork(uid, now);
-      const d = get("SELECT id, status FROM documents WHERE id=? AND type='order'", document_id);
+      const d = get("SELECT id, status, mechanic_id FROM documents WHERE id=? AND type='order'", document_id);
       if (!d) throw new BusinessError('OR introuvable');
       if (['invoiced', 'cancelled'].includes(d.status)) throw new BusinessError('Cet OR est clôturé');
       insert('time_entries', { user_id: uid, kind: 'work', document_id, start: now, note }, ['user_id', 'kind', 'document_id', 'start', 'note']);
       // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
-      if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, document_id); touchDocument(document_id); resumed = document_id; }
+      if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, document_id); if (!d.mechanic_id) touchDocument(document_id); resumed = document_id; }
     } else if (action === 'stop') {
       stopWork(uid, now);
     } else throw new BusinessError('Action inconnue');
@@ -389,7 +392,8 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
     mileage = Number(req.body.mileage);
     if (!Number.isInteger(mileage) || mileage < 0 || mileage > 9_999_999) throw new BusinessError('Kilométrage invalide');
   }
-  touchDocument(id);
+  // (le document n'est marqué « modifié » que si une saisie que le bureau pourrait écraser a changé — pas pour un simple changement de statut)
+  if (line_id !== undefined || diagnosis !== undefined || mileage || note) touchDocument(id);
   if (line_id !== undefined) run('UPDATE document_lines SET done=? WHERE id=? AND document_id=?', done ? 1 : 0, line_id, id);
   if (diagnosis !== undefined) run('UPDATE documents SET diagnosis=? WHERE id=?', diagnosis, id);
   if (mileage) { run('UPDATE documents SET mileage=? WHERE id=?', mileage, id); if (d.vehicle_id) run('UPDATE vehicles SET mileage=MAX(COALESCE(mileage,0),?) WHERE id=?', mileage, d.vehicle_id); }
@@ -569,7 +573,7 @@ api.get('/stock/valuation', (req, res) => res.json(get('SELECT ROUND(SUM(qty_on_
 api.post('/stock/reorder', wrap(() => {
   // Les articles déjà en commande (brouillon ou commandé, pas encore reçus) ne sont pas recommandés une deuxième fois
   const low = all(`SELECT * FROM products p WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND supplier_id IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM purchase_lines l JOIN purchases pu ON pu.id=l.purchase_id WHERE l.product_id=p.id AND pu.posted=0 AND pu.status IN ('draft','ordered') AND l.received_qty < l.quantity)`);
+    AND NOT EXISTS (SELECT 1 FROM purchase_lines l WHERE l.product_id=p.id AND COALESCE(l.received_qty,0) < l.quantity)`);
   const bySupplier = {};
   for (const p of low) (bySupplier[p.supplier_id] ||= []).push(p);
   const created = [];
@@ -640,7 +644,6 @@ api.delete('/documents/:id', wrap((req) => {
     const parent = d.parent_id && d.type === 'invoice' ? get('SELECT * FROM documents WHERE id=?', d.parent_id) : null;
     if (parent?.type === 'order' && parent.status === 'invoiced' && !get("SELECT 1 FROM documents WHERE parent_id=? AND type='invoice'", parent.id)) {
       run("UPDATE documents SET status='done' WHERE id=?", parent.id);
-      touchDocument(parent.id);
       stageFromStatus(parent.id, 'done');
     }
   });
@@ -652,7 +655,6 @@ api.post('/documents/:id/status', wrap((req) => {
   if (!allowed[d?.type]?.includes(req.body.status)) throw new BusinessError('Statut invalide');
   if (d.status === 'invoiced') throw new BusinessError('OR déjà facturé');
   run('UPDATE documents SET status=? WHERE id=?', req.body.status, d.id);
-  touchDocument(d.id);
   if (d.type === 'order') stageFromStatus(d.id, req.body.status);
   return { ok: true };
 }));
@@ -921,12 +923,19 @@ async function inviteUser(req, id, send) {
   let sent = false;
   if (send) {
     const c = getSettings().company;
-    await sendEmail({ model: 'user', record_id: id, to: u.email, subject: `Invitation : accès au logiciel de ${c.name}`,
-      intro: `Bonjour ${u.name},\n\n${req.user.name} vous donne accès au logiciel de gestion de ${c.name}.\n\nCliquez sur ce lien pour choisir votre mot de passe (valable 7 jours) :\n${url}\n\nÀ bientôt !`, include_document: false, user_id: req.user.id });
-    sent = true;
+    try {
+      await sendEmail({ model: 'user', record_id: id, to: u.email, subject: `Invitation : accès au logiciel de ${c.name}`,
+        intro: `Bonjour ${u.name},\n\n${req.user.name} vous donne accès au logiciel de gestion de ${c.name}.\n\nCliquez sur ce lien pour choisir votre mot de passe (valable 7 jours) :\n${url}\n\nÀ bientôt !`, include_document: false, user_id: req.user.id });
+      sent = true;
+    } finally {
+      // Le lien d'invitation est un secret : il ne reste pas lisible dans la boîte d'envoi (envoi réussi ou non)
+      hideInviteLinks();
+    }
   }
   return { url, expires, sent };
 }
+const hideInviteLinks = () => run("UPDATE emails SET intro='(invitation : le lien personnel n''est pas conservé)' WHERE model='user' AND intro LIKE '%/invite/%'");
+hideInviteLinks(); // anciennes invitations encore lisibles
 api.post('/users', adminOnly, wrap(async (req) => {
   const b = { role: 'office', ...req.body };
   const data = userData(b, true);
@@ -1061,8 +1070,13 @@ api.post('/mail/preview', wrap(async (req) => {
   return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`).replace('cid:garagelogo', '/logo') };
 }));
 api.post('/mail/send', wrap((req) => sendEmail({ ...req.body, model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, user_id: req.user.id })));
-api.get('/mail/outbox', (req, res) => res.json(all(`SELECT e.*, u.name AS user_name FROM emails e LEFT JOIN users u ON u.id=e.user_id ORDER BY e.id DESC LIMIT 300`)
-  .map((e) => ({ ...e, record: recordInfo(e.model, e.record_id) }))));
+// Boîte d'envoi : le gérant voit tout ; les autres voient leurs propres e-mails et ceux des fiches qu'ils ont le droit de lire
+api.get('/mail/outbox', (req, res) => {
+  const u = req.user, admin = u.role === 'admin';
+  res.json(all(`SELECT e.*, u.name AS user_name FROM emails e LEFT JOIN users u ON u.id=e.user_id ${admin ? '' : "WHERE COALESCE(e.model,'')!='user'"} ORDER BY e.id DESC LIMIT 300`)
+    .filter((e) => admin || e.user_id === u.id || (e.model && canReadRecord(u, e.model, e.record_id)))
+    .map((e) => ({ ...e, record: recordInfo(e.model, e.record_id) })));
+});
 api.delete('/mail/:id', wrap((req) => {
   const e = get("SELECT * FROM emails WHERE id=? AND status='scheduled'", req.params.id);
   if (!e) throw new BusinessError('Seul un e-mail programmé peut être annulé');
@@ -1104,7 +1118,7 @@ api.get('/activities', (req, res) => {
   res.json(listActivities({
     user_id: req.query.mine ? req.user.id : req.query.user_id || null, module: req.query.module || null,
     model: req.query.model || null, record_id: req.query.record_id || null, status: req.query.status || 'planned', scope: req.query.scope,
-  }).map((a) => (a.record && !canReadRecord(req.user, a.model, a.record_id) ? { ...a, record: null } : a)));
+  }).filter((a) => req.user.role === 'admin' || a.user_id === req.user.id || a.created_by === req.user.id || (a.model && canReadRecord(req.user, a.model, a.record_id))));
 });
 api.post('/activities', wrap((req) => ({ id: createActivity({ ...req.body, model: checkModel(req.body.model) }, req.user.id) })));
 // Modifier, terminer ou annuler une activité : la personne à qui elle est confiée, celle qui l'a créée,
@@ -1136,49 +1150,66 @@ api.post('/copilot/brief', adminOnly, wrap((req) => generateBrief({ date: isDate
 api.get('/copilot/stats', (req, res) => res.json(dayStats(isDate(req.query.date) ? req.query.date : today(), req.user)));
 
 // ---------- Bureau virtuel IA ----------
+// Chaque utilisateur a ses propres conversations, tâches et rapports ; le gérant voit tout
+// (un rapport ou une tâche sans propriétaire — créé avant cette règle ou par le système — appartient au gérant).
+const isAdmin = (u) => u.role === 'admin';
+const mineSql = (u, col) => (isAdmin(u) ? '1=1' : `${col}=${Number(u.id)}`);
+const ownRow = (req, table, col, label) => {
+  const r = get(`SELECT * FROM ${table} WHERE id=?`, req.params.id);
+  if (!r || (!isAdmin(req.user) && r[col] !== req.user.id)) throw new BusinessError(`${label} introuvable`, 404);
+  return r;
+};
 api.get('/agents', (req, res) => res.json(AGENTS.map(({ prompt, ...a }) => ({
   ...a, working: running.has(a.id),
-  unread: get('SELECT COUNT(*) n FROM agent_results WHERE agent_id=? AND read=0', a.id).n,
-  tasks: get('SELECT COUNT(*) n FROM agent_tasks WHERE agent_id=? AND active=1', a.id).n,
+  unread: get(`SELECT COUNT(*) n FROM agent_results WHERE agent_id=? AND read=0 AND ${mineSql(req.user, 'user_id')}`, a.id).n,
+  tasks: get(`SELECT COUNT(*) n FROM agent_tasks WHERE agent_id=? AND active=1 AND ${mineSql(req.user, 'created_by')}`, a.id).n,
 }))));
 api.get('/agents/:id/messages', (req, res) => {
-  const c = listConversations({ agent: req.params.id, limit: 1 })[0];
+  const c = listConversations({ agent: req.params.id, limit: 1, user: req.user })[0];
   res.json(c ? conversationMessages(c.id) : []);
 });
-api.delete('/agents/:id/messages', (req, res) => { clearHistory(req.params.id); res.json({ ok: true }); });
+api.delete('/agents/:id/messages', (req, res) => { clearHistory(req.params.id, req.user); res.json({ ok: true }); });
 api.post('/agents/:id/chat', wrap(async (req) => {
-  if (!req.body.message?.trim()) throw new BusinessError('Message vide');
+  if (typeof req.body.message !== 'string' || !req.body.message.trim()) throw new BusinessError('Message vide');
   if (!AGENTS.some((a) => a.id === req.params.id)) throw new BusinessError('Agent inconnu', 404);
   running.add(req.params.id);
   try { return await chat(req.params.id, req.body.message.trim(), Number(req.body.conversation_id) || null, req.user); } finally { running.delete(req.params.id); }
 }));
 // Historique des conversations (consultable, recherche plein texte)
-api.get('/agent-conversations', (req, res) => res.json(listConversations({ agent: req.query.agent, q: req.query.q, limit: Math.min(Number(req.query.limit) || 60, 200) })));
-api.get('/agent-conversations/:cid', wrap((req) => {
+api.get('/agent-conversations', (req, res) => res.json(listConversations({ agent: req.query.agent && String(req.query.agent), q: req.query.q && String(req.query.q), limit: Math.min(Number(req.query.limit) || 60, 200), user: req.user })));
+const ownConversation = (req) => {
   const c = getConversation(req.params.cid);
-  if (!c) throw new BusinessError('Conversation introuvable', 404);
-  return { ...c, messages: conversationMessages(c.id) };
-}));
-api.put('/agent-conversations/:cid', wrap((req) => { updateConversation(req.params.cid, req.body); return { ok: true }; }));
-api.delete('/agent-conversations/:cid', wrap((req) => { deleteConversation(req.params.cid); return { ok: true }; }));
+  if (!ownsConversation(c, req.user)) throw new BusinessError('Conversation introuvable', 404);
+  return c;
+};
+api.get('/agent-conversations/:cid', wrap((req) => { const c = ownConversation(req); return { ...c, messages: conversationMessages(c.id) }; }));
+api.put('/agent-conversations/:cid', wrap((req) => { updateConversation(ownConversation(req).id, req.body); return { ok: true }; }));
+api.delete('/agent-conversations/:cid', wrap((req) => { deleteConversation(ownConversation(req).id); return { ok: true }; }));
 api.post('/agents/meeting', wrap(async (req) => {
-  if (!req.body.question?.trim()) throw new BusinessError('Question vide');
+  if (typeof req.body.question !== 'string' || !req.body.question.trim()) throw new BusinessError('Question vide');
   AGENTS.forEach((a) => running.add(a.id));
   try { return await meeting(req.body.question.trim(), req.user); } finally { AGENTS.forEach((a) => running.delete(a.id)); }
 }));
 const TASK_COLS = ['agent_id', 'title', 'prompt', 'schedule_type', 'schedule_time', 'schedule_day', 'run_at', 'next_run', 'active'];
-api.get('/agent-tasks', (req, res) => res.json(all(`SELECT * FROM agent_tasks ${req.query.agent ? 'WHERE agent_id=?' : ''} ORDER BY active DESC, next_run`, ...(req.query.agent ? [req.query.agent] : []))));
-api.post('/agent-tasks', wrap((req) => {
-  const t = { active: 1, ...req.body, created_by: req.user.id };
+const SCHEDULES = ['once', 'daily', 'weekdays', 'weekly', 'monthly'];
+function checkTask(t) {
   if (!t.agent_id || !t.title || !t.prompt) throw new BusinessError('Agent, titre et consigne requis');
   if (!AGENTS.some((a) => a.id === t.agent_id)) throw new BusinessError('Agent inconnu');
+  if (!SCHEDULES.includes(t.schedule_type || 'once')) throw new BusinessError('Fréquence inconnue');
+  if (t.schedule_time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(t.schedule_time)) throw new BusinessError('Heure invalide (format HH:MM)');
+  if (t.run_at && Number.isNaN(new Date(t.run_at).getTime())) throw new BusinessError('Date d\'exécution invalide');
+}
+api.get('/agent-tasks', (req, res) => res.json(all(`SELECT * FROM agent_tasks WHERE ${mineSql(req.user, 'created_by')} ${req.query.agent ? 'AND agent_id=?' : ''} ORDER BY active DESC, next_run`, ...(req.query.agent ? [String(req.query.agent)] : []))));
+api.post('/agent-tasks', wrap((req) => {
+  const t = { active: 1, ...req.body, created_by: req.user.id };
+  checkTask(t);
   t.next_run = computeNextRun(t);
   return { id: insert('agent_tasks', t, [...TASK_COLS, 'created_by']) };
 }));
 api.put('/agent-tasks/:id', wrap((req) => {
-  const cur = get('SELECT * FROM agent_tasks WHERE id=?', req.params.id);
-  if (!cur) throw new BusinessError('Tâche introuvable', 404);
-  const t = { ...cur, ...req.body };
+  const cur = ownRow(req, 'agent_tasks', 'created_by', 'Tâche');
+  const t = { ...cur, ...req.body, created_by: cur.created_by };
+  checkTask(t);
   // Tâche « une seule fois » déjà exécutée : une nouvelle date (ou sa réactivation) la reprogramme vraiment
   const rearm = t.schedule_type === 'once' && ((req.body.run_at && req.body.run_at !== cur.run_at) || (t.active && !cur.active));
   if (rearm) { t.last_run = null; run('UPDATE agent_tasks SET last_run=NULL WHERE id=?', cur.id); }
@@ -1187,16 +1218,15 @@ api.put('/agent-tasks/:id', wrap((req) => {
   update('agent_tasks', req.params.id, t, TASK_COLS);
   return { ok: true };
 }));
-api.delete('/agent-tasks/:id', wrap((req) => { run('DELETE FROM agent_tasks WHERE id=?', req.params.id); return { ok: true }; }));
+api.delete('/agent-tasks/:id', wrap((req) => { run('DELETE FROM agent_tasks WHERE id=?', ownRow(req, 'agent_tasks', 'created_by', 'Tâche').id); return { ok: true }; }));
 api.post('/agent-tasks/:id/run', wrap(async (req) => {
-  const t = get('SELECT * FROM agent_tasks WHERE id=?', req.params.id);
-  if (!t) throw new BusinessError('Tâche introuvable', 404);
+  const t = ownRow(req, 'agent_tasks', 'created_by', 'Tâche');
   if (running.has(t.agent_id)) throw new BusinessError('Cet agent est déjà occupé');
   return { content: await executeTask(t) };
 }));
-api.get('/agent-results', (req, res) => res.json(all(`SELECT * FROM agent_results ${req.query.agent ? 'WHERE agent_id=?' : ''} ORDER BY id DESC LIMIT 100`, ...(req.query.agent ? [req.query.agent] : []))));
-api.post('/agent-results/:id/read', (req, res) => { run('UPDATE agent_results SET read=1 WHERE id=?', req.params.id); res.json({ ok: true }); });
-api.delete('/agent-results/:id', (req, res) => { run('DELETE FROM agent_results WHERE id=?', req.params.id); res.json({ ok: true }); });
+api.get('/agent-results', (req, res) => res.json(all(`SELECT * FROM agent_results WHERE ${mineSql(req.user, 'user_id')} ${req.query.agent ? 'AND agent_id=?' : ''} ORDER BY id DESC LIMIT 100`, ...(req.query.agent ? [String(req.query.agent)] : []))));
+api.post('/agent-results/:id/read', wrap((req) => { run('UPDATE agent_results SET read=1 WHERE id=?', ownRow(req, 'agent_results', 'user_id', 'Rapport').id); return { ok: true }; }));
+api.delete('/agent-results/:id', wrap((req) => { run('DELETE FROM agent_results WHERE id=?', ownRow(req, 'agent_results', 'user_id', 'Rapport').id); return { ok: true }; }));
 
 // ---------- Erreurs ----------
 app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.resolve('public/index.html')));

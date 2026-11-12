@@ -107,7 +107,6 @@ export function saveDocument(data, id = null) {
     if (data.customer_id && !get('SELECT 1 FROM customers WHERE id=?', data.customer_id)) throw new BusinessError('Client introuvable');
     if (data.vehicle_id && !get('SELECT 1 FROM vehicles WHERE id=?', data.vehicle_id)) throw new BusinessError('Véhicule introuvable');
     if (data.mileage !== undefined && data.mileage !== null && data.mileage !== '' && !(Number(data.mileage) >= 0)) throw new BusinessError('Kilométrage invalide');
-    let keepDone = {};
     if (id) {
       const cur = get('SELECT * FROM documents WHERE id=?', id);
       if (!cur) throw new BusinessError('Document introuvable', 404);
@@ -125,7 +124,6 @@ export function saveDocument(data, id = null) {
       const { type, number, parent_id, status, ...rest } = data;
       if (rest.date === '' || rest.date === null) delete rest.date;
       update('documents', id, { ...rest, updated_at: new Date().toISOString() }, [...DOC_COLS, 'updated_at'].filter((c) => !['type', 'number', 'parent_id', 'status'].includes(c)));
-      keepDone = Object.fromEntries(all('SELECT id, done FROM document_lines WHERE document_id=?', id).map((l) => [l.id, l.done]));
     } else {
       const type = data.type;
       if (!['quote', 'order', 'invoice', 'credit_note'].includes(type)) throw new BusinessError('Type de document invalide');
@@ -137,11 +135,16 @@ export function saveDocument(data, id = null) {
     }
     if (Array.isArray(data.lines)) {
       const lines = data.lines.map((l) => cleanLine(l, s.workshop.default_tax));
-      run('DELETE FROM document_lines WHERE document_id=?', id);
+      // Les lignes déjà enregistrées gardent leur identifiant (le kiosque et le suivi client s'y réfèrent pour cocher « fait ») ;
+      // seules les lignes retirées sont supprimées, les nouvelles ajoutées
+      const existing = new Set(all('SELECT id FROM document_lines WHERE document_id=?', id).map((l) => l.id));
+      const kept = new Set();
       lines.forEach((l, i) => {
-        // « Fait » est coché par le mécanicien au kiosque : on garde sa coche plutôt que celle de l'écran du bureau
-        insert('document_lines', { ...l, id: undefined, document_id: id, sequence: i, total_ht: lineTotal(l), done: l.id in keepDone ? keepDone[l.id] : l.done }, LINE_COLS);
+        const row = { ...l, document_id: id, sequence: i, total_ht: lineTotal(l), done: l.done ? 1 : 0 };
+        if (existing.has(l.id) && !kept.has(l.id)) { kept.add(l.id); update('document_lines', l.id, { ...row, product_id: l.product_id ?? null, unit: l.unit ?? null, mechanic_id: l.mechanic_id ?? null }, LINE_COLS); }
+        else insert('document_lines', { ...row, id: undefined }, LINE_COLS);
       });
+      for (const old of existing) if (!kept.has(old)) run('DELETE FROM document_lines WHERE id=?', old);
     }
     refreshTotals(id);
     // Mise à jour du kilométrage du véhicule
@@ -171,6 +174,9 @@ export function convertDocument(id, targetType) {
     if (targetType !== 'credit_note') {
       if (src.status === 'cancelled') throw new BusinessError('Ce document est annulé');
       if (kids.length || src.status === 'invoiced') throw new BusinessError(`${NAMES[targetType]} existe déjà pour ce document${kids[0] ? ` (${kids[0].number || 'brouillon'})` : ''}.`);
+      // Un devis déjà transformé en OR se facture depuis l'OR (sinon le même travail serait facturé deux fois), et inversement
+      const other = src.type === 'quote' ? src.children.find((c) => c.type !== targetType && c.type !== 'credit_note' && c.status !== 'cancelled') : null;
+      if (other) throw new BusinessError(other.type === 'order' ? `Ce devis a déjà été transformé en ordre de réparation (${other.number || 'OR'}) : facturez depuis l'OR.` : `Ce devis a déjà été facturé (${other.number || 'facture en brouillon'}).`);
     } else {
       if (kids.some((c) => c.status === 'draft')) throw new BusinessError('Une note de crédit en brouillon existe déjà pour cette facture : complétez-la ou supprimez-la.');
       if (round2(kids.reduce((a, c) => a + c.total, 0)) >= src.total - 0.009) throw new BusinessError('Cette facture a déjà été entièrement créditée.');
@@ -187,7 +193,6 @@ export function convertDocument(id, targetType) {
     refreshTotals(newId);
     if (src.type === 'quote') run("UPDATE documents SET status='accepted' WHERE id=?", src.id);
     if (src.type === 'order' && targetType === 'invoice') run("UPDATE documents SET status='invoiced' WHERE id=?", src.id);
-    touchDocument(src.id);
     return newId;
   });
 }
@@ -243,19 +248,27 @@ export function postInvoice(id) {
     // Une facture à 0 € est soldée tout de suite (sinon elle resterait « à payer » et serait relancée)
     refreshPaymentStatus(id);
     // Un avoir solde automatiquement la facture d'origine à hauteur de son montant
-    if (d.type === 'credit_note' && d.parent_id) {
-      const parent = get('SELECT * FROM documents WHERE id=?', d.parent_id);
-      const residual = round2(parent.total - parent.amount_paid);
-      const alloc = Math.min(residual, d.total);
-      if (alloc > 0) {
-        run('UPDATE documents SET amount_paid=amount_paid+? WHERE id=?', alloc, parent.id);
-        run('UPDATE documents SET amount_paid=? WHERE id=?', alloc, id);
-        refreshPaymentStatus(parent.id);
-        refreshPaymentStatus(id);
-      }
-    }
+    if (d.type === 'credit_note' && d.parent_id) allocateCredits(d.parent_id);
     return number;
   });
+}
+
+/**
+ * Impute les notes de crédit validées d'une facture sur ce qu'il lui reste à payer.
+ * Appelé à la validation d'un avoir, et quand un paiement de la facture est annulé (le reste dû réapparaît).
+ */
+export function allocateCredits(invoiceId) {
+  const inv = get("SELECT id, total, amount_paid FROM documents WHERE id=? AND type='invoice'", invoiceId);
+  if (!inv) return;
+  for (const cn of all("SELECT id, total, amount_paid FROM documents WHERE parent_id=? AND type='credit_note' AND status IN ('posted','partial') ORDER BY id", invoiceId)) {
+    const alloc = round2(Math.min(round2(inv.total - inv.amount_paid), round2(cn.total - cn.amount_paid)));
+    if (alloc <= 0.009) continue;
+    run('UPDATE documents SET amount_paid=ROUND(amount_paid+?,2) WHERE id=?', alloc, inv.id);
+    run('UPDATE documents SET amount_paid=ROUND(amount_paid+?,2) WHERE id=?', alloc, cn.id);
+    inv.amount_paid = round2(inv.amount_paid + alloc);
+    refreshPaymentStatus(cn.id);
+  }
+  refreshPaymentStatus(inv.id);
 }
 
 function ml(account_code, customerId, label, signedAmount) {
@@ -317,7 +330,7 @@ export function registerPayment({ document_id, purchase_id, amount, date = today
         { account_code: payAcc, label, debit: refund ? 0 : amount, credit: refund ? amount : 0 },
         { account_code: '4011', partner_type: 'customer', partner_id: d.customer_id, label, debit: refund ? amount : 0, credit: refund ? 0 : amount },
       ]);
-      run('UPDATE documents SET amount_paid=ROUND(amount_paid+?,2), updated_at=? WHERE id=?', amount, new Date().toISOString(), document_id);
+      run('UPDATE documents SET amount_paid=ROUND(amount_paid+?,2) WHERE id=?', amount, document_id);
       refreshPaymentStatus(document_id);
       return pid;
     }
@@ -379,7 +392,15 @@ export function savePurchase(data, id = null) {
       id = insert('purchases', { ...data, status: 'draft', number: nextNumber('purchase', data.date || today()), date: data.date || today() }, PURCHASE_COLS);
     }
     if (Array.isArray(data.lines)) {
-      const received = Object.fromEntries(all('SELECT id, received_qty FROM purchase_lines WHERE purchase_id=?', id).map((l) => [l.id, l.received_qty]));
+      const before = all('SELECT id, product_id, description, received_qty FROM purchase_lines WHERE purchase_id=?', id);
+      const received = Object.fromEntries(before.map((l) => [l.id, l.received_qty]));
+      // Marchandise déjà entrée en stock : la ligne doit rester, pour le même article, avec au moins la quantité reçue
+      for (const b of before.filter((l) => l.received_qty > 0)) {
+        const now = data.lines.find((l) => l && l.id === b.id);
+        if (!now || (now.product_id ?? null) !== b.product_id || !(Number(String(now.quantity ?? 1).replace(',', '.')) >= b.received_qty)) {
+          throw new BusinessError(`« ${b.description || 'Ligne'} » : ${b.received_qty} déjà reçu(s) en stock. Cette ligne ne peut pas être supprimée, changée d'article ni réduite sous la quantité reçue (corrigez le stock par un inventaire si besoin).`);
+        }
+      }
       run('DELETE FROM purchase_lines WHERE purchase_id=?', id);
       for (const raw of data.lines) {
         const l = cleanLine({ ...raw, kind: 'part', discount: 0 }, 17);

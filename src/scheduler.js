@@ -52,8 +52,8 @@ export async function executeTask(task) {
   } finally {
     running.delete(task.agent_id);
   }
-  insert('agent_results', { task_id: task.id, agent_id: task.agent_id, title: `${agent?.emoji || ''} ${task.title}`, content, status },
-    ['task_id', 'agent_id', 'title', 'content', 'status']);
+  insert('agent_results', { task_id: task.id, agent_id: task.agent_id, title: `${agent?.emoji || ''} ${task.title}`, content, status, user_id: task.created_by ?? null },
+    ['task_id', 'agent_id', 'title', 'content', 'status', 'user_id']);
   const now = new Date();
   const next = task.schedule_type === 'once' ? null : computeNextRun(task, now);
   run('UPDATE agent_tasks SET last_run=?, last_status=?, next_run=?, active=? WHERE id=?',

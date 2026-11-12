@@ -82,7 +82,7 @@ export function friendlyError(e) {
 // Conversation persistante avec un agent (rangée dans l'historique)
 export async function chat(agentId, userText, conversationId = null, user = null) {
   if (!getAgent(agentId)) throw new Error('Agent inconnu');
-  const cid = ensureConversation(agentId, conversationId, userText);
+  const cid = ensureConversation(agentId, conversationId, userText, user);
   addMessage(cid, agentId, 'user', userText);
   const history = historyOf(cid);
   while (history.length && history[0].role !== 'user') history.shift();
@@ -110,11 +110,14 @@ export async function meeting(question, user = null) {
   let synthesis;
   try { synthesis = await runAgent('cio', [{ role: 'user', content: summaryPrompt }], { user }); } catch (e) { synthesis = `❌ ${friendlyError(e)}`; }
   const content = `## Réunion : ${question}\n\n${answers.map((r) => `### ${r.agent.emoji} ${r.agent.name} — ${r.agent.role}\n${r.text}`).join('\n\n')}\n\n---\n\n## 🚀 Synthèse d'Alex (CIO)\n${synthesis}`;
-  insert('agent_results', { agent_id: 'cio', title: `Réunion : ${question.slice(0, 80)}`, content }, ['agent_id', 'title', 'content']);
+  insert('agent_results', { agent_id: 'cio', title: `Réunion : ${question.slice(0, 80)}`, content, user_id: user?.id ?? null }, ['agent_id', 'title', 'content', 'user_id']);
   return { answers: answers.map((r) => ({ agent_id: r.agent.id, text: r.text })), synthesis, content };
 }
 
-export function clearHistory(agentId) {
-  run('DELETE FROM agent_messages WHERE agent_id=?', agentId);
-  run('DELETE FROM agent_conversations WHERE agent_id=?', agentId);
+/** Efface les conversations d'un utilisateur avec cet agent (le gérant efface aussi les anciennes, sans propriétaire). */
+export function clearHistory(agentId, user = null) {
+  const mine = user ? `AND (user_id=${Number(user.id)}${user.role === 'admin' ? ' OR user_id IS NULL' : ''})` : '';
+  run(`DELETE FROM agent_messages WHERE conversation_id IN (SELECT id FROM agent_conversations WHERE agent_id=? ${mine})`, agentId);
+  if (!user) run('DELETE FROM agent_messages WHERE agent_id=?', agentId);
+  run(`DELETE FROM agent_conversations WHERE agent_id=? ${mine}`, agentId);
 }

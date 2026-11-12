@@ -166,8 +166,8 @@ export function requiredAccess(req) {
   }
   // Convertir un OR en facture (ou un devis en OR) demande aussi les droits sur l'application cible
   if (/^\/documents\/\d+\/convert$/.test(path) && req.body?.type) need.push([typeApp(req.body.type), 'user']);
-  // Encaisser une facture client ou payer une facture fournisseur touche à la banque
-  if (/^\/(documents|purchases)\/\d+\/payments$/.test(path)) need.push(['banque', 'user']);
+  // (Encaisser une facture relève des Ventes, payer un fournisseur des Achats : le niveau « Utilisateur » suffit.
+  //  Annuler un paiement, en revanche, est réservé aux administrateurs de la Banque — voir DELETE /payments/:id.)
   // « Commander le stock bas » crée des commandes fournisseurs
   if (path === '/stock/reorder') need.push(['achats', 'user']);
   return need.length ? need : null;

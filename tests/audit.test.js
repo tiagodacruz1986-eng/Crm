@@ -77,7 +77,10 @@ test('droits : pièces jointes, historique, activités et e-mails suivent le dro
   assert.equal((await call('DELETE', `/activities/${act}`, undefined, zero.tok)).status, 403);
   const mine = await call('GET', '/activities', undefined, zero.tok);
   assert.equal(mine.status, 200);
-  assert.equal(mine.data.find((a) => a.id === act).record, null, 'la fiche liée est masquée');
+  assert.equal(mine.data.some((a) => a.id === act), false, 'activité d\'une fiche qu\'il ne peut pas lire : invisible');
+  // adresse encodée (%31 pour 1) : refusée, elle ne contourne pas les règles de droits
+  assert.equal((await call('GET', `/attachments/customer/%3${String(cust).slice(-1)}`, undefined, zero.tok)).status, 400);
+  assert.equal((await call('GET', `/chatter/%63ustomer/${cust}`, undefined, zero.tok)).status, 400);
   assert.equal((await call('GET', `/mail/compose?model=document&id=${inv}`, undefined, zero.tok)).status, 403);
   assert.equal((await call('POST', '/mail/preview', { model: 'document', record_id: inv, include_document: true }, zero.tok)).status, 403);
   // … mais restent ouverts à qui a le droit sur la fiche
@@ -169,9 +172,17 @@ test('facturation : une seule facture par OR, avoirs plafonnés, paiements plafo
   await A('PUT', `/documents/${inv2}`, { status: 'paid' });
   assert.equal((await A('GET', `/documents/${inv2}`)).data.status, 'draft');
   assert.equal((await A('POST', `/documents/${inv2}/post`)).status, 200);
-  // Paiements : pas plus que le reste dû (117 €)
+  // Un devis transformé en OR ne se facture plus directement (le travail serait facturé deux fois)
+  const q = (await A('POST', '/documents', { type: 'quote', customer_id: cust, lines: [line] })).data.id;
+  assert.equal((await A('POST', `/documents/${q}/convert`, { type: 'order' })).status, 200);
+  assert.equal((await A('POST', `/documents/${q}/convert`, { type: 'invoice' })).status, 400);
+  // Encaisser : le droit « Utilisateur » sur Ventes suffit (profil « Bureau / accueil »)
+  const bureau = await userWith({ ventes: 'user', banque: 'read' });
+  assert.equal((await call('POST', `/documents/${inv2}/payments`, { amount: 1 }, bureau.tok)).status, 200);
+  assert.equal((await call('DELETE', '/payments/1', undefined, bureau.tok)).status, 403, 'annuler un paiement : administrateurs de la banque');
+  // Paiements : pas plus que le reste dû (116 €)
   assert.equal((await A('POST', `/documents/${inv2}/payments`, { amount: 200 })).status, 400);
-  assert.equal((await A('POST', `/documents/${inv2}/payments`, { amount: 17 })).status, 200);
+  assert.equal((await A('POST', `/documents/${inv2}/payments`, { amount: 16 })).status, 200);
   // Avoirs : un seul brouillon à la fois, jamais plus que la facture
   const cn = await A('POST', `/documents/${inv2}/convert`, { type: 'credit_note' });
   assert.equal(cn.status, 200);
@@ -199,9 +210,16 @@ test('atelier : le bureau n\'écrase plus les saisies du mécanicien', async () 
   const fresh = (await A('GET', `/documents/${or}`)).data;
   assert.equal(fresh.diagnosis, 'Fuite au carter');
   assert.equal(fresh.lines[0].done, 1);
-  // Après rechargement, l'enregistrement passe et la coche « fait » du mécanicien est conservée
-  assert.equal((await A('PUT', `/documents/${or}`, { ...fresh, notes: 'note du bureau', lines: fresh.lines.map((l) => ({ ...l, done: 0 })) })).status, 200);
-  assert.equal((await A('GET', `/documents/${or}`)).data.lines[0].done, 1);
+  // Après rechargement, l'enregistrement passe : la coche du mécanicien est conservée et la ligne garde son identifiant
+  assert.equal((await A('PUT', `/documents/${or}`, { ...fresh, notes: 'note du bureau' })).status, 200);
+  const saved = (await A('GET', `/documents/${or}`)).data;
+  assert.equal(saved.lines[0].done, 1);
+  assert.equal(saved.lines[0].id, fresh.lines[0].id, 'identifiant de ligne stable (le kiosque s\'y réfère)');
+  // Le bureau peut aussi décocher « fait » ; changer le statut ou l'étape du suivi ne provoque pas de faux conflit
+  await A('POST', `/documents/${or}/status`, { status: 'in_progress' });
+  await A('POST', `/live/${or}/stage`, { stage: 'repair' });
+  assert.equal((await A('PUT', `/documents/${or}`, { ...saved, lines: saved.lines.map((l) => ({ ...l, done: 0 })) })).status, 200, 'pas de conflit après un changement de statut');
+  assert.equal((await A('GET', `/documents/${or}`)).data.lines[0].done, 0);
 });
 
 test('fiches : formulaires contrôlés, pas d\'héritage après suppression, stock', async () => {

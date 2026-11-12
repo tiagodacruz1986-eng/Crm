@@ -257,7 +257,7 @@ export async function sendEmail({ model, record_id, to, cc, subject, intro, incl
 function markQuoteSent(model, record_id) {
   if (model !== 'document') return;
   const d = get('SELECT type, status FROM documents WHERE id=?', record_id);
-  if (d?.type === 'quote' && d.status === 'draft') run("UPDATE documents SET status='sent', updated_at=? WHERE id=?", new Date().toISOString(), record_id);
+  if (d?.type === 'quote' && d.status === 'draft') run("UPDATE documents SET status='sent' WHERE id=?", record_id);
 }
 
 let processing = false;

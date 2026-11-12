@@ -1,7 +1,7 @@
 // Banque : import de relevés (CAMT.053 / CSV), rapprochement automatique, connecteurs.
 import crypto from 'node:crypto';
 import { db, all, get, run, insert, tx, round2, isDate, getSettings } from './db.js';
-import { registerPayment, createMove, refreshPaymentStatus, BusinessError } from './business.js';
+import { registerPayment, createMove, refreshPaymentStatus, allocateCredits, BusinessError } from './business.js';
 
 // Part d'une opération bancaire déjà affectée (un virement peut régler plusieurs factures)
 if (!all('PRAGMA table_info(bank_lines)').some((c) => c.name === 'allocated')) db.exec('ALTER TABLE bank_lines ADD COLUMN allocated REAL DEFAULT 0');
@@ -246,8 +246,9 @@ export function cancelPayment(id) {
     run('DELETE FROM moves WHERE payment_id=?', id);
     run('DELETE FROM payments WHERE id=?', id);
     if (p.document_id) {
-      run('UPDATE documents SET amount_paid=MAX(0, ROUND(amount_paid-?,2)), updated_at=? WHERE id=?', p.amount, new Date().toISOString(), p.document_id);
+      run('UPDATE documents SET amount_paid=MAX(0, ROUND(amount_paid-?,2)) WHERE id=?', p.amount, p.document_id);
       refreshPaymentStatus(p.document_id);
+      allocateCredits(p.document_id); // une note de crédit en attente couvre le reste dû qui réapparaît
     }
     if (p.purchase_id) run("UPDATE purchases SET amount_paid=MAX(0, ROUND(amount_paid-?,2)), status=CASE WHEN status='paid' THEN 'billed' ELSE status END WHERE id=?", p.amount, p.purchase_id);
     if (p.bank_line_id) run("UPDATE bank_lines SET allocated=MAX(0, ROUND(COALESCE(allocated,0)-?,2)), status='unmatched', payment_id=NULL WHERE id=?", p.amount, p.bank_line_id);
@@ -259,6 +260,9 @@ export function unmatchLine(lineId) {
   return tx(() => {
     const line = get('SELECT * FROM bank_lines WHERE id=?', lineId);
     if (!line) throw new BusinessError('Opération introuvable', 404);
+    // Opération seulement « ignorée » : on la remet à rapprocher, sans toucher aux paiements déjà affectés avant
+    if (line.status === 'ignored') { run("UPDATE bank_lines SET status='unmatched' WHERE id=?", lineId); return { ok: true }; }
+    if (line.status !== 'matched') throw new BusinessError('Cette opération n\'est pas rapprochée');
     for (const p of all('SELECT id FROM payments WHERE bank_line_id=?', lineId)) cancelPayment(p.id);
     if (line.move_id) { assertOpenPeriod(line.date); run('DELETE FROM moves WHERE id=?', line.move_id); }
     run("UPDATE bank_lines SET status='unmatched', allocated=0, payment_id=NULL, move_id=NULL WHERE id=?", lineId);

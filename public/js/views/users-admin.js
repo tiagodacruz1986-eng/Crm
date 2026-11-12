@@ -57,7 +57,9 @@ export const UsersAdmin = {
     };
     const copy = (t) => { navigator.clipboard?.writeText(t); toast('Lien copié'); };
     const levelLabel = (l) => meta.value?.labels[l];
-    return { users, list, filter, meta, edit, invite, create, open, save, applyPreset, setAll, sendInvite, copy, summary, status, levelLabel, TYPES, COLORS, datetime, store };
+    // Lien qui ne s'ouvre que sur le réseau du garage (adresse privée 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const lanOnly = (url) => new RegExp('^https?://(192\\.168\\.|10\\.|172\\.(1[6-9]|2\\d|3[01])\\.)').test(url || '');
+    return { lanOnly, users, list, filter, meta, edit, invite, create, open, save, applyPreset, setAll, sendInvite, copy, summary, status, levelLabel, TYPES, COLORS, datetime, store };
   },
   template: `
   <div v-if="meta">
@@ -130,7 +132,7 @@ export const UsersAdmin = {
       <p>Envoyez ce lien à <b>{{ invite.name }}</b>{{ invite.email ? ' (' + invite.email + ')' : '' }} : il ou elle choisira son mot de passe. Valable jusqu'au {{ datetime(invite.expires) }}.</p>
       <div class="invite-link"><input :value="invite.url" readonly @focus="$event.target.select()"><button class="btn primary" @click="copy(invite.url)"><Icon name="copy"/> Copier</button></div>
       <p v-if="invite.sent" class="pos">✉️ Invitation envoyée par e-mail.</p>
-      <p v-if="/\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(invite.url)" class="muted small">⚠ Ce lien ne s'ouvre que sur le Wi-Fi du garage. Pour inviter quelqu'un à distance, indiquez l'adresse publique du logiciel dans Paramètres.</p>
+      <p v-if="lanOnly(invite.url)" class="muted small">⚠ Ce lien ne s'ouvre que sur le Wi-Fi du garage. Pour inviter quelqu'un à distance, indiquez l'adresse publique du logiciel dans Paramètres.</p>
       <p class="muted small">Par WhatsApp : <a :href="'https://wa.me/?text=' + encodeURIComponent('Voici ton accès au logiciel du garage : ' + invite.url)" target="_blank" rel="noopener">partager le lien</a>.</p>
     </Modal>
   </div>`,
