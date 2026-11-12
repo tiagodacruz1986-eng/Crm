@@ -122,17 +122,26 @@ ${accounts}
 
 // ---------- Rapprochement fournisseur / articles ----------
 const norm = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// Adresses du garage lui-même (société, utilisateurs, boîte « factures », expéditeur SMTP) : une facture transférée
+// par le gérant vient de SON adresse, qui ne doit jamais servir à reconnaître ou à créer un fournisseur
+function ownAddresses() {
+  const st = getSettings();
+  return new Set([st.company?.email, st.bills_inbox?.user, st.smtp?.from_email, st.smtp?.user, ...all('SELECT email FROM users WHERE email IS NOT NULL').map((u) => u.email)]
+    .filter(Boolean).map((e) => String(e).toLowerCase().trim()));
+}
+const externalSender = (emailFrom) => (emailFrom && !ownAddresses().has(String(emailFrom).toLowerCase().trim()) ? emailFrom : null);
 function findSupplier(s, emailFrom) {
   if (s?.vat_number) { const r = all('SELECT id, vat_number FROM suppliers WHERE vat_number IS NOT NULL').find((x) => norm(x.vat_number) === norm(s.vat_number)); if (r) return r.id; }
   if (s?.iban) { const r = all('SELECT id, iban FROM suppliers WHERE iban IS NOT NULL').find((x) => norm(x.iban) === norm(s.iban)); if (r) return r.id; }
-  const email = (s?.email || emailFrom || '').toLowerCase();
-  if (email) { const r = get('SELECT id FROM suppliers WHERE lower(email)=?', email); if (r) return r.id; }
+  // l'e-mail imprimé sur la facture d'abord, puis le nom ; l'adresse de l'expéditeur seulement en dernier recours
+  const byEmail = (e) => (e ? get('SELECT id FROM suppliers WHERE lower(email)=?', String(e).toLowerCase())?.id : null);
+  if (byEmail(s?.email)) return byEmail(s.email);
   if (s?.name) {
     const n = norm(s.name).replace(/(SARL|SA|SAS|SRL|GMBH|SCS|SASU|LTD|BV|NV)$/g, '');
     const r = all('SELECT id, name FROM suppliers').find((x) => { const m = norm(x.name).replace(/(SARL|SA|SAS|SRL|GMBH|SCS|SASU|LTD|BV|NV)$/g, ''); return m && n && (m === n || (m.length > 5 && n.startsWith(m)) || (n.length > 5 && m.startsWith(n))); });
     if (r) return r.id;
   }
-  return null;
+  return byEmail(externalSender(emailFrom)) || null;
 }
 function findProduct(ref, supplierId) {
   if (!ref) return null;
@@ -156,7 +165,7 @@ function applyExtraction(purchaseId, data, { aiError, emailFrom, emailSubject, s
   let supplierId = findSupplier(data?.supplier, emailFrom);
   if (!supplierId && data?.supplier?.name) {
     const s = data.supplier;
-    supplierId = insert('suppliers', { name: s.name, vat_number: s.vat_number, iban: s.iban, email: s.email || emailFrom, phone: s.phone, address: s.address, zip: s.zip, city: s.city, country: s.country || 'LU', notes: 'Créé automatiquement depuis une facture reçue' },
+    supplierId = insert('suppliers', { name: s.name, vat_number: s.vat_number, iban: s.iban, email: s.email || externalSender(emailFrom), phone: s.phone, address: s.address, zip: s.zip, city: s.city, country: s.country || 'LU', notes: 'Créé automatiquement depuis une facture reçue' },
       ['name', 'vat_number', 'iban', 'email', 'phone', 'address', 'zip', 'city', 'country', 'notes']);
     warnings.push(`Nouveau fournisseur créé : ${s.name}`);
   }
@@ -171,7 +180,8 @@ function applyExtraction(purchaseId, data, { aiError, emailFrom, emailSubject, s
   const lines = (data?.lines || []).map((l) => ({
     product_id: findProduct(l.reference, supplierId),
     description: [l.reference, l.description].filter(Boolean).join(' — ').slice(0, 250),
-    quantity: l.quantity || 1, unit_price: round2(l.unit_price_ht), tax_rate: l.tax_rate ?? 17,
+    // prix unitaire gardé avec 4 décimales (huile au litre, visserie…) ; une quantité 0 (article offert) reste 0
+    quantity: Number.isFinite(Number(l.quantity)) && l.quantity !== null ? Number(l.quantity) : 1, unit_price: Math.round((Number(l.unit_price_ht) || 0) * 10000) / 10000, tax_rate: l.tax_rate ?? 17,
     account_code: validAccounts.has(l.account_code) ? l.account_code : null,
   }));
   if (data?.remarks?.trim()) warnings.push(`IA : ${data.remarks.trim()}`);
@@ -179,7 +189,7 @@ function applyExtraction(purchaseId, data, { aiError, emailFrom, emailSubject, s
   const origin = emailFrom ? `Reçue par e-mail de ${emailFrom}${emailSubject ? ` (« ${emailSubject} »)` : ''}` : 'Déposée dans le logiciel';
   const id = savePurchase({
     supplier_id: supplierId, date: validDate(data?.invoice_date) || today(), due_date: validDate(data?.due_date),
-    supplier_ref: data?.invoice_number || null, notes: origin, ...(data || !purchaseId ? { lines } : {}),
+    supplier_ref: data?.invoice_number || null, ...(purchaseId ? {} : { notes: origin }), ...(data || !purchaseId ? { lines } : {}),
   }, purchaseId);
   const p = get('SELECT total FROM purchases WHERE id=?', id);
   if (data?.total_ttc != null && Math.abs(p.total - data.total_ttc) > 0.05) warnings.push(`⚠ Total calculé ${p.total.toFixed(2)} € ≠ total de la facture ${Number(data.total_ttc).toFixed(2)} € : vérifiez les lignes.`);
@@ -202,6 +212,8 @@ export async function reanalyze(purchaseId) {
   const p = get('SELECT * FROM purchases WHERE id=?', purchaseId);
   if (!p) throw new BusinessError('Facture introuvable', 404);
   if (p.posted) throw new BusinessError('Facture déjà comptabilisée');
+  // Après une réception, relancer l'IA remettrait les quantités reçues à zéro (le stock serait compté deux fois)
+  if (get('SELECT 1 FROM purchase_lines WHERE purchase_id=? AND received_qty>0', purchaseId)) throw new BusinessError('La marchandise a déjà été réceptionnée : corrigez les lignes à la main.');
   const a = listAttachments('purchase', purchaseId).map((x) => attachmentFile(x.id)).find((x) => x && SUPPORTED[x.mime]);
   if (!a) throw new BusinessError('Aucun document PDF ou image à analyser');
   const { data, aiError } = await analyze(fs.readFileSync(a.full), a.mime);
@@ -258,8 +270,9 @@ export async function checkInbox() {
   checking = true;
   const status = { at: localDateTime(), emails: 0, bills: 0, error: null };
   const c = inboxConfig();
-  const cl = imapClient();
+  let cl = null;
   try {
+    cl = imapClient(); // dans le try : une configuration incomplète ne doit pas laisser la vérification « en cours » pour toujours
     await cl.connect();
     const lock = await cl.getMailboxLock(c.folder || 'INBOX');
     try {
@@ -277,7 +290,7 @@ export async function checkInbox() {
     status.error = e instanceof BusinessError ? e.message : `${e.responseText || e.message}`;
   } finally {
     checking = false;
-    await cl.logout().catch(() => {});
+    if (cl) await cl.logout().catch(() => {});
     setSetting('bills_inbox_status', status);
   }
   if (status.error) throw new BusinessError(status.error);

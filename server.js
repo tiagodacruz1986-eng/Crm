@@ -7,17 +7,17 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { db, dataDir, all, get, run, insert, update, tx, today, getSettings, setSetting, round2, localDateTime, isDate, likeFold } from './src/db.js';
-import { hashSecret, verifySecret, createSession, currentUser, requireAuth } from './src/auth.js';
+import { hashSecret, verifySecret, createSession, currentUser, requireAuth, purgeSessions } from './src/auth.js';
 import {
   BusinessError, createMove, getDocument, saveDocument, convertDocument, postInvoice, registerPayment, addStockMove,
   getPurchase, savePurchase, receivePurchase, postPurchase, dashboard, trialBalance, vatReport, profitAndLoss, durationHours,
   touchDocument,
 } from './src/business.js';
-import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, PROVIDERS } from './src/bank.js';
+import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, cancelPayment, unmatchLine, remainingOf, PROVIDERS } from './src/bank.js';
 import { AGENTS } from './src/agents.js';
 import {
   MODELS, MODULES, ACTIVITY_TYPES, TEMPLATE_LABELS, publicMailConfig, saveMailConfig, testMail, compose, renderEmail, sendEmail, processScheduledEmails,
-  logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo,
+  logMessage, chatter, listActivities, createActivity, completeActivity, activityCounts, ACTIVITY_COLS, recordInfo, isMailConfigured,
 } from './src/mail.js';
 import { runAgent, friendlyError } from './src/claude.js';
 import {
@@ -46,8 +46,12 @@ app.set('case sensitive routing', true);
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 // Formulaires publics (connexion, kiosque) : petits messages seulement ; le reste accepte les photos et pièces jointes
 app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge'], express.json({ limit: '20kb' }));
-app.use(express.json({ limit: '20mb' }));
-app.use(express.text({ type: ['text/*', 'application/xml'], limit: '20mb' }));
+// Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
+// sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
+const UPLOAD_ROUTES = /^\/api\/(bills\/upload|attachments\/|website\/images|social\/images|settings\/(logo|home-bg))/;
+const jsonBody = express.json({ limit: '20mb' });
+const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
+app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
 
 // Fichiers statiques + librairies locales (fonctionne sans internet)
 const nm = (p) => path.resolve('node_modules', p);
@@ -216,9 +220,10 @@ api.post('/auth/setup', wrap((req, res) => {
     guard([`setup:${req.ip}`]);
     if (!sameCode(req.body.setup_code, SETUP_CODE)) { failed([`setup:${req.ip}`]); throw new BusinessError('Code d\'installation incorrect (il est affiché dans le journal du serveur)', 403); }
   }
-  const { name, email, password, company } = req.body;
-  if (!name || !email || !password || password.length < 8) throw new BusinessError('Nom, e-mail et mot de passe (8 caractères min.) requis');
-  const id = insert('users', { name, email: email.toLowerCase(), role: 'admin', password_hash: hashSecret(password) }, ['name', 'email', 'role', 'password_hash']);
+  const { company } = req.body;
+  const name = String(req.body.name || '').trim(), email = String(req.body.email || '').trim().toLowerCase(), password = String(req.body.password || '');
+  if (!name || !/^\S+@\S+$/.test(email) || password.length < 8) throw new BusinessError('Nom, e-mail et mot de passe (8 caractères min.) requis');
+  const id = insert('users', { name, email, role: 'admin', password_hash: hashSecret(password) }, ['name', 'email', 'role', 'password_hash']);
   if (company) setSetting('company', { ...getSettings().company, name: company });
   try { fs.rmSync(SETUP_FILE, { force: true }); } catch {}
   const token = createSession(id);
@@ -718,7 +723,10 @@ api.post('/purchases/:id/reanalyze', wrap((req) => reanalyze(Number(req.params.i
 
 // ---------- Factures fournisseurs : dépôt de fichier, boîte e-mail, pièces jointes ----------
 const rawBody = express.raw({ type: () => true, limit: '40mb' });
-const fileMeta = (req) => ({ buffer: req.body, mime: (req.headers['content-type'] || '').split(';')[0].toLowerCase(), filename: decodeURIComponent(req.headers['x-filename'] || 'document') });
+const fileName = (req) => { try { return decodeURIComponent(req.headers['x-filename'] || 'document').replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 200) || 'document'; } catch { return 'document'; } };
+const fileMeta = (req) => ({ buffer: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), mime: (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase(), filename: fileName(req) });
+// Seuls ces formats s'affichent dans le navigateur ; tout le reste (HTML, SVG…) est téléchargé, jamais exécuté dans le logiciel
+const INLINE_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 api.post('/bills/upload', rawBody, wrap((req) => createBillFromFile({ ...fileMeta(req), source: 'upload' })));
 api.get('/bills/inbox', (req, res) => res.json(publicInboxConfig()));
 api.put('/bills/inbox', adminOnly, wrap((req) => { saveInboxConfig(req.body); return publicInboxConfig(); }));
@@ -733,8 +741,10 @@ api.post('/attachments/:model/:id', rawBody, wrap((req) => {
 api.get('/attachment/:id', (req, res) => {
   const a = attachmentFile(Number(req.params.id));
   if (!a) return res.status(404).end();
-  res.type(a.mime || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(a.filename)}`);
+  const safe = INLINE_MIMES.has(a.mime);
+  res.type(safe ? a.mime : 'application/octet-stream');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', `${req.query.download || !safe ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(a.filename)}`);
   res.sendFile(a.full);
 });
 api.delete('/attachment/:id', wrap((req) => { deleteAttachment(Number(req.params.id)); return { ok: true }; }));
@@ -792,29 +802,43 @@ api.get('/accounting/export.csv', (req, res) => {
 
 // ---------- Banque ----------
 crud('bank-accounts', 'bank_accounts', ['name', 'iban', 'bic', 'bank_name', 'account_code', 'opening_balance', 'provider', 'provider_config'], {
+  spec: { required: ['name'], numbers: ['opening_balance'] },
+  // solde d'ouverture laissé vide = 0 (sinon le solde du compte s'affichait toujours à 0,00 €)
+  beforeSave: (d) => ('opening_balance' in d && d.opening_balance === null ? { ...d, opening_balance: 0 } : d),
+  check: (d) => { if (d.account_code && !get('SELECT 1 FROM accounts WHERE code=?', d.account_code)) throw new BusinessError('Compte comptable inconnu'); },
   list: () => all(`SELECT b.*, (SELECT COUNT(*) FROM bank_lines WHERE bank_account_id=b.id AND status='unmatched') AS unmatched,
-    ROUND(b.opening_balance + COALESCE((SELECT SUM(amount) FROM bank_lines WHERE bank_account_id=b.id),0),2) AS statement_balance FROM bank_accounts b ORDER BY b.id`),
+    ROUND(COALESCE(b.opening_balance,0) + COALESCE((SELECT SUM(amount) FROM bank_lines WHERE bank_account_id=b.id),0),2) AS statement_balance FROM bank_accounts b ORDER BY b.id`),
 });
 api.get('/bank/providers', (req, res) => res.json(PROVIDERS));
 api.get('/bank/lines', (req, res) => {
   const lines = all(`SELECT l.*, b.name AS account_name FROM bank_lines l JOIN bank_accounts b ON b.id=l.bank_account_id
     WHERE (? IS NULL OR l.bank_account_id=?) AND (? IS NULL OR l.status=?) ORDER BY l.date DESC, l.id DESC LIMIT 500`,
   req.query.account || null, req.query.account || null, req.query.status || null, req.query.status || null);
-  for (const l of lines) if (l.status === 'unmatched') l.suggestions = suggestions(l);
+  for (const l of lines) if (l.status === 'unmatched') { l.suggestions = suggestions(l); l.remaining = remainingOf(l) * (l.amount < 0 ? -1 : 1); }
   res.json(lines);
 });
 api.post('/bank/import/:accountId', wrap((req) => {
   const text = typeof req.body === 'string' ? req.body : req.body.content;
   if (!text) throw new BusinessError('Fichier vide');
   const lines = /<\?xml|<Document/i.test(text) ? parseCamt(text) : parseCsv(text);
-  if (!lines.length) throw new BusinessError('Aucune opération reconnue dans ce fichier (formats acceptés : CAMT.053 XML, CSV).');
+  if (!lines.length) throw new BusinessError(lines.rejected ? `Aucune opération reconnue : ${lines.rejected} ligne(s) dont la date ou le montant est illisible. Formats acceptés : CAMT.053 XML, CSV.` : 'Aucune opération reconnue dans ce fichier (formats acceptés : CAMT.053 XML, CSV).');
   return importLines(Number(req.params.accountId), lines);
 }));
 api.post('/bank/sync/:accountId', wrap((req) => syncAccount(Number(req.params.accountId))));
 api.post('/bank/lines/:id/match', wrap((req) => ({ payment_id: matchLine(Number(req.params.id), req.body) })));
 api.post('/bank/lines/:id/assign', wrap((req) => ({ move_id: assignLine(Number(req.params.id), req.body.account_code, req.body.label) })));
 api.post('/bank/lines/:id/ignore', wrap((req) => { run("UPDATE bank_lines SET status='ignored' WHERE id=? AND status='unmatched'", req.params.id); return { ok: true }; }));
+// Annuler : une opération ignorée, rapprochée ou affectée par erreur redevient « à rapprocher »
+api.post('/bank/lines/:id/unmatch', needManager('banque'), wrap((req) => unmatchLine(Number(req.params.id))));
 api.post('/bank/auto-reconcile', wrap(() => autoReconcile()));
+// Annuler un paiement saisi par erreur (réservé aux administrateurs de la banque)
+api.delete('/payments/:id', wrap((req) => {
+  const p = get('SELECT * FROM payments WHERE id=?', req.params.id);
+  const r = cancelPayment(Number(req.params.id));
+  if (p?.document_id) logMessage('document', p.document_id, `↩️ Paiement de ${Number(p.amount).toFixed(2)} € annulé`, req.user.id, 'system');
+  if (p?.purchase_id) logMessage('purchase', p.purchase_id, `↩️ Paiement de ${Number(p.amount).toFixed(2)} € annulé`, req.user.id, 'system');
+  return r;
+}));
 api.get('/payments', (req, res) => res.json(all(`SELECT p.*, d.number AS document_number, pu.number AS purchase_number, c.name AS customer_name, s.name AS supplier_name
   FROM payments p LEFT JOIN documents d ON d.id=p.document_id LEFT JOIN purchases pu ON pu.id=p.purchase_id LEFT JOIN customers c ON c.id=p.customer_id LEFT JOIN suppliers s ON s.id=p.supplier_id
   ORDER BY p.date DESC, p.id DESC LIMIT 500`)));
@@ -862,30 +886,43 @@ api.get('/users', (req, res) => {
     FROM users ORDER BY active DESC, role, name`).map((u) => ({ ...u, permissions: normalizePerms(u.permissions ?? PRESETS.bureau.perms) })));
 });
 api.get('/access/meta', adminOnly, (req, res) => res.json({ apps: APPS, levels: LEVELS, labels: LEVEL_LABELS, presets: PRESETS }));
-function userData(b, creating) {
+function userData(b, creating, cur = null) {
   const data = { ...b };
+  if ('active' in b) data.active = b.active === true || b.active === 1 || b.active === '1' ? 1 : 0;
+  if (b.name !== undefined) data.name = String(b.name ?? '').trim();
   if (b.email !== undefined) data.email = b.email ? String(b.email).trim().toLowerCase() : null;
   if (b.role !== undefined && !['admin', 'office', 'mechanic'].includes(b.role)) throw new BusinessError('Type d\'utilisateur inconnu');
   if (b.password) { if (String(b.password).length < 8) throw new BusinessError('Mot de passe : 8 caractères minimum'); data.password_hash = hashSecret(b.password); }
-  if (b.pin) { if (!/^\d{4,6}$/.test(b.pin)) throw new BusinessError('Code PIN : 4 à 6 chiffres'); data.pin_hash = hashSecret(b.pin); }
+  if (b.pin) { if (!/^\d{4,6}$/.test(String(b.pin))) throw new BusinessError('Code PIN : 4 à 6 chiffres'); data.pin_hash = hashSecret(String(b.pin)); }
+  if (b.hourly_cost !== undefined && b.hourly_cost !== null && b.hourly_cost !== '' && !Number.isFinite(Number(b.hourly_cost))) throw new BusinessError('Coût horaire invalide');
   if (b.permissions !== undefined) data.permissions = JSON.stringify(normalizePerms(b.permissions));
   if (b.badge !== undefined) {
     data.badge = String(b.badge || '').trim() || null;
     if (data.badge && get('SELECT id FROM users WHERE badge=? AND id!=?', data.badge, b.id || 0)) throw new BusinessError('Ce badge est déjà attribué');
   }
   if (data.email && get('SELECT id FROM users WHERE email=? AND id!=?', data.email, b.id || 0)) throw new BusinessError('Cette adresse e-mail est déjà utilisée par un autre utilisateur');
-  if (creating) {
-    if (!b.name) throw new BusinessError('Nom requis');
-    if ((b.role || 'office') !== 'mechanic' && !data.email) throw new BusinessError('E-mail requis pour un accès au logiciel');
-    if ((b.role || 'office') === 'mechanic' && !b.pin) throw new BusinessError('Code PIN de 4 à 6 chiffres requis pour le kiosque');
-  }
+  // Mêmes contrôles à la création et à la modification, sur la fiche telle qu'elle sera enregistrée
+  const role = data.role ?? cur?.role ?? 'office';
+  if (!(data.name ?? cur?.name)) throw new BusinessError('Nom requis');
+  if (role !== 'mechanic' && !(data.email !== undefined ? data.email : cur?.email)) throw new BusinessError('E-mail requis pour un accès au logiciel');
+  if (role === 'mechanic' && !data.pin_hash && !cur?.pin_hash) throw new BusinessError('Code PIN de 4 à 6 chiffres requis pour le kiosque');
   delete data.password; delete data.pin;
   return data;
 }
-const baseUrl = (req) => (getSettings().public_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+// Adresse à mettre dans les liens envoyés (invitation, site…) : l'adresse publique si elle est configurée ;
+// sinon l'adresse utilisée — mais jamais « localhost », qui ne s'ouvre que sur le PC du garage : on prend son adresse réseau
+const baseUrl = (req) => {
+  const pub = getSettings().public_url;
+  if (pub) return pub.replace(/\/$/, '');
+  const host = req.get('host') || '';
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host)) { const lan = lanUrls(process.env.PORT || 3000)[0]; if (lan) return lan.replace(/\/$/, ''); }
+  return `${req.protocol}://${host}`;
+};
 async function inviteUser(req, id, send) {
   const u = get('SELECT * FROM users WHERE id=?', id);
   if (!u?.email) throw new BusinessError('Adresse e-mail requise pour inviter');
+  // On vérifie AVANT de créer un nouveau lien : un envoi impossible ne doit pas rendre l'ancien lien inutilisable
+  if (send && !isMailConfigured()) throw new BusinessError('L\'envoi d\'e-mails n\'est pas configuré (Paramètres → E-mails). Créez le lien sans l\'envoyer, puis transmettez-le vous-même.');
   const { token, expires } = createInvite(id);
   const url = `${baseUrl(req)}/#/invite/${token}`;
   let sent = false;
@@ -902,15 +939,28 @@ api.post('/users', adminOnly, wrap(async (req) => {
   const data = userData(b, true);
   if (data.role === 'office' && data.permissions === undefined) data.permissions = JSON.stringify(PRESETS.bureau.perms);
   const id = insert('users', data, USER_COLS);
-  const invite = b.invite && data.email && !data.password_hash ? await inviteUser(req, id, b.send_invite).catch((e) => ({ error: e.message })) : null;
+  // Si l'e-mail ne part pas, le lien est quand même créé et renvoyé (le gérant peut le copier)
+  const invite = b.invite && data.email && !data.password_hash
+    ? await inviteUser(req, id, b.send_invite).catch(async (e) => ({ ...(await inviteUser(req, id, false).catch(() => ({}))), error: e.message }))
+    : null;
   return { id, invite };
 }));
 api.put('/users/:id', adminOnly, wrap((req) => {
-  const b = { ...req.body, id: Number(req.params.id) };
-  if (Number(req.params.id) === req.user.id && (b.active === false || b.active === 0 || (b.role && b.role !== 'admin'))) throw new BusinessError('Vous ne pouvez pas désactiver votre propre compte admin');
-  const data = userData(b, false);
-  update('users', req.params.id, data, USER_COLS);
-  if (b.active === false || b.active === 0 || b.password || (b.role && b.role === 'mechanic')) run("DELETE FROM sessions WHERE user_id=? AND kind='web'", req.params.id);
+  const id = Number(req.params.id);
+  const cur = get('SELECT * FROM users WHERE id=?', id);
+  if (!cur) throw new BusinessError('Utilisateur introuvable', 404);
+  const b = { ...req.body, id };
+  const data = userData(b, false, cur);
+  const off = data.active === 0, demoted = data.role !== undefined && data.role !== 'admin';
+  if (id === req.user.id && (off || demoted)) throw new BusinessError('Vous ne pouvez pas désactiver votre propre compte admin');
+  // Il doit toujours rester un gérant actif (sinon plus personne ne peut administrer le logiciel)
+  if (cur.role === 'admin' && (off || demoted) && !get("SELECT 1 FROM users WHERE role='admin' AND active=1 AND id!=?", id)) throw new BusinessError('Il doit rester au moins un administrateur actif');
+  update('users', id, data, USER_COLS);
+  // Un ancien lien d'invitation ne doit plus servir après un changement de mot de passe, d'e-mail ou de statut
+  if (data.password_hash || off || (data.email !== undefined && data.email !== cur.email) || (data.role !== undefined && data.role !== cur.role)) clearInvite(id);
+  // Déconnexion des autres appareils (la session du gérant qui modifie son propre mot de passe est gardée)
+  if (off || data.password_hash || data.role === 'mechanic') run("DELETE FROM sessions WHERE user_id=? AND COALESCE(kind,'web')!='kiosk' AND token!=?", id, id === req.user.id ? req.user.token : '');
+  if (off || data.pin_hash) run("DELETE FROM sessions WHERE user_id=? AND kind='kiosk'", id);
   return { ok: true };
 }));
 api.post('/users/:id/invite', adminOnly, wrap((req) => inviteUser(req, Number(req.params.id), req.body.send)));
@@ -1161,18 +1211,31 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = Number(process.env.PORT || 3000);
-startScheduler();
-startAutomation();
-startInboxPolling();
-startCopilotScheduler();
-setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
+// Les tâches de fond (e-mails programmés, relances, boîte factures…) ne démarrent qu'une fois le logiciel réellement démarré :
+// un deuxième lancement par erreur ne doit pas envoyer les e-mails une deuxième fois
+function startBackgroundJobs() {
+  purgeSessions();
+  setInterval(() => { try { purgeSessions(); } catch (e) { console.error('Sessions', e); } }, 24 * 3600e3).unref();
+  startScheduler();
+  startAutomation();
+  startInboxPolling();
+  startCopilotScheduler();
+  setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
+}
 // Les modifications passent d'abord par garage.db-wal : on les recopie régulièrement dans garage.db,
 // et à l'arrêt (Ctrl+C, arrêt du conteneur Docker) pour que garage.db soit toujours complet.
 setInterval(() => { try { db.exec('PRAGMA wal_checkpoint(PASSIVE)'); } catch {} }, 5 * 60_000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.once(sig, () => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); db.close(); } catch {} process.exit(0); });
 }
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+  if (err) {
+    console.error(err.code === 'EADDRINUSE'
+      ? `\n⚠️  Le port ${PORT} est déjà utilisé : le logiciel est probablement déjà démarré (ouvrez http://localhost:${PORT}).\n    Sinon, fermez l'autre programme ou choisissez un autre port (PORT=3001 dans le fichier .env).`
+      : `\n⚠️  Démarrage impossible : ${err.message}`);
+    process.exit(1);
+  }
+  startBackgroundJobs();
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);
   console.log(`🔧  Pointage atelier (tablette) : http://localhost:${PORT}/kiosk.html`);
   console.log(aiConfigured() ? '🤖  Agents IA : actifs' : '🤖  Agents IA : mode démo (ajoutez ANTHROPIC_API_KEY dans .env)');

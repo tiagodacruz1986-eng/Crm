@@ -30,7 +30,11 @@ const App = {
       return d;
     };
     const bump = () => { clearTimeout(idle); if (token.value || who.value) idle = setTimeout(logout, IDLE_LOGOUT_MS); };
-    const logout = () => { token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; err.value = ''; q.value = ''; loadUsers(); };
+    const logout = () => {
+      // la session est aussi fermée sur le serveur (elle ne reste pas valable après « Terminer »)
+      if (token.value) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token.value } }).catch(() => {});
+      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; err.value = ''; q.value = ''; loadUsers();
+    };
     const offline = ref(false);
     const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); offline.value = false; } catch { offline.value = true; } };
 

@@ -26,12 +26,19 @@ function readToken(req) {
   return m ? m[1] : null;
 }
 
+// Durée de vie d'une connexion : 30 jours au bureau (comme le cookie), 16 heures au kiosque de l'atelier
+const VALID = "((s.kind='kiosk' AND s.created_at > datetime('now','-16 hours')) OR (COALESCE(s.kind,'web')!='kiosk' AND s.created_at > datetime('now','-30 days')))";
+/** Supprime les connexions expirées (au démarrage, puis une fois par jour). */
+export function purgeSessions() {
+  run(`DELETE FROM sessions AS s WHERE NOT ${VALID}`);
+}
+
 export function currentUser(req) {
   const token = readToken(req);
   if (!token) return null;
   const u = get(
     `SELECT u.id,u.name,u.email,u.role,u.color,u.permissions,u.job_title,s.kind AS session_kind FROM sessions s
-     JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1`,
+     JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.active=1 AND ${VALID}`,
     token
   );
   return u ? { ...u, token } : null;

@@ -232,3 +232,43 @@ test('fiches : formulaires contrôlés, pas d\'héritage après suppression, sto
   assert.equal((await A('GET', '/search?q=ÉLODIE')).data.customers.length, 1);
   assert.equal((await A('GET', '/customers?q=%25')).data.length, 0, 'le caractère % est cherché tel quel');
 });
+
+test('banque : relevés CSV, virement sur deux factures, annulation', async () => {
+  const B = await import('../src/bank.js');
+  // Colonnes « Montant débit » / « Montant crédit », priorité à la date comptable, montants avec devise ou signe à la fin
+  const csv = ['Date valeur;Date comptable;Libellé;Montant débit;Montant crédit', '02/03/2026;01/03/2026;Loyer;850,00;', '03/03/2026;03/03/2026;Client;;120,50 EUR', '31/02/2026;31/02/2026;Date impossible;;10,00'].join('\n');
+  const rows = B.parseCsv(csv);
+  assert.deepEqual(rows.map((r) => [r.date, r.amount]), [['2026-03-01', -850], ['2026-03-03', 120.5]]);
+  assert.equal(rows.rejected, 1, 'la ligne illisible est comptée');
+  assert.equal(B.parseCsv('Date;Montant;Communication\n20260305;12,50-;Frais\n05.03.26;(3,00);Frais')[0].amount, -12.5);
+  assert.equal(B.parseCsv('Date;D�bit;Cr�dit;Libell�\n05/03/2026;10,00;;Frais')[0].amount, -10, 'fichier Windows mal décodé');
+  // Import par l'API : deux opérations identiques le même jour sont gardées ; réimporter ne double rien
+  const acc = (await A('POST', '/bank-accounts', { name: 'Compte', account_code: '5131', opening_balance: '' })).data.id;
+  const file = 'Date;Montant;Communication\n05/03/2026;25,00;Payconiq\n05/03/2026;25,00;Payconiq\n';
+  const imp = await call('POST', `/bank/import/${acc}`, file, admin, { 'Content-Type': 'text/plain' });
+  assert.equal(imp.data.added, 2);
+  assert.equal((await call('POST', `/bank/import/${acc}`, file, admin, { 'Content-Type': 'text/plain' })).data.added, 0);
+  assert.equal((await A('GET', '/bank-accounts')).data.find((a) => a.id === acc).statement_balance, 50, 'solde d\'ouverture vide = 0');
+  assert.equal((await call('POST', '/bank/import/99999', file, admin, { 'Content-Type': 'text/plain' })).status, 404);
+  // Un virement de 200 € règle deux factures de 117 € et 83 €
+  const cust = (await A('POST', '/customers', { name: 'Virement' })).data.id;
+  const mk = async (price) => { const id = (await A('POST', '/documents', { type: 'invoice', customer_id: cust, lines: [{ kind: 'part', description: 'x', quantity: 1, unit_price: price, tax_rate: 0 }] })).data.id; await A('POST', `/documents/${id}/post`); return id; };
+  const f1 = await mk(117), f2 = await mk(83);
+  await call('POST', `/bank/import/${acc}`, 'Date;Montant;Communication\n06/03/2026;200,00;Factures\n06/03/2026;-40,00;Sortie\n', admin, { 'Content-Type': 'text/plain' });
+  const lines = (await A('GET', `/bank/lines?account=${acc}&status=unmatched`)).data;
+  const big = lines.find((l) => l.amount === 200), out = lines.find((l) => l.amount === -40);
+  assert.equal((await A('POST', `/bank/lines/${out.id}/match`, { kind: 'invoice', id: f1 })).status, 400, 'une sortie n\'encaisse pas une facture');
+  assert.equal((await A('POST', `/bank/lines/${big.id}/match`, { kind: 'invoice', id: f1 })).status, 200);
+  const after = (await A('GET', `/bank/lines?account=${acc}&status=unmatched`)).data.find((l) => l.id === big.id);
+  assert.equal(after.remaining, 83, 'le surplus reste à affecter');
+  assert.equal((await A('POST', `/bank/lines/${big.id}/match`, { kind: 'invoice', id: f2 })).status, 200);
+  assert.equal((await A('GET', `/documents/${f1}`)).data.status, 'paid');
+  assert.equal((await A('GET', `/documents/${f2}`)).data.status, 'paid');
+  // Annuler le rapprochement : les factures redeviennent à payer, la balance reste équilibrée
+  assert.equal((await A('POST', `/bank/lines/${big.id}/unmatch`)).status, 200);
+  assert.equal((await A('GET', `/documents/${f1}`)).data.status, 'posted');
+  assert.equal((await A('GET', `/documents/${f2}`)).data.amount_paid, 0);
+  const bal = (await A('GET', '/accounting/balance?from=2000-01-01&to=2100-01-01')).data;
+  const rowsBal = Array.isArray(bal) ? bal : bal.rows || [];
+  assert.equal(Math.round(rowsBal.reduce((s, r) => s + r.debit - r.credit, 0) * 100), 0);
+});

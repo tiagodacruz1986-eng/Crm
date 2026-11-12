@@ -25,7 +25,7 @@ export const UsersAdmin = {
       const apps = (meta.value?.apps || []).filter((a) => u.permissions?.[a.key] && u.permissions[a.key] !== 'none');
       return apps.length ? apps.map((a) => a.name + (u.permissions[a.key] === 'read' ? ' (lecture)' : u.permissions[a.key] === 'manager' ? ' (admin)' : '')).join(', ') : 'Aucune application';
     };
-    const status = (u) => (!u.active ? ['Désactivé', 'gray'] : u.invited ? ['Invitation envoyée', 'orange'] : u.role !== 'mechanic' && !u.has_password ? ['Pas de mot de passe', 'red'] : ['Actif', 'green']);
+    const status = (u) => (!u.active ? ['Désactivé', 'gray'] : u.invited ? ['Invitation en attente', 'orange'] : u.role !== 'mechanic' && !u.has_password ? ['Pas de mot de passe', 'red'] : ['Actif', 'green']);
 
     const create = (role = 'office') => {
       edit.value = { role, color: COLORS[users.value.length % COLORS.length], active: 1, permissions: { ...meta.value.presets.bureau.perms }, invite: true, send_invite: false, name: '', email: '', job_title: '' };
@@ -44,8 +44,9 @@ export const UsersAdmin = {
       } else {
         const r = await act(() => POST('/users', { ...body, invite: e.invite && !e.password, send_invite: e.send_invite }), 'Utilisateur créé');
         edit.value = null;
+        // l'e-mail n'est pas parti ? le lien est quand même affiché pour être copié
+        if (r.invite?.error) toast('Invitation : ' + r.invite.error, 'error');
         if (r.invite?.url) invite.value = { ...r.invite, name: body.name, email: body.email };
-        else if (r.invite?.error) toast('Invitation : ' + r.invite.error, 'error');
       }
       load();
     };
@@ -129,6 +130,7 @@ export const UsersAdmin = {
       <p>Envoyez ce lien à <b>{{ invite.name }}</b>{{ invite.email ? ' (' + invite.email + ')' : '' }} : il ou elle choisira son mot de passe. Valable jusqu'au {{ datetime(invite.expires) }}.</p>
       <div class="invite-link"><input :value="invite.url" readonly @focus="$event.target.select()"><button class="btn primary" @click="copy(invite.url)"><Icon name="copy"/> Copier</button></div>
       <p v-if="invite.sent" class="pos">✉️ Invitation envoyée par e-mail.</p>
+      <p v-if="/\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(invite.url)" class="muted small">⚠ Ce lien ne s'ouvre que sur le Wi-Fi du garage. Pour inviter quelqu'un à distance, indiquez l'adresse publique du logiciel dans Paramètres.</p>
       <p class="muted small">Par WhatsApp : <a :href="'https://wa.me/?text=' + encodeURIComponent('Voici ton accès au logiciel du garage : ' + invite.url)" target="_blank" rel="noopener">partager le lien</a>.</p>
     </Modal>
   </div>`,

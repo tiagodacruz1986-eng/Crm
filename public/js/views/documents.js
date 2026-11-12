@@ -4,6 +4,7 @@ import { route, go, leaveGuards } from '../router.js';
 import { LivePanel } from '../live-panel.js';
 import { DocPrint } from '../doc-print.js';
 import { lineTotal, computeTotals } from '../totals.js';
+import { can } from '../apps.js';
 
 export const DocumentList = {
   setup() {
@@ -218,6 +219,12 @@ export const DocumentEditor = {
       await load();
     };
     const setStatus = async (status) => { await ensureSaved(); await act(() => POST(`/documents/${doc.value.id}/status`, { status })); await load(); };
+    // Paiement saisi par erreur : un administrateur de la banque peut l'annuler (la facture redevient « à payer »)
+    const canCancelPay = computed(() => can('banque', 'manager'));
+    const cancelPay = async (p) => {
+      if (!confirm(`Annuler le paiement de ${money(p.amount)} du ${date(p.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
+      await act(() => DEL('/payments/' + p.id), 'Paiement annulé'); await load();
+    };
     const pay = async (p) => { await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); };
     const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); dirty.value = false; history.back(); };
     const print = async () => { if (dirty.value && !locked.value) await save(true); setTimeout(() => window.print(), 100); };
@@ -234,7 +241,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -353,7 +360,7 @@ export const DocumentEditor = {
         </div>
         <div class="card" v-if="doc.payments && doc.payments.length">
           <h2>💶 Paiements</h2>
-          <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><b>{{ money(p.amount) }}</b></div>
+          <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><span><b>{{ money(p.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(p)">↩</button></span></div>
         </div>
         <div class="card" v-if="doc.vehicle_id">
           <a :href="'#/vehicle/' + doc.vehicle_id">🚗 Historique du véhicule →</a>

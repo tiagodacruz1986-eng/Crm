@@ -1,5 +1,6 @@
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, datetime } from '../api.js';
+import { can } from '../apps.js';
 
 export const Bank = {
   setup() {
@@ -19,9 +20,13 @@ export const Bank = {
     const importFile = async (acc, e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const text = await file.text();
+      // Relevé exporté par un ancien programme Windows (accents en « ANSI ») : on le relit dans ce format
+      const buf = await file.arrayBuffer();
+      let text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1252').decode(buf); }
       const r = await act(() => POST(`/bank/import/${acc.id}`, text));
       toast(`${r.added} opérations importées, ${r.skipped} doublons ignorés, ${r.matched} rapprochées automatiquement`);
+      if (r.rejected) toast(`⚠ ${r.rejected} ligne(s) du fichier n'ont pas été comprises (date ou montant illisible) : vérifiez le relevé.`, 'error');
       e.target.value = '';
       load();
     };
@@ -32,11 +37,17 @@ export const Bank = {
       edit.value = null; load();
     };
     const match = async (l, s) => { await act(() => POST(`/bank/lines/${l.id}/match`, { kind: s.kind, id: s.id }), `Rapproché avec ${s.number}`); load(); };
-    const ignore = async (l) => { await act(() => POST(`/bank/lines/${l.id}/ignore`)); load(); };
+    const ignore = async (l) => { if (!confirm('Ignorer cette opération ? Elle ne sera pas comptabilisée.')) return; await act(() => POST(`/bank/lines/${l.id}/ignore`)); load(); };
+    // Annuler un traitement fait par erreur : l'opération redevient « à rapprocher » (paiement et écriture retirés)
+    const undo = async (l) => {
+      if (!confirm(l.status === 'ignored' ? 'Remettre cette opération dans « À rapprocher » ?' : 'Annuler ce rapprochement ? Le paiement ou l\'écriture comptable correspondant sera supprimé.')) return;
+      await act(() => POST(`/bank/lines/${l.id}/unmatch`), 'Opération remise à rapprocher'); load();
+    };
+    const manager = computed(() => can('banque', 'manager'));
     const doAssign = async () => { await act(() => POST(`/bank/lines/${assign.value.line.id}/assign`, { account_code: assign.value.account, label: assign.value.label }), 'Écriture passée'); assign.value = null; load(); };
     const auto = async () => { const r = await act(() => POST('/bank/auto-reconcile')); toast(`${r.matched} opérations rapprochées`); load(); };
     const QUICK = [['6181', 'Frais bancaires'], ['6211', 'Salaires'], ['6231', 'CCSS'], ['6111', 'Loyer'], ['6171', 'Carburant'], ['461418', 'TVA (AED)'], ['5161', 'Dépôt / retrait espèces']];
-    return { accounts, lines, filter, accountFilter, load, importFile, sync, edit, saveAccount, match, ignore, assign, doAssign, auto, chart, providers, QUICK, money, date, datetime };
+    return { accounts, lines, filter, accountFilter, load, importFile, sync, edit, saveAccount, match, ignore, undo, manager, assign, doAssign, auto, chart, providers, QUICK, money, date, datetime };
   },
   template: `
   <div>
@@ -68,7 +79,7 @@ export const Bank = {
           <td class="nowrap">{{ date(l.date) }}</td>
           <td>{{ l.counterparty }}<div class="muted small">{{ l.counterparty_iban }}</div></td>
           <td class="small wrap-any" style="max-width:320px">{{ l.communication }}</td>
-          <td class="num strong" :class="l.amount > 0 ? 'pos' : 'neg'">{{ money(l.amount) }}</td>
+          <td class="num strong" :class="l.amount > 0 ? 'pos' : 'neg'">{{ money(l.amount) }}<div v-if="l.status === 'unmatched' && l.allocated > 0" class="muted small" style="font-weight:400">reste {{ money(l.remaining) }}</div></td>
           <td>
             <template v-if="l.status === 'unmatched'">
               <div class="btns">
@@ -78,7 +89,7 @@ export const Bank = {
                 <button class="btn sm" @click="ignore(l)">Ignorer</button>
               </div>
             </template>
-            <Badge v-else :status="l.status"/>
+            <template v-else><Badge :status="l.status"/> <button v-if="manager" class="btn sm" style="margin-left:6px" @click="undo(l)">↩ Annuler</button></template>
           </td>
         </tr></tbody>
       </table></div>
@@ -97,7 +108,7 @@ export const Bank = {
       <template #foot><button class="btn primary" :disabled="!edit.name" @click="saveAccount">Enregistrer</button></template>
     </Modal>
     <Modal v-if="assign" title="Affecter l'opération à un compte" @close="assign = null">
-      <p><b>{{ money(assign.line.amount) }}</b> — {{ assign.line.counterparty }} <span class="muted wrap-any">{{ assign.line.communication }}</span></p>
+      <p><b>{{ money(assign.line.remaining ?? assign.line.amount) }}</b> — {{ assign.line.counterparty }} <span class="muted wrap-any">{{ assign.line.communication }}</span></p>
       <div class="btns"><button v-for="[c, n] in QUICK" class="btn sm" :class="{primary: assign.account === c}" @click="assign.account = c">{{ n }}</button></div>
       <label>Compte<select v-model="assign.account"><option v-for="a in chart" :value="a.code">{{ a.code }} — {{ a.name }}</option></select></label>
       <label>Libellé<input v-model="assign.label"></label>
