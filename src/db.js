@@ -4,10 +4,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
+// Le dossier des données doit exister et être accessible en écriture : sinon, un message clair plutôt qu'une erreur technique
+function openDatabase() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    return new DatabaseSync(path.join(DATA_DIR, process.env.DB_FILE || 'garage.db'));
+  } catch (e) {
+    console.error(`\n⚠️  Impossible d'ouvrir le dossier des données « ${DATA_DIR} » (${e.code || e.message}).\n    Vérifiez que ce dossier existe et que le logiciel a le droit d'y écrire (dossier protégé, clé USB en lecture seule, volume Docker appartenant à un autre utilisateur…).`);
+    process.exit(1);
+  }
+}
 
 export const dataDir = DATA_DIR;
-export const db = new DatabaseSync(path.join(DATA_DIR, process.env.DB_FILE || 'garage.db'));
+export const db = openDatabase();
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
 const SCHEMA = `

@@ -22,12 +22,12 @@ export const Bank = {
       if (!file) return;
       // Relevé exporté par un ancien programme Windows (accents en « ANSI ») : on le relit dans ce format
       const buf = await file.arrayBuffer();
+      e.target.value = ''; // tout de suite : après une erreur, on peut re-choisir le même fichier
       let text;
       try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1252').decode(buf); }
       const r = await act(() => POST(`/bank/import/${acc.id}`, text));
       toast(`${r.added} opérations importées, ${r.skipped} doublons ignorés, ${r.matched} rapprochées automatiquement`);
       if (r.rejected) toast(`⚠ ${r.rejected} ligne(s) du fichier n'ont pas été comprises (date ou montant illisible) : vérifiez le relevé.`, 'error');
-      e.target.value = '';
       load();
     };
     const sync = async (acc) => { await act(() => POST(`/bank/sync/${acc.id}`)); load(); };

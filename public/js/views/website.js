@@ -166,7 +166,10 @@ export const Website = {
           <div class="gal-grid"><div v-for="(u, j) in block.images" :key="u" class="img-prev" :style="{ backgroundImage: 'url(' + u + ')' }"><button class="icon-btn" @click="block.images.splice(j, 1)"><Icon name="x"/></button></div></div>
           <label class="btn sm"><Icon name="image"/> Ajouter une photo<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="upload($event.target.files[0], block, 'images'); $event.target.value = ''"></label>
         </template>
-        <p v-if="block.type === 'hours'" class="muted small">Horaires et adresse repris automatiquement des Paramètres (Société, Atelier).</p>
+        <template v-if="block.type === 'hours'">
+          <label>Horaires affichés (facultatif)<textarea v-model="block.text" rows="3" placeholder="Laissez vide pour reprendre les jours et heures des Paramètres. Exemple :&#10;Lundi – vendredi : 8 h – 18 h&#10;Samedi : 8 h – 12 h"></textarea></label>
+          <p class="muted small">Sans texte, les jours travaillés et les heures d'ouverture des Paramètres sont affichés. L'adresse vient de la fiche Société.</p>
+        </template>
         <p v-if="block.type === 'contact'" class="muted small">Chaque demande envoyée crée une opportunité dans le CRM et une activité « à rappeler ».</p>
       </template>
 

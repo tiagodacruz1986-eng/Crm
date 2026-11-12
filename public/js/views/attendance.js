@@ -62,7 +62,9 @@ export const Attendance = {
       if (k === 'month') Object.assign(period, { from: t.slice(0, 8) + '01', to: t });
       load();
     };
-    const totals = computed(() => report.value.reduce((s, r) => ({ worked: s.worked + r.worked, expected: s.expected + r.expected, overtime: s.overtime + r.overtime }), { worked: 0, expected: 0, overtime: 0 }));
+    // le filtre « Employé » s'applique aussi au tableau récapitulatif et à son total
+    const reportRows = computed(() => (period.user_id ? report.value.filter((r) => String(r.user_id) === String(period.user_id)) : report.value));
+    const totals = computed(() => reportRows.value.reduce((s, r) => ({ worked: s.worked + r.worked, expected: s.expected + r.expected, overtime: s.overtime + r.overtime }), { worked: 0, expected: 0, overtime: 0 }));
     const newEntry = () => { edit.value = { user_id: period.user_id || '', start: today() + 'T08:00', end: today() + 'T17:00', note: '' }; };
     const saveEntry = async () => {
       const e = edit.value;
@@ -84,7 +86,7 @@ export const Attendance = {
     const staff = ref([]);
     onMounted(async () => { if (can('presences', 'manager')) staff.value = (await GET('/users').catch(() => [])).filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })); });
     const users = computed(() => (staff.value.length ? staff.value : report.value.map((r) => ({ id: r.user_id, name: r.name }))));
-    return { tab, setTab, me, team, report, entries, period, edit, busy, flash, now, manager, viewer, check, todayLive, progress, setPeriod, totals, newEntry, saveEntry, removeEntry, exportCsv, users, load,
+    return { reportRows, tab, setTab, me, team, report, entries, period, edit, busy, flash, now, manager, viewer, check, todayLive, progress, setPeriod, totals, newEntry, saveEntry, removeEntry, exportCsv, users, load,
       hours, time, date, store, elapsedSince };
   },
   template: `
@@ -143,7 +145,7 @@ export const Attendance = {
       <div class="card">
         <table>
           <thead><tr><th>Employé</th><th class="num">Jours</th><th class="num">Heures prévues</th><th class="num">Heures travaillées</th><th class="num">Heures sup.</th><th class="num">Retards</th></tr></thead>
-          <tbody><tr v-for="r in report" :key="r.user_id"><td><span class="avatar" :style="{ background: r.color }">{{ r.name[0] }}</span> {{ r.name }}</td><td class="num">{{ r.days }}</td><td class="num">{{ hours(r.expected) }}</td><td class="num"><b>{{ hours(r.worked) }}</b></td>
+          <tbody><tr v-for="r in reportRows" :key="r.user_id"><td><span class="avatar" :style="{ background: r.color }">{{ r.name[0] }}</span> {{ r.name }}</td><td class="num">{{ r.days }}</td><td class="num">{{ hours(r.expected) }}</td><td class="num"><b>{{ hours(r.worked) }}</b></td>
             <td class="num" :class="r.overtime >= 0 ? 'pos' : 'neg'">{{ r.overtime >= 0 ? '+' : '−' }}{{ hours(Math.abs(r.overtime)) }}</td><td class="num"><Badge v-if="r.late" :label="r.late" color="orange"/></td></tr></tbody>
           <tfoot><tr><td><b>Total</b></td><td></td><td class="num">{{ hours(totals.expected) }}</td><td class="num"><b>{{ hours(totals.worked) }}</b></td><td class="num">{{ totals.overtime >= 0 ? '+' : '−' }}{{ hours(Math.abs(totals.overtime)) }}</td><td></td></tr></tfoot>
         </table>

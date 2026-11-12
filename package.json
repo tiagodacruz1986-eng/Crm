@@ -11,7 +11,7 @@
     "demo": "node --env-file-if-exists=.env scripts/demo.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

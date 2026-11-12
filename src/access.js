@@ -161,8 +161,11 @@ export function requiredAccess(req) {
   }
   // E-mail lié à une fiche (facture, relevé client…) : il faut pouvoir lire cette fiche
   if (MAIL_RECORD.test(path)) {
+    const model = read ? req.query.model : req.body?.model;
     const app = read ? recordApp(req.query.model, req.query.id) : recordApp(req.body?.model, req.body?.record_id);
     if (app) need.push([app, 'read']);
+    // le relevé des factures impayées d'un client demande aussi le droit Ventes
+    if (model === 'customer' && (read ? req.query.template === 'overdue' : req.body?.include_document)) need.push(['ventes', 'read']);
   }
   // Convertir un OR en facture (ou un devis en OR) demande aussi les droits sur l'application cible
   if (/^\/documents\/\d+\/convert$/.test(path) && req.body?.type) need.push([typeApp(req.body.type), 'user']);

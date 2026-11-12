@@ -14,7 +14,14 @@ export const Accounting = {
     const ledgerCode = ref('4011');
     const accounts = ref([]);
     const od = ref(null);
+    let reqId = 0;
     const load = async () => {
+      // une réponse arrivée après un changement d'onglet ou de période est ignorée (elle écrasait l'onglet affiché)
+      const mine = ++reqId;
+      const guarded = async (u) => { const r = await GET(u); if (mine !== reqId) throw new Error('obsolète'); return r; };
+      try { await run(guarded); } catch (e) { if (e.message !== 'obsolète') throw e; }
+    };
+    const run = async (GET) => {
       data.value = null;
       const qs = `from=${p.from}&to=${p.to}`;
       if (tab.value === 'moves') data.value = await GET(`/accounting/moves?${qs}${journal.value ? '&journal=' + journal.value : ''}`);

@@ -4,6 +4,7 @@ import { route } from '../router.js';
 import { LayoutEditor } from './layout-editor.js';
 import { UsersAdmin } from './users-admin.js';
 import { ConfigPanel } from './config.js';
+import { loadMeta } from '../mail.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
@@ -42,7 +43,8 @@ export const Settings = {
     };
     const mail = ref(null);
     const loadMail = async () => { mail.value = { ...(await GET('/mail/config')), pass: '' }; };
-    const saveMail = async () => { await act(() => PUT('/mail/config', mail.value), 'Configuration e-mail enregistrée'); await loadMail(); };
+    // (la fenêtre d'envoi d'e-mail relit la configuration tout de suite : « Envoyer » n'attend plus un rechargement de la page)
+    const saveMail = async () => { await act(() => PUT('/mail/config', mail.value), 'Configuration e-mail enregistrée'); await loadMail(); loadMeta(true).catch(() => {}); };
     const testMail = async () => { await saveMail(); await act(() => POST('/mail/test'), '✅ Connexion au serveur d\'e-mail réussie'); };
     const preset = (k) => Object.assign(mail.value, { gmail: { host: 'smtp.gmail.com', port: 465, secure: true }, outlook: { host: 'smtp.office365.com', port: 587, secure: false }, ovh: { host: 'ssl0.ovh.net', port: 465, secure: true }, pt: { host: 'mail.pt.lu', port: 587, secure: false } }[k]);
     const inbox = ref(null);

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const PORT = 3800 + Math.floor(Math.random() * 90);
+const PORT = 4400 + Math.floor(Math.random() * 90);
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-remote-'));
 let server, out = '';

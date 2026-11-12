@@ -1,7 +1,7 @@
 // Accès à l'API + formatage + notifications
 import { reactive } from 'vue';
 
-export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false });
+export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false, pageError: null });
 
 // Requêtes d'écriture en cours : un double clic sur un bouton renvoie la même réponse au lieu d'enregistrer deux fois
 const inflight = new Map();
@@ -23,7 +23,8 @@ async function request(method, url, body) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !url.startsWith('/auth')) { store.user = null; }
-  if (!res.ok) throw Object.assign(new Error(data.error || `Erreur ${res.status}`), { status: res.status });
+  // (une lecture refusée ou introuvable est signalée à l'écran par un bandeau, voir app.js : plus de page blanche sans explication)
+  if (!res.ok) throw Object.assign(new Error(data.error || `Erreur ${res.status}`), { status: res.status, read: method === 'GET' });
   return data;
 }
 export const GET = (u) => api('GET', u);

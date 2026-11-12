@@ -1,6 +1,6 @@
 // CRM (inspiré d'Odoo) : pistes et opportunités dans un pipeline par étapes, sources, montants attendus,
 // probabilité, gagné / perdu, conversion en client et en devis. Les demandes du site web arrivent ici.
-import { db, all, get, run, insert, update, tx, round2, today, isDate, likeFold } from './db.js';
+import { db, all, get, run, insert, update, tx, round2, today, isDate, likeFold, localDate } from './db.js';
 import { BusinessError, saveDocument } from './business.js';
 
 db.exec(`
@@ -39,13 +39,15 @@ export function listLeads({ q, status = 'open', user_id, source } = {}) {
   const where = [];
   const p = [];
   // « pipeline » : les opportunités en cours et celles gagnées récemment (colonne « Gagné » du tableau)
-  if (status === 'pipeline') where.push("(l.status='open' OR (l.status='won' AND COALESCE(l.won_at, '9999') >= date('now','localtime','-90 days')))"); // gagnées des 3 derniers mois
+  if (status === 'pipeline') { where.push("(l.status='open' OR (l.status='won' AND COALESCE(l.won_at, '9999') >= ?))"); p.push(localDate(new Date(Date.now() - 90 * 864e5))); } // gagnées des 3 derniers mois
   else if (status && status !== 'all') { where.push('l.status=?'); p.push(status); }
   if (user_id) { where.push('l.user_id=?'); p.push(Number(user_id)); }
   if (source) { where.push('l.source=?'); p.push(source); }
   if (q?.trim()) {
-    where.push("(fold(l.name) LIKE ? ESCAPE '\\' OR fold(l.contact_name) LIKE ? ESCAPE '\\' OR fold(l.email) LIKE ? ESCAPE '\\' OR l.phone LIKE ? ESCAPE '\\' OR fold(l.vehicle_plate) LIKE ? ESCAPE '\\' OR fold(l.company) LIKE ? ESCAPE '\\')");
-    p.push(...Array(6).fill(likeFold(q.trim())));
+    where.push("(fold(l.name) LIKE ? ESCAPE '\\' OR fold(l.contact_name) LIKE ? ESCAPE '\\' OR fold(l.email) LIKE ? ESCAPE '\\' OR l.phone LIKE ? ESCAPE '\\' OR REPLACE(l.phone,' ','') LIKE ? ESCAPE '\\' OR fold(l.vehicle_plate) LIKE ? ESCAPE '\\' OR fold(l.company) LIKE ? ESCAPE '\\')");
+    // (le téléphone se retrouve aussi quand il est tapé sans espaces)
+    const like = likeFold(q.trim());
+    p.push(like, like, like, like, likeFold(q.replace(/\s/g, '')), like, like);
   }
   return all(`SELECT l.*, u.name AS user_name, u.color AS user_color, c.name AS customer_name, d.number AS quote_number,
       (SELECT COUNT(*) FROM activities a WHERE a.model='lead' AND a.record_id=l.id AND a.status='planned') AS activities,

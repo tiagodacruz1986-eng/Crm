@@ -66,6 +66,7 @@ function cleanBlock(b) {
   if (b.type === 'reviews') o.items = (b.items || []).slice(0, 12).map((i) => ({ name: str(i.name, 60), text: str(i.text, 500), stars: Math.min(5, Math.max(1, Number(i.stars) || 5)) }));
   if (b.type === 'faq') o.items = (b.items || []).slice(0, 15).map((i) => ({ q: str(i.q, 200), a: str(i.a, 800) }));
   if (b.type === 'gallery') o.images = (b.images || []).map(safeUrl).filter(Boolean).slice(0, 16);
+  if (b.type === 'hours') o.text = str(b.text, 400); // horaires écrits à la main (samedi matin, pause de midi…)
   return o;
 }
 export function saveWebsite(input = {}) {
@@ -172,6 +173,16 @@ export function submitContact(body, ip) {
   return { ok: true };
 }
 
+// Jours d'ouverture d'après les jours travaillés des Paramètres (lundi à vendredi par défaut)
+const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+function openDays(days) {
+  const d = (Array.isArray(days) && days.length ? days : [1, 2, 3, 4, 5]).map(Number).filter((x) => x >= 0 && x <= 6).sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+  if (!d.length) return 'Du lundi au vendredi';
+  const consecutive = d.every((x, i) => i === 0 || (x + 6) % 7 === ((d[i - 1] + 6) % 7) + 1);
+  if (d.length === 1) return `Le ${DAY_NAMES[d[0]]}`;
+  return consecutive ? `Du ${DAY_NAMES[d[0]]} au ${DAY_NAMES[d.at(-1)]}` : d.map((x) => DAY_NAMES[x]).join(', ').replace(/^./, (c) => c.toUpperCase());
+}
+
 // ---------- Rendu de la page publique ----------
 function block(b, ctx) {
   const { c, s, services } = ctx;
@@ -187,7 +198,7 @@ function block(b, ctx) {
     case 'faq': return `<section class="wrap narrow"><div class="head">${title}</div>${(b.items || []).map((i) => `<details class="card"><summary>${esc(i.q)}</summary><p>${nl2br(i.a)}</p></details>`).join('')}</section>`;
     case 'hours': {
       const addr = [c.address, [c.zip, c.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-      return `<section class="wrap"><div class="head">${title}</div><div class="grid two"><div class="card"><h3>🕘 Horaires</h3><p>Du lundi au vendredi<br><b>${esc(s.workshop.opening)} – ${esc(s.workshop.closing)}</b></p></div>
+      return `<section class="wrap"><div class="head">${title}</div><div class="grid two"><div class="card"><h3>🕘 Horaires</h3><p>${b.text?.trim() ? nl2br(b.text) : `${esc(openDays(s.attendance?.work_days))}<br><b>${esc(s.workshop.opening)} – ${esc(s.workshop.closing)}</b>`}</p></div>
         <div class="card"><h3>📍 Adresse</h3><p>${esc(addr) || '—'}</p>${addr ? `<a class="link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.name + ' ' + addr)}">Itinéraire →</a>` : ''}</div></div></section>`;
     }
     case 'contact': return `<section class="wrap narrow" id="contact"><div class="head">${title}<p class="muted">${nl2br(b.text)}</p></div>

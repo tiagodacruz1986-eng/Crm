@@ -45,10 +45,18 @@ export function dayStats(date = today(), user = null) {
   st.journal = journalOf(date).filter((j) => j.user_id === user.id).map((j) => `${j.created_at.slice(11, 16)} ${j.text}`); // ses propres notes seulement
   return st;
 }
+// Bornes d'une journée du garage, exprimées comme la base enregistre ses horodatages (en temps universel) :
+// une facture validée à 0 h 30 compte bien dans la journée qui commence, pas dans la veille
+function dayBounds(date) {
+  const lo = new Date(`${date}T00:00:00`), hi = new Date(lo); hi.setDate(hi.getDate() + 1);
+  const sql = (d) => d.toISOString().slice(0, 19).replace('T', ' ');
+  return { isoLo: lo.toISOString(), isoHi: hi.toISOString(), sqlLo: sql(lo), sqlHi: sql(hi) };
+}
 function fullDayStats(date) {
+  const B = dayBounds(date);
   const next = (() => { const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + 1); return localDate(d); })();
   const sum = (sql, ...p) => round2(get(sql, ...p)?.v || 0);
-  const invoices = all(`SELECT d.number, d.total, c.name AS client FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.type='invoice' AND substr(d.posted_at,1,10)=?`, date);
+  const invoices = all(`SELECT d.number, d.total, c.name AS client FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.type='invoice' AND d.posted_at>=? AND d.posted_at<?`, B.isoLo, B.isoHi);
   const time = all(`SELECT * FROM time_entries WHERE substr(start,1,10)=?`, date);
   const mechanics = all("SELECT id, name FROM users WHERE role='mechanic' AND active=1").map((u) => {
     const mine = time.filter((t) => t.user_id === u.id);
@@ -60,7 +68,7 @@ function fullDayStats(date) {
     factures_emises: invoices,
     encaissements: sum(`SELECT SUM(amount) v FROM payments WHERE direction='in' AND date=?`, date),
     paiements_fournisseurs: sum(`SELECT SUM(amount) v FROM payments WHERE direction='out' AND date=?`, date),
-    or_crees: get(`SELECT COUNT(*) n FROM documents WHERE type='order' AND substr(created_at,1,10)=?`, date).n,
+    or_crees: get(`SELECT COUNT(*) n FROM documents WHERE type='order' AND created_at>=? AND created_at<?`, B.sqlLo, B.sqlHi).n,
     or_termines_a_facturer: all(`SELECT d.number, v.plate FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.type='order' AND d.status='done'`).slice(0, 20),
     or_en_retard: all(`SELECT d.number, v.plate, d.promised_at, c.name AS client FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id LEFT JOIN customers c ON c.id=d.customer_id
       WHERE d.type='order' AND d.status IN ('open','in_progress','waiting_parts') AND d.promised_at IS NOT NULL AND substr(d.promised_at,1,10)<=?`, date),
@@ -71,7 +79,7 @@ function fullDayStats(date) {
       WHERE d.type='invoice' AND d.status IN ('posted','partial') AND d.due_date<? ORDER BY d.due_date LIMIT 15`, date),
     devis_en_attente: all(`SELECT d.number, c.name AS client, d.total, d.date FROM documents d LEFT JOIN customers c ON c.id=d.customer_id WHERE d.type='quote' AND d.status IN ('draft','sent') ORDER BY d.date LIMIT 10`),
     accords_client_en_attente: all(`SELECT p.body, p.amount, d.number FROM order_posts p JOIN documents d ON d.id=p.document_id WHERE p.kind='approval' AND p.answer IS NULL`).slice(0, 10),
-    messages_clients_du_jour: all(`SELECT p.body, d.number FROM order_posts p JOIN documents d ON d.id=p.document_id WHERE p.author_role='customer' AND substr(p.created_at,1,10)=?`, date).slice(0, 10),
+    messages_clients_du_jour: all(`SELECT p.body, d.number FROM order_posts p JOIN documents d ON d.id=p.document_id WHERE p.author_role='customer' AND p.created_at>=? AND p.created_at<?`, B.sqlLo, B.sqlHi).slice(0, 10),
     stock_bas: all('SELECT ref, name, qty_on_hand, qty_min FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min LIMIT 15'),
     factures_fournisseurs_a_verifier: get(`SELECT COUNT(*) n FROM purchases WHERE review='to_review' AND posted=0`).n,
     activites_faites: all(`SELECT summary FROM activities WHERE status='done' AND substr(done_at,1,10)=?`, date),

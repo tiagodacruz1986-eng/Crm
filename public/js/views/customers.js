@@ -16,7 +16,8 @@ const YEAR_CODES = 'ABCDEFGHJKLMNPRSTVWXY123456789';
 export async function decodeVin(vin) {
   vin = (vin || '').toUpperCase().trim();
   if (vin.length !== 17) throw new Error('Le VIN doit comporter 17 caractères');
-  const out = { make: WMI[vin.slice(0, 3)] || null };
+  const out = {};
+  if (WMI[vin.slice(0, 3)]) out.make = WMI[vin.slice(0, 3)]; // constructeur inconnu : la marque déjà saisie n'est pas effacée
   const yc = YEAR_CODES.indexOf(vin[9]);
   if (yc >= 0) { let y = 2010 + yc; if (y > new Date().getFullYear() + 1) y -= 30; out.year = y; }
   try {
@@ -84,7 +85,8 @@ export const CustomerDetail = {
     };
     const vin = async () => { try { Object.assign(vehicle.value, await decodeVin(vehicle.value.vin)); toast('VIN décodé'); } catch (e) { toast(e.message, 'error'); } };
     const balance = () => (c.value?.documents || []).filter((d) => d.type === 'invoice' && ['posted', 'partial'].includes(d.status)).reduce((s, d) => s + d.total - d.amount_paid, 0);
-    const revenue = () => (c.value?.documents || []).filter((d) => d.type === 'invoice' && d.status !== 'draft').reduce((s, d) => s + d.total, 0);
+    // chiffre d'affaires : factures validées moins notes de crédit validées
+    const revenue = () => (c.value?.documents || []).filter((d) => ['invoice', 'credit_note'].includes(d.type) && d.status !== 'draft').reduce((s, d) => s + (d.type === 'credit_note' ? -d.total : d.total), 0);
     return { c, isNew, save, remove, vehicle, newVehicle, saveVehicle, vin, money, date, go, DOC_TYPES_SHORT, balance, revenue };
   },
   template: `
@@ -138,7 +140,7 @@ export const CustomerDetail = {
           <h2>📄 Historique</h2>
           <div v-for="d in c.documents" class="list-item">
             <a :href="'#/document/' + d.id">{{ DOC_TYPES_SHORT[d.type] }} <b>{{ d.number || 'brouillon' }}</b> <span class="muted small">{{ date(d.date) }} {{ d.plate }}</span></a>
-            <span><Badge :status="d.status"/> {{ money(d.total) }}</span>
+            <span><Badge :status="d.status"/> {{ money(d.type === 'credit_note' ? -d.total : d.total) }}</span>
           </div>
           <Empty v-if="!c.documents.length" text="Aucun document"/>
         </div>

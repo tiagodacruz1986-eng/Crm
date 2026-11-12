@@ -461,7 +461,7 @@ export function dashboard() {
   const receivable = sum(`SELECT SUM(total-amount_paid) v FROM documents WHERE type='invoice' AND status IN ('posted','partial')`);
   const overdue = sum(`SELECT SUM(total-amount_paid) v FROM documents WHERE type='invoice' AND status IN ('posted','partial') AND due_date<?`, t);
   const payable = sum(`SELECT SUM(total-amount_paid) v FROM purchases WHERE posted=1 AND status!='paid'`);
-  const bank = sum(`SELECT SUM(debit-credit) v FROM move_lines WHERE account_code IN ('5131','5161')`) + sum('SELECT SUM(opening_balance) v FROM bank_accounts');
+  const bank = sum(`SELECT SUM(debit-credit) v FROM move_lines WHERE account_code IN (SELECT COALESCE(account_code,'5131') FROM bank_accounts UNION SELECT '5131' UNION SELECT '5161')`) + sum('SELECT SUM(opening_balance) v FROM bank_accounts');
   const ordersOpen = get(`SELECT COUNT(*) n FROM documents WHERE type='order' AND status NOT IN ('invoiced','cancelled')`).n;
   const quotesPending = get(`SELECT COUNT(*) n FROM documents WHERE type='quote' AND status IN ('draft','sent')`).n;
   const lowStock = all('SELECT id, ref, name, qty_on_hand, qty_min FROM products WHERE active=1 AND is_service=0 AND qty_on_hand<=qty_min AND qty_min>0 ORDER BY name LIMIT 20');
@@ -475,7 +475,7 @@ export function dashboard() {
   const inspectionsSoon = all(`SELECT v.id, v.plate, v.make, v.model, v.next_inspection, c.name AS customer_name, c.phone, c.mobile FROM vehicles v
     LEFT JOIN customers c ON c.id=v.customer_id WHERE v.next_inspection BETWEEN ? AND date(?, '+30 days') ORDER BY v.next_inspection LIMIT 20`, t, t);
   const monthly = all(`SELECT substr(date,1,7) AS month, ROUND(SUM(CASE WHEN type='credit_note' THEN -subtotal ELSE subtotal END),2) AS total
-    FROM documents WHERE type IN ('invoice','credit_note') AND status!='draft' AND date>=date(?, '-11 months', 'start of month')
+    FROM documents WHERE type IN ('invoice','credit_note') AND status!='draft' AND date>=date(?, 'start of month', '-11 months')
     GROUP BY 1 ORDER BY 1`, t);
   // 12 derniers mois, y compris ceux sans chiffre d'affaires
   const months = [];

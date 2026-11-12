@@ -218,7 +218,10 @@ const loginKeys = (req, email, known) => (isLocalRequest(req) || known ? [`ip:${
 // ---------- Authentification ----------
 api.get('/auth/status', (req, res) => {
   const needsSetup = get('SELECT COUNT(*) n FROM users WHERE role=?', 'admin').n === 0;
-  res.json({ needsSetup, setupCode: needsSetup && !isLocalRequest(req), user: currentUser(req), company: getSettings().company.name, ai: aiConfigured() });
+  // (le jeton de session reste dans le cookie protégé : il n'est jamais renvoyé dans la page)
+  const u = currentUser(req);
+  const user = u ? { id: u.id, name: u.name, email: u.email, role: u.role, color: u.color, job_title: u.job_title, session_kind: u.session_kind } : null;
+  res.json({ needsSetup, setupCode: needsSetup && !isLocalRequest(req), user, company: getSettings().company.name, ai: aiConfigured() });
 });
 api.post('/auth/setup', wrap((req, res) => {
   if (get("SELECT COUNT(*) n FROM users WHERE role='admin'").n > 0) throw new BusinessError('Déjà configuré', 403);
@@ -283,9 +286,11 @@ api.get('/kiosk/users', (req, res) => {
   res.json({
     company: getSettings().company.name, logo: getSettings().layout?.logo_version ? `/logo?v=${getSettings().layout.logo_version}` : null,
     pin: cfg.kiosk_pin || !isLocalRequest(req), badge: cfg.kiosk_badge && isLocalRequest(req),
+    // hors du réseau du garage : les prénoms seulement (ni fonction, ni « présent depuis »)
     users: all(`SELECT u.id, u.name, u.color, u.role, u.job_title,
       (SELECT start FROM time_entries t WHERE t.user_id=u.id AND t.kind='presence' AND t.end IS NULL LIMIT 1) AS since
-      FROM users u WHERE u.active=1 AND (u.pin_hash IS NOT NULL OR u.role='mechanic') ORDER BY u.name`),
+      FROM users u WHERE u.active=1 AND (u.pin_hash IS NOT NULL OR u.role='mechanic') ORDER BY u.name`)
+      .map((u) => (isLocalRequest(req) ? u : { id: u.id, name: u.name, color: u.color, role: u.role, since: null })),
   });
 });
 // Tentatives de PIN limitées (anti-devinette) : 5 essais par personne et par 5 minutes
@@ -386,7 +391,11 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
   const id = Number(req.params.id);
   const d = get("SELECT * FROM documents WHERE id=? AND type='order'", id);
   if (!d || d.status === 'invoiced') throw new BusinessError('OR non modifiable');
-  const { line_id, done, diagnosis, status, note } = req.body;
+  const { line_id, done, status } = req.body;
+  // textes venant de la tablette : toujours traités comme du texte
+  const text = (v, label) => { if (v === undefined || v === null) return undefined; if (typeof v !== 'string') throw new BusinessError(`${label} invalide`); return v.slice(0, 5000); };
+  const diagnosis = text(req.body.diagnosis, 'Diagnostic'), note = text(req.body.note, 'Note');
+  if (line_id !== undefined && !Number.isInteger(Number(line_id))) throw new BusinessError('Ligne invalide');
   let mileage = null;
   if (!blank(req.body.mileage)) {
     mileage = Number(req.body.mileage);
@@ -482,7 +491,7 @@ function crud(name, table, columns, { list, detail, beforeSave, spec, check, mod
   };
   api.get(`/${name}`, (req, res) => res.json(list ? list(req) : all(`SELECT * FROM ${table} ORDER BY id DESC`)));
   api.get(`/${name}/:id`, wrap((req) => {
-    const r = detail ? detail(Number(req.params.id)) : get(`SELECT * FROM ${table} WHERE id=?`, req.params.id);
+    const r = detail ? detail(Number(req.params.id), req) : get(`SELECT * FROM ${table} WHERE id=?`, req.params.id);
     if (!r) throw new BusinessError('Introuvable', 404);
     return r;
   }));
@@ -500,21 +509,25 @@ function crud(name, table, columns, { list, detail, beforeSave, spec, check, mod
   }));
 }
 
+// Devis, factures et avoirs : droit Ventes ; ordres de réparation : droit Atelier (aussi sur les fiches client et véhicule)
+const docVisible = (u) => (d) => can(u, d.type === 'order' ? 'atelier' : 'ventes');
 const upperPlate = (b) => ({ ...b, plate: b.plate ? String(b.plate).toUpperCase().trim() : b.plate, vin: b.vin ? String(b.vin).toUpperCase().trim() : b.vin });
 
 crud('customers', 'customers', ['type', 'name', 'company', 'vat_number', 'email', 'phone', 'mobile', 'address', 'zip', 'city', 'country', 'payment_terms', 'notes', 'marketing_ok'], {
   model: 'customer', spec: { required: ['name'], numbers: ['payment_terms'] },
   list: (req) => {
     const q = likeFold(req.query.q || '');
+    // le solde impayé n'est montré qu'avec le droit Ventes
     return all(`SELECT c.*, (SELECT COUNT(*) FROM vehicles WHERE customer_id=c.id) AS vehicle_count,
-      (SELECT ROUND(SUM(total-amount_paid),2) FROM documents WHERE customer_id=c.id AND type='invoice' AND status IN ('posted','partial')) AS balance
+      ${can(req.user, 'ventes') ? "(SELECT ROUND(SUM(total-amount_paid),2) FROM documents WHERE customer_id=c.id AND type='invoice' AND status IN ('posted','partial'))" : 'NULL'} AS balance
       FROM customers c WHERE fold(c.name) LIKE ? ESCAPE '\\' OR fold(c.company) LIKE ? ESCAPE '\\' OR fold(c.email) LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\' OR c.mobile LIKE ? ESCAPE '\\' ORDER BY c.name LIMIT 500`, q, q, q, q, q);
   },
-  detail: (id) => {
+  detail: (id, req) => {
     const c = get('SELECT * FROM customers WHERE id=?', id);
     if (!c) return null;
-    c.vehicles = all('SELECT * FROM vehicles WHERE customer_id=? ORDER BY id DESC', id);
-    c.documents = all('SELECT d.id, d.type, d.number, d.status, d.date, d.total, d.amount_paid, v.plate FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.customer_id=? ORDER BY d.id DESC', id);
+    c.vehicles = can(req.user, 'vehicules') ? all('SELECT * FROM vehicles WHERE customer_id=? ORDER BY id DESC', id) : [];
+    c.documents = all('SELECT d.id, d.type, d.number, d.status, d.date, d.total, d.amount_paid, v.plate FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.customer_id=? ORDER BY d.id DESC', id)
+      .filter(docVisible(req.user));
     return c;
   },
 });
@@ -528,12 +541,12 @@ crud('vehicles', 'vehicles', ['customer_id', 'plate', 'vin', 'make', 'model', 'v
       WHERE fold(v.plate) LIKE ? ESCAPE '\\' OR fold(REPLACE(v.plate,' ','')) LIKE ? ESCAPE '\\' OR fold(v.vin) LIKE ? ESCAPE '\\' OR fold(v.make) LIKE ? ESCAPE '\\' OR fold(v.model) LIKE ? ESCAPE '\\' OR fold(c.name) LIKE ? ESCAPE '\\' ORDER BY v.id DESC LIMIT 500`,
     q, likeFold(String(req.query.q || '').replace(/\s/g, '')), q, q, q, q);
   },
-  detail: (id) => {
+  detail: (id, req) => {
     const v = get('SELECT v.*, c.name AS customer_name FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE v.id=?', id);
     if (!v) return null;
     v.history = all(`SELECT d.id, d.type, d.number, d.status, d.date, d.mileage, d.total, d.customer_complaint,
       (SELECT GROUP_CONCAT(description, ' · ') FROM document_lines WHERE document_id=d.id AND kind!='text') AS summary
-      FROM documents d WHERE d.vehicle_id=? ORDER BY d.date DESC, d.id DESC`, id);
+      FROM documents d WHERE d.vehicle_id=? ORDER BY d.date DESC, d.id DESC`, id).filter(docVisible(req.user));
     return v;
   },
 });
@@ -546,7 +559,7 @@ crud('products', 'products', ['ref', 'ean', 'name', 'category', 'brand', 'suppli
   list: (req) => {
     const q = likeFold(req.query.q || '');
     return all(`SELECT p.*, s.name AS supplier_name FROM products p LEFT JOIN suppliers s ON s.id=p.supplier_id
-      WHERE (fold(p.name) LIKE ? ESCAPE '\\' OR fold(p.ref) LIKE ? ESCAPE '\\' OR p.ean LIKE ? ESCAPE '\\' OR fold(p.brand) LIKE ? ESCAPE '\\') ${req.query.low ? 'AND p.qty_on_hand<=p.qty_min AND p.qty_min>0 AND p.is_service=0' : ''}
+      WHERE (fold(p.name) LIKE ? ESCAPE '\\' OR fold(p.ref) LIKE ? ESCAPE '\\' OR p.ean LIKE ? ESCAPE '\\' OR fold(p.brand) LIKE ? ESCAPE '\\') ${req.query.low ? 'AND p.active=1 AND p.qty_on_hand<=p.qty_min AND p.qty_min>0 AND p.is_service=0' : ''}
       ORDER BY p.name LIMIT 1000`, q, q, q, q);
   },
   detail: (id) => {
@@ -763,8 +776,18 @@ api.get('/accounting/moves', (req, res) => {
   res.json(moves);
 });
 api.post('/accounting/moves', wrap((req) => {
-  const { date, label, lines, journal_code = 'OD' } = req.body;
-  return { id: tx(() => createMove({ journal_code, date: date || today(), ref: 'OD', label }, (lines || []).map((l) => ({ account_code: l.account_code, label: l.label || label, debit: round2(l.debit), credit: round2(l.credit) })))) };
+  const { date, label, journal_code = 'OD' } = req.body;
+  // Écriture manuelle : au moins deux lignes, des montants positifs, des comptes et un journal qui existent
+  const lines = (Array.isArray(req.body.lines) ? req.body.lines : []).map((l) => ({ account_code: String(l?.account_code || ''), label: l?.label || label, debit: round2(l?.debit), credit: round2(l?.credit) }))
+    .filter((l) => l.debit || l.credit);
+  if (!String(label || '').trim()) throw new BusinessError('Libellé de l\'écriture requis');
+  if (lines.length < 2) throw new BusinessError('Une écriture comporte au moins deux lignes avec un montant');
+  if (lines.some((l) => l.debit < 0 || l.credit < 0)) throw new BusinessError('Les montants doivent être positifs (utilisez la colonne débit ou crédit)');
+  if (lines.some((l) => l.debit && l.credit)) throw new BusinessError('Une ligne est soit au débit, soit au crédit');
+  const unknown = lines.find((l) => !get('SELECT 1 FROM accounts WHERE code=?', l.account_code));
+  if (unknown) throw new BusinessError(`Compte inconnu : ${unknown.account_code || '(vide)'}`);
+  if (!get('SELECT 1 FROM journals WHERE code=?', journal_code)) throw new BusinessError('Journal inconnu');
+  return { id: tx(() => createMove({ journal_code, date: date || today(), ref: 'OD', label }, lines)) };
 }));
 api.get('/accounting/ledger/:code', (req, res) => {
   const [from, to] = period(req);
@@ -983,6 +1006,24 @@ api.delete('/attendance/:id', needManager('presences'), wrap((req) => { run("DEL
 const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
 api.get('/settings', (req, res) => res.json(publicSettings()));
 api.put('/settings', adminOnly, wrap((req) => {
+  if (req.body.workshop !== undefined) {
+    // Valeurs de l'atelier contrôlées : un champ vidé par erreur donnerait des lignes sans TVA ou une échéance avant la facture
+    const w = { ...getSettings().workshop, ...(req.body.workshop || {}) };
+    const n = (v) => (v === '' || v === null || v === undefined ? NaN : Number(String(v).replace(',', '.')));
+    if (!(n(w.labor_rate) >= 0)) throw new BusinessError('Taux horaire : indiquez un nombre (0 ou plus)');
+    if (!(n(w.default_tax) >= 0 && n(w.default_tax) <= 100)) throw new BusinessError('TVA par défaut : indiquez un taux entre 0 et 100');
+    if (!(Number.isInteger(n(w.payment_terms)) && n(w.payment_terms) >= 0)) throw new BusinessError('Délai de paiement : nombre de jours entier, 0 ou plus');
+    if (!(Number.isInteger(n(w.bays)) && n(w.bays) >= 1)) throw new BusinessError('Nombre de ponts : au moins 1');
+    for (const k of ['opening', 'closing']) if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(w[k] || ''))) throw new BusinessError('Horaires : format HH:MM (exemple 08:00)');
+    if (w.closing <= w.opening) throw new BusinessError('L\'heure de fermeture doit être après l\'heure d\'ouverture');
+    req.body.workshop = { ...w, labor_rate: n(w.labor_rate), default_tax: n(w.default_tax), payment_terms: n(w.payment_terms), bays: n(w.bays) };
+  }
+  if (req.body.public_url !== undefined) {
+    const url = String(req.body.public_url || '').trim().replace(/\/+$/, '');
+    if (url && !/^https?:\/\/[^\s/]+\.[^\s]+$/i.test(url) && !/^https?:\/\/(localhost|[\d.]+)(:\d+)?$/i.test(url)) throw new BusinessError('Adresse publique : elle doit commencer par https:// (exemple : https://atelier.mon-garage.lu)');
+    req.body.public_url = url;
+  }
+  if (req.body.company !== undefined && !String(req.body.company?.name || '').trim()) throw new BusinessError('Le nom de la société est obligatoire');
   for (const k of ['company', 'workshop', 'numbering', 'invoice_footer', 'ai', 'public_url']) if (req.body[k] !== undefined) setSetting(k, req.body[k]);
   if (req.body.layout) setSetting('layout', cleanLayout(req.body.layout));
   if (req.body.options) setSetting('options', cleanOptions(req.body.options));
@@ -1027,7 +1068,7 @@ api.post('/website/images', rawBody, wrap((req) => saveSiteImage(Buffer.isBuffer
 
 // ---------- Marketing social ----------
 api.get('/social', (req, res) => res.json({ platforms: PLATFORMS, accounts: publicAccounts(), public_url: getSettings().public_url || '' }));
-api.put('/social/accounts', adminOnly, wrap((req) => saveAccounts(req.body)));
+api.put('/social/accounts', needManager('social'), wrap((req) => saveAccounts(req.body)));
 api.get('/social/posts', (req, res) => res.json(listPosts(req.query)));
 api.post('/social/posts', wrap((req) => getPost(savePost(req.body, req.user.id))));
 api.put('/social/posts/:id', wrap((req) => getPost(savePost(req.body, req.user.id, Number(req.params.id)))));
@@ -1064,7 +1105,11 @@ api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Numb
 // Logo du garage (documents, e-mails, suivi client)
 api.post('/settings/logo', adminOnly, rawBody, wrap((req) => saveLogo(Buffer.isBuffer(req.body) ? req.body : null)));
 api.delete('/settings/logo', adminOnly, wrap(() => deleteLogo()));
-api.get('/qr.svg', wrap(async (req, res) => res.type('image/svg+xml').send(await QRCode.toString(String(req.query.text || '').slice(0, 500), { type: 'svg', margin: 1 }))));
+api.get('/qr.svg', wrap(async (req, res) => {
+  const text = String(req.query.text || '').slice(0, 500);
+  if (!text.trim()) return res.status(204).end();
+  res.type('image/svg+xml').send(await QRCode.toString(text, { type: 'svg', margin: 1 }));
+}));
 api.post('/mail/preview', wrap(async (req) => {
   const { html } = await renderEmail({ model: checkModel(req.body.model), record_id: Number(req.body.record_id) || null, intro: req.body.intro || '', include_document: req.body.include_document });
   return { html: html.replace('cid:qrpay', `/api/documents/${Number(req.body.record_id)}/qr.svg`).replace('cid:garagelogo', '/logo') };
@@ -1114,10 +1159,12 @@ api.get('/activities/counts', (req, res) => res.json(activityCounts(req.user.id)
 // La fiche liée (nom du client, e-mail…) n'est montrée qu'à ceux qui ont le droit de la lire
 const canReadRecord = (u, model, id) => { const app = recordApp(model, id); return !app || can(u, app, 'read'); };
 api.get('/activities', (req, res) => {
-  if (req.query.model && !canReadRecord(req.user, req.query.model, req.query.record_id)) return res.status(403).json({ error: 'Accès refusé à cette fiche' });
+  const one = (v) => (Array.isArray(v) ? v[0] : v) || null; // un paramètre répété dans l'adresse : on garde le premier
+  const q = Object.fromEntries(['user_id', 'module', 'model', 'record_id', 'status', 'scope', 'mine'].map((k) => [k, one(req.query[k])]));
+  if (q.model && !canReadRecord(req.user, q.model, q.record_id)) return res.status(403).json({ error: 'Accès refusé à cette fiche' });
   res.json(listActivities({
-    user_id: req.query.mine ? req.user.id : req.query.user_id || null, module: req.query.module || null,
-    model: req.query.model || null, record_id: req.query.record_id || null, status: req.query.status || 'planned', scope: req.query.scope,
+    user_id: q.mine ? req.user.id : q.user_id, module: q.module,
+    model: q.model, record_id: q.record_id, status: q.status || 'planned', scope: q.scope,
   }).filter((a) => req.user.role === 'admin' || a.user_id === req.user.id || a.created_by === req.user.id || (a.model && canReadRecord(req.user, a.model, a.record_id))));
 });
 api.post('/activities', wrap((req) => ({ id: createActivity({ ...req.body, model: checkModel(req.body.model) }, req.user.id) })));

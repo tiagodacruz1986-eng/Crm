@@ -166,6 +166,21 @@ const Root = {
     onMounted(() => window.addEventListener('keydown', onKey));
     onUnmounted(() => window.removeEventListener('keydown', onKey));
     const view = computed(() => VIEWS[route.name] || VIEWS.dashboard);
+    // Page d'une application à laquelle l'utilisateur n'a pas droit : un message clair au lieu d'une page vide.
+    // (les fiches de document sont laissées au serveur : un OR dépend du droit Atelier, une facture du droit Ventes)
+    const denied = computed(() => {
+      if (['document', 'apps', 'dashboard', 'activities', 'attendance', 'invite'].includes(route.name)) return false;
+      const a = currentApp(route);
+      return Boolean(a) && (a.admin ? store.user?.role !== 'admin' : Boolean(a.perm) && !can(a.perm));
+    });
+    // Lecture refusée ou fiche introuvable pendant le chargement d'une page : bandeau explicatif
+    const onRejected = (e) => { const r = e.reason; if (r?.read && (r.status === 403 || r.status === 404)) { store.pageError = { status: r.status, message: r.message }; e.preventDefault(); } };
+    onMounted(() => window.addEventListener('unhandledrejection', onRejected));
+    onUnmounted(() => window.removeEventListener('unhandledrejection', onRejected));
+    watch(() => route.path, () => { store.pageError = null; });
+    const pageErr = computed(() => (store.pageError?.status === 404
+      ? { icon: '🔎', title: 'Fiche introuvable', text: "Cette fiche n'existe pas ou a été supprimée." }
+      : { icon: '⛔', title: 'Accès refusé', text: store.pageError?.message || '' }));
     const isActive = (n) => n.match === route.name && (!n.type || n.type === route.params.type);
     const logout = async () => { await POST('/auth/logout'); store.user = null; };
     const plusOpen = ref(false);
@@ -187,7 +202,11 @@ const Root = {
     }).filter((n, i, arr) => n.section === undefined || (arr[i + 1] && arr[i + 1].section === undefined)));
     const app = computed(() => (route.name === 'apps' ? null : currentApp(route)));
     const appMenus = computed(() => (app.value?.menus || []).filter((m) => (m.perm ? can(m.perm) : true)));
-    const menuActive = (m) => { const p = route.path + (route.query.tab ? '?tab=' + route.query.tab : ''); return m.to === p || (m.to === route.path && !route.query.tab); };
+    // sous-menu actif : l'adresse complète (onglet ou vue comprise), sinon la page seule quand aucun onglet n'est choisi
+    const menuActive = (m) => {
+      const sub = route.query.tab ? 'tab=' + route.query.tab : route.query.view ? 'view=' + route.query.view : '';
+      return m.to === route.path + (sub ? '?' + sub : '') || (m.to === route.path && !sub);
+    };
     const userOpen = ref(false);
     const attOpen = ref(false);
     // Un toucher en dehors du menu du compte ou du pointage rapide le ferme, sans activer ce qui est dessous
@@ -210,7 +229,7 @@ const Root = {
     const canOrder = computed(() => can('atelier', 'user'));
     const ROLE_LABEL = { admin: 'Administrateur', office: 'Utilisateur', mechanic: 'Mécanicien' };
     const retry = () => boot();
-    return { theme, toggleTheme, appearance, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
+    return { pageErr, denied, can, theme, toggleTheme, appearance, store, route, nav, view, isActive, searchOpen, menuOpen, logout, plusOpen, devices, openDevices, installable, install, encodeURIComponent,
       navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL, retry };
   },
   template: `
@@ -282,7 +301,13 @@ const Root = {
           </div>
         </div>
       </header>
-      <div class="content"><component :is="view" :key="route.path"/></div>
+      <div class="content">
+        <div v-if="denied" class="card page-error"><div class="empty"><div class="empty-icon">⛔</div><div><b>Accès refusé</b><br>Vous n'avez pas le droit d'ouvrir cette page. Demandez l'accès au gérant (Paramètres → Utilisateurs).</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
+        <template v-else>
+          <div v-if="store.pageError" class="card page-error"><div class="empty"><div class="empty-icon">{{ pageErr.icon }}</div><div><b>{{ pageErr.title }}</b><br>{{ pageErr.text }}</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
+          <component :is="view" :key="route.path"/>
+        </template>
+      </div>
     </main>
     <nav class="bottom-nav">
       <a href="#/apps" :class="{active: route.name === 'apps'}"><Icon name="layout-grid"/>Applis</a>
@@ -291,12 +316,13 @@ const Root = {
       <a href="#" class="plus" @click.prevent="plusOpen = !plusOpen"><span class="plus-btn"><Icon name="plus"/></span></a>
       <a href="#/attendance" :class="{active: route.name === 'attendance'}"><Icon name="user-check"/>Pointage</a>
       <a v-if="navMode === 'sidebar'" href="#" @click.prevent="menuOpen = true"><Icon name="menu"/>Menu</a>
-      <a v-else href="#/planning" :class="{active: route.name === 'planning'}"><Icon name="calendar-days"/>Planning</a>
+      <a v-else-if="can('atelier')" href="#/planning" :class="{active: route.name === 'planning'}"><Icon name="calendar-days"/>Planning</a>
+      <a v-else href="#/activities" :class="{active: route.name === 'activities'}"><Icon name="alarm-clock"/>Activités</a>
     </nav>
     <div v-if="plusOpen" class="plus-menu" @click="plusOpen = false">
       <div>
         <a v-if="canOrder" href="#/new/order">🔧 Ordre de réparation</a><a v-if="canQuote" href="#/new/quote">📝 Devis</a><a v-if="canQuote" href="#/new/invoice">🧾 Facture</a>
-        <a href="#/customer/new">👤 Client</a><a href="#/purchases">📥 Facture fournisseur</a><a href="#/activities">⏰ Activité</a>
+        <a v-if="can('contacts', 'user')" href="#/customer/new">👤 Client</a><a v-if="can('achats')" href="#/purchases">📥 Facture fournisseur</a><a href="#/activities">⏰ Activité</a>
       </div>
     </div>
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>
@@ -341,6 +367,11 @@ watch(() => store.settings?.home?.background_version, (v) => {
 window.addEventListener('online', () => { if (store.offline) boot(); });
 setInterval(() => { if (store.offline && !store.loading) boot(); }, 15000);
 const app = createApp(Root);
+// Une page qui ne peut pas charger sa fiche (introuvable, accès refusé) affiche un bandeau explicatif au lieu de rester blanche
+app.config.errorHandler = (err) => {
+  if (err?.read && (err.status === 403 || err.status === 404)) store.pageError = { status: err.status, message: err.message };
+  else console.error(err);
+};
 Object.entries({ Icon, Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;
 app.mount('#app');

@@ -112,6 +112,8 @@ const App = {
     const saveNotes = async (o) => {
       const d = drafts[o.id] || {};
       await updateOrder(o, { diagnosis: d.diagnosis ?? o.diagnosis, note: d.note || undefined, mileage: d.mileage || undefined });
+      // enregistrement refusé (kilométrage invalide…) : la saisie reste à l'écran pour être corrigée
+      if (err.value) return;
       delete drafts[o.id]; // le brouillon est recréé à partir de l'OR à jour (diagnostic enregistré affiché)
     };
     const draft = (o) => (drafts[o.id] ||= { diagnosis: o.diagnosis || '', note: '', mileage: null });

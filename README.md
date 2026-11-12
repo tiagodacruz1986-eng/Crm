@@ -45,7 +45,7 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 
 ### En ligne de commande
 
-Prérequis : **Node.js 22 ou plus récent** (https://nodejs.org).
+Prérequis : **Node.js 22.13 ou plus récent** (https://nodejs.org, bouton « LTS »). Les fichiers de démarrage vérifient la version et lisent le port du fichier `.env` (`PORT=3001` si le port 3000 est déjà pris).
 
 ```bash
 npm install

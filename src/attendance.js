@@ -119,6 +119,9 @@ export function saveAttendance(data, id = null) {
   if (!valid(data.start)) throw new BusinessError('Heure d\'arrivée invalide');
   if (data.end && !valid(data.end)) throw new BusinessError('Heure de départ invalide');
   if (data.end && data.end <= data.start) throw new BusinessError('Le départ doit être après l\'arrivée');
+  // un pointage ne peut pas être dans le futur (les heures seraient comptées avant d'être faites)
+  const now = localDateTime().slice(0, 16);
+  if (data.start.slice(0, 16) > now || (data.end && data.end.slice(0, 16) > now)) throw new BusinessError('Un pointage ne peut pas être dans le futur');
   const cur = id ? get("SELECT * FROM time_entries WHERE id=? AND kind='presence'", id) : null;
   if (id && !cur) throw new BusinessError('Pointage introuvable', 404);
   const userId = cur ? cur.user_id : Number(data.user_id);

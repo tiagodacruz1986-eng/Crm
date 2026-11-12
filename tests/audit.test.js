@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const PORT = 3900 + Math.floor(Math.random() * 90);
+const PORT = 4000 + Math.floor(Math.random() * 90);
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-audit-'));
 // Les modules importés directement par ce fichier (calculs, lecture de relevés) travaillent sur une base temporaire à part,

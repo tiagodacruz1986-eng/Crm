@@ -1,6 +1,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, num, date, datetime, today, TAX_RATES } from '../api.js';
 import { round2, computeTotals } from '../totals.js';
+import { can } from '../apps.js';
 
 // Envoi d'un fichier brut (PDF, photo) à l'API
 async function uploadFile(url, file) {
@@ -242,8 +243,18 @@ export const PurchaseEditor = {
     };
     const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); };
     const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; load(); };
+    // Paiement fournisseur saisi par erreur : un administrateur de la banque peut l'annuler
+    const canCancelPay = can('banque', 'manager');
+    // Bandeau d'une facture déposée : encodée par l'IA, ou à encoder à la main quand l'IA n'a rien pu lire (pas de clé)
+    const banner = computed(() => (p.value?.lines?.length
+      ? { title: "🤖 Encodée automatiquement par l'IA", hint: 'Vérifiez' }
+      : { title: '📥 Facture déposée — à encoder', hint: 'Saisissez le fournisseur et les lignes' }));
+    const cancelPay = async (x) => {
+      if (!confirm(`Annuler le paiement de ${money(x.amount)} du ${date(x.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
+      await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); load();
+    };
     const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); markSaved(); p.value = null; go('/purchases'); };
-    return { files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
+    return { banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
   },
   template: `
   <div v-if="p">
@@ -261,7 +272,7 @@ export const PurchaseEditor = {
     <div :class="{'bill-layout': viewer}">
     <div>
     <div v-if="p.review === 'to_review' && !p.posted" class="ai-banner">
-      <div><b>🤖 Encodée automatiquement par l'IA</b>{{ p.email_from ? ' — reçue de ' + p.email_from : '' }}. Vérifiez avec le document original{{ viewer ? ' à droite' : '' }}, puis comptabilisez.</div>
+      <div><b>{{ banner.title }}</b>{{ p.email_from ? ' — reçue de ' + p.email_from : '' }}. {{ banner.hint }} avec le document original{{ viewer ? ' à droite' : '' }}, puis comptabilisez.</div>
       <div v-for="w in (p.ai_notes || '').split('\\n').filter(Boolean)" class="small" :class="{neg: w.startsWith('⚠')}">{{ w }}</div>
       <div v-if="p.ai_total != null" class="small">Total TTC lu sur la facture : <b>{{ money(p.ai_total) }}</b> <span :class="Math.abs(p.ai_total - totals.total) < 0.05 ? 'pos' : 'neg'">{{ Math.abs(p.ai_total - totals.total) < 0.05 ? '✓ identique' : '≠ total calculé ' + money(totals.total) }}</span></div>
       <div class="btns" style="margin-top:8px"><button class="btn sm success" @click="reviewed">✔ Vérifiée</button><button class="btn sm" :disabled="aiBusy" @click="reanalyze">{{ aiBusy ? '🤖 Analyse…' : '🔄 Relancer l\\'IA' }}</button></div>
@@ -293,6 +304,9 @@ export const PurchaseEditor = {
         <span class="muted">Total HT</span><b class="num">{{ money(totals.sub) }}</b><span class="muted">TVA</span><span class="num">{{ money(totals.tax) }}</span>
         <span class="grand">Total TTC</span><span class="grand num">{{ money(totals.total) }}</span>
         <template v-if="p.amount_paid"><span class="muted">Payé</span><span class="num pos">{{ money(p.amount_paid) }}</span></template>
+      </div>
+      <div v-if="p.payments && p.payments.length" style="margin-top:12px">
+        <div v-for="x in p.payments" :key="x.id" class="list-item small"><span>Paiement du {{ date(x.date) }}</span><span><b>{{ money(x.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(x)">↩</button></span></div>
       </div>
     </div>
     <div class="card" v-if="!isNew">

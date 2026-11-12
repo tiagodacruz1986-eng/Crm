@@ -36,7 +36,10 @@ export const Picker = {
     const open = ref(false);
     const hi = ref(0);
     let timer;
-    watch(() => props.initial, (v) => { q.value = v || ''; });
+    // texte de l'élément réellement choisi : un nom tapé mais non sélectionné ne reste pas affiché
+    // (on croyait le document enregistré pour ce client alors qu'il l'était pour le précédent, ou pour aucun)
+    let chosen = props.initial || '';
+    watch(() => props.initial, (v) => { q.value = v || ''; chosen = v || ''; });
     const search = () => {
       clearTimeout(timer);
       timer = setTimeout(async () => {
@@ -47,6 +50,7 @@ export const Picker = {
     };
     const pick = (it) => {
       q.value = props.label(it);
+      chosen = q.value;
       open.value = false;
       emit('update:modelValue', it.id);
       emit('pick', it);
@@ -58,8 +62,13 @@ export const Picker = {
       if (e.key === 'Enter' && items.value[hi.value]) { pick(items.value[hi.value]); e.preventDefault(); }
       if (e.key === 'Escape') open.value = false;
     };
-    const clear = () => { q.value = ''; emit('update:modelValue', null); emit('pick', null); };
-    const blur = () => setTimeout(() => { open.value = false; }, 200);
+    const clear = () => { q.value = ''; chosen = ''; emit('update:modelValue', null); emit('pick', null); };
+    const blur = () => setTimeout(() => {
+      open.value = false;
+      if (q.value === chosen) return;
+      if (!q.value.trim() && chosen) clear(); // champ vidé à la main : la sélection est retirée
+      else q.value = chosen; // texte tapé sans choisir dans la liste : on réaffiche ce qui est vraiment sélectionné
+    }, 200);
     return { q, items, open, hi, search, pick, key, clear, blur };
   },
   template: `

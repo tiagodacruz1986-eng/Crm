@@ -1,5 +1,5 @@
 // Les 6 agents IA du bureau virtuel et les outils (lecture seule) qui leur donnent accès aux données du garage.
-import { all, get, getSettings, today } from './db.js';
+import { all, get, getSettings, today, localDateTime } from './db.js';
 import { dashboard, vatReport, profitAndLoss, getDocument } from './business.js';
 import { listActivities } from './mail.js';
 import { can, recordApp, maskDashboard, APPS } from './access.js';
@@ -191,12 +191,14 @@ export function runTool(name, input = {}, user = null) {
       return { resultat: profitAndLoss(input.depuis, input.jusqu_au), tva: vatReport(input.depuis, input.jusqu_au) };
     case 'atelier_pointage': {
       const to = `${input.jusqu_au}T23:59:59`;
-      const perUser = all(`SELECT u.name, t.kind, ROUND(SUM((julianday(COALESCE(t.end, datetime('now','localtime'))) - julianday(t.start))*24),2) AS heures
-        FROM time_entries t JOIN users u ON u.id=t.user_id WHERE t.start BETWEEN ? AND ? GROUP BY u.id, t.kind`, input.depuis, to);
+      // « maintenant » en heure du garage, calculé ici : la base de données n'a pas toujours le fuseau horaire (Docker)
+      const now = localDateTime();
+      const perUser = all(`SELECT u.name, t.kind, ROUND(SUM((julianday(COALESCE(t.end, ?)) - julianday(t.start))*24),2) AS heures
+        FROM time_entries t JOIN users u ON u.id=t.user_id WHERE t.start BETWEEN ? AND ? GROUP BY u.id, t.kind`, now, input.depuis, to);
       const orders = all(`SELECT d.id, d.number, d.status, v.plate,
           (SELECT ROUND(SUM(quantity),2) FROM document_lines WHERE document_id=d.id AND kind='labor') AS heures_vendues,
-          (SELECT ROUND(SUM((julianday(COALESCE(end, datetime('now','localtime'))) - julianday(start))*24),2) FROM time_entries WHERE document_id=d.id AND kind='work') AS heures_pointees
-        FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.type='order' AND (d.status!='invoiced' OR d.date BETWEEN ? AND ?)`, input.depuis, input.jusqu_au);
+          (SELECT ROUND(SUM((julianday(COALESCE(end, ?)) - julianday(start))*24),2) FROM time_entries WHERE document_id=d.id AND kind='work') AS heures_pointees
+        FROM documents d LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.type='order' AND (d.status!='invoiced' OR d.date BETWEEN ? AND ?)`, now, input.depuis, input.jusqu_au);
       return { par_mecanicien: perUser, ordres_reparation: orders };
     }
     case 'planning':

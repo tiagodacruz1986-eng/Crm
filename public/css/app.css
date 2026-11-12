@@ -1352,3 +1352,4 @@ a.gw:hover { transform: translateY(-3px); }
   .gd-tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
   .gw-v { font-size: 36px; }
 }
+.page-error { margin-bottom: 16px; }

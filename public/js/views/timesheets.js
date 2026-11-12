@@ -15,7 +15,7 @@ export const Timesheets = {
     const day = () => { from.value = to.value = today(); load(); };
     const week = () => { const d = new Date(); from.value = addDays(today(), -((d.getDay() + 6) % 7)); to.value = today(); load(); };
     const save = async () => { await act(() => PUT('/timesheets/' + edit.value.id, { start: edit.value.start, end: edit.value.end || null, note: edit.value.note }), 'Pointage corrigé'); edit.value = null; load(); };
-    const remove = async () => { await act(() => DEL('/timesheets/' + edit.value.id)); edit.value = null; load(); };
+    const remove = async () => { if (!confirm('Supprimer ce pointage ?')) return; await act(() => DEL('/timesheets/' + edit.value.id), 'Pointage supprimé'); edit.value = null; load(); };
     const canFix = can('presences', 'manager'); // corriger un pointage : administrateurs des présences
     return { canFix, from, to, data, load, day, week, edit, save, remove, hours, time, date, today };
   },

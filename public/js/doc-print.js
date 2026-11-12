@@ -111,6 +111,8 @@ export const DocPrint = {
           <dl>
             <dt>Date</dt><dd>{{ date(doc.date) }}</dd>
             <template v-if="doc.due_date && doc.type === 'invoice'"><dt>Échéance</dt><dd>{{ date(doc.due_date) }}</dd></template>
+            <template v-if="doc.reference"><dt>Référence</dt><dd>{{ doc.reference }}</dd></template>
+            <template v-else-if="doc.type === 'credit_note' && doc.parent && doc.parent.number"><dt>Référence</dt><dd>Avoir sur {{ doc.parent.number }}</dd></template>
             <template v-if="doc.type === 'quote'"><dt>Validité</dt><dd>{{ validity }} jours</dd></template>
           </dl>
         </div>

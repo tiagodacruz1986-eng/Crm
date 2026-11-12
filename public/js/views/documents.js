@@ -21,14 +21,15 @@ export const DocumentList = {
       rows.value = await GET('/documents?' + params);
     };
     onMounted(load);
-    const statuses = { quote: ['draft', 'sent', 'accepted', 'refused'], invoice: ['draft', 'posted', 'partial', 'paid'], order: ['open', 'in_progress', 'waiting_parts', 'done', 'invoiced'] }[type] || [];
-    const totals = computed(() => ({ total: rows.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: rows.value.filter((r) => r.type === 'invoice').reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
+    const statuses = { quote: ['draft', 'sent', 'accepted', 'refused'], invoice: ['draft', 'posted', 'partial', 'paid'], credit_note: ['draft', 'posted', 'partial', 'paid'], order: ['open', 'in_progress', 'waiting_parts', 'done', 'invoiced'] }[type] || [];
+    // « reste dû » : seulement les factures validées (un brouillon n'est pas encore dû)
+    const totals = computed(() => ({ total: rows.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: rows.value.filter((r) => r.type === 'invoice' && ['posted', 'partial'].includes(r.status)).reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
     return { type, rows, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
   },
   template: `
   <div>
     <div class="page-head">
-      <h1>{{ type === 'invoice' ? 'Factures & avoirs' : type === 'quote' ? 'Devis' : 'Ordres de réparation' }}</h1>
+      <h1>{{ { invoice: 'Factures & avoirs', quote: 'Devis', credit_note: 'Notes de crédit (avoirs)', order: 'Ordres de réparation' }[type] || 'Documents' }}</h1>
       <div class="btns"><ModuleTools :module="type === 'order' ? 'atelier' : 'ventes'"/><a class="btn primary" :href="'#/new/' + type">+ {{ { quote: 'Nouveau devis', order: 'Nouvel OR', invoice: 'Nouvelle facture', credit_note: 'Nouvel avoir' }[type] || 'Nouveau' }}</a></div>
     </div>
     <div class="card">
@@ -65,7 +66,8 @@ export const QuickCustomer = {
     const save = async () => {
       const { id } = await act(() => POST('/customers', c));
       let vehicle = null;
-      if (v.plate || v.vin) {
+      // un véhicule est créé dès qu'une de ses informations est saisie (plaque, VIN, marque, modèle ou kilométrage)
+      if (v.plate || v.vin || v.make || v.model || v.mileage) {
         const r = await act(() => POST('/vehicles', { ...v, customer_id: id }));
         vehicle = { id: r.id, ...v };
       }
@@ -212,9 +214,10 @@ export const DocumentEditor = {
       go('/document/' + r.id);
     };
     const post = async () => {
-      if (!confirm('Valider définitivement la facture ? Elle ne pourra plus être modifiée (obligation légale).')) return;
+      const cn = doc.value.type === 'credit_note';
+      if (!confirm(`Valider définitivement ${cn ? 'la note de crédit' : 'la facture'} ? Elle ne pourra plus être modifiée (obligation légale).`)) return;
       const id = await ensureSaved();
-      const r = await act(() => POST(`/documents/${id}/post`), 'Facture validée');
+      const r = await act(() => POST(`/documents/${id}/post`), cn ? 'Note de crédit validée' : 'Facture validée');
       toast(`Numéro attribué : ${r.number}`);
       await load();
     };
@@ -311,9 +314,9 @@ export const DocumentEditor = {
               <tr v-for="(l, i) in doc.lines" :class="{'text-line': l.kind === 'text'}">
                 <td><select v-model="l.kind" :disabled="locked"><option value="labor">🔧 M.O.</option><option value="part">📦 Pièce</option><option value="fee">🏷️ Forfait</option><option value="text">📝 Texte</option></select></td>
                 <td>
-                  <div v-if="!locked && l.kind === 'part' && !l.description" style="display:flex;gap:4px"><div style="flex:1"><Picker endpoint="/products" :label="productLabel" placeholder="Réf. ou nom de la pièce / forfait…" @pick="p => pickProduct(l, p)"/></div><button class="btn sm" title="Saisie libre (pièce hors stock)" @click="l.description = 'Pièce'">✎</button></div>
+                  <div v-if="!locked && l.kind === 'part' && !l.description && !l._free" style="display:flex;gap:4px"><div style="flex:1"><Picker endpoint="/products" :label="productLabel" placeholder="Réf. ou nom de la pièce / forfait…" @pick="p => pickProduct(l, p)"/></div><button class="btn sm" title="Saisie libre (pièce hors stock)" @click="l._free = true; l.description = 'Pièce'">✎</button></div>
                   <input v-else class="descr" v-model="l.description" :disabled="locked">
-                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && doc.status !== 'posted'">⚠ stock : {{ l.qty_on_hand }}</div>
+                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && doc.status === 'draft' || (doc.type !== 'invoice' && doc.type !== 'credit_note' && !locked)">⚠ stock : {{ l.qty_on_hand }}</div>
                 </td>
                 <template v-if="l.kind !== 'text'">
                   <td><input v-model.number="l.quantity" type="number" step="0.1" class="right" :disabled="locked"></td>
