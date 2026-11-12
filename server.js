@@ -43,7 +43,10 @@ const app = express();
 // Adresses sensibles à la casse : /api/Customers n'existe pas (sinon les droits d'accès, comparés en minuscules, seraient contournables)
 app.set('case sensitive routing', true);
 // Confiance uniquement dans un proxy local (Caddy dans Docker, Tailscale serve…) : l'adresse IP réelle et le https viennent de lui
-app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+// Sur le PC du garage, seul un proxy local est cru (Tailscale serve, tunnel Cloudflare : ils parlent depuis 127.0.0.1) ;
+// un appareil du Wi-Fi ne peut donc pas se faire passer pour une autre adresse avec un en-tête X-Forwarded-For.
+// Sur un serveur internet (Docker + Caddy, Render…), le proxy de l'hébergeur est sur un réseau privé : il est cru aussi.
+app.set('trust proxy', process.env.TRUST_PROXY || (process.env.INTERNET_SERVER === '1' ? 'loopback, linklocal, uniquelocal' : 'loopback'));
 // Formulaires publics (connexion, kiosque) : petits messages seulement ; le reste accepte les photos et pièces jointes
 app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], express.json({ limit: '20kb' }));
 app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
@@ -246,8 +249,13 @@ api.post('/auth/login', wrap((req, res) => {
   const u = get('SELECT * FROM users WHERE email=? AND active=1', email);
   const keys = loginKeys(req, email, u && knownDevice(req, u.id));
   guard(keys);
-  if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) { failed(keys); throw new BusinessError('Identifiants incorrects', 401); }
-  fails.delete(keys[0]);
+  // Échecs de CETTE adresse sur CE compte : eux seuls sont pardonnés par une connexion réussie
+  // (se connecter à son propre compte ne remet pas à zéro les essais faits sur le compte d'un collègue)
+  const pair = `pair:${req.ip}:${crypto.createHash('sha256').update(email).digest('hex').slice(0, 16)}`;
+  if (!u || u.role === 'mechanic' || !verifySecret(req.body.password || '', u.password_hash)) { failed([...keys, pair]); throw new BusinessError('Identifiants incorrects', 401); }
+  const mine = fails.get(pair)?.n || 0, ipEntry = fails.get(keys[0]);
+  if (ipEntry && mine) { ipEntry.n -= mine; if (ipEntry.n <= 0) fails.delete(keys[0]); }
+  fails.delete(pair);
   run('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?', u.id);
   const token = createSession(u.id);
   res.cookie('gsession', token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 86400e3 });

@@ -363,3 +363,53 @@ test('IA : les agents ne donnent à chacun que ce qu\'il a le droit de voir', as
   assert.equal((await call('POST', '/copilot/brief', {}, u.tok)).status, 403);
   assert.deepEqual((await call('GET', '/copilot', undefined, u.tok)).data.briefs, []);
 });
+
+test('second contrôle : invitations, bureau IA, achats reçus, avoir et paiement annulé, fiches client', async () => {
+  // Le lien d'invitation n'est jamais lisible dans la boîte d'envoi
+  await A('PUT', '/mail/config', { host: 'smtp.test', from_email: 'garage@t.lu' });
+  const invited = (await A('POST', '/users', { name: 'Nouvelle', email: 'nouvelle@t.lu', role: 'office', invite: true, send_invite: true })).data;
+  assert.match(invited.invite.url, /\/invite\/[a-f0-9]{48}$/);
+  const colleague = await userWith({ emails: 'user' });
+  const outbox = (await call('GET', '/mail/outbox', undefined, colleague.tok)).data;
+  assert.equal(outbox.some((e) => /invite\//.test(e.intro || '') || e.model === 'user'), false);
+  assert.equal((await A('GET', '/mail/outbox')).data.some((e) => /invite\//.test(e.intro || '')), false, 'même le gérant ne retrouve pas le lien');
+  // Le jeton de session n'est pas renvoyé par /auth/status
+  assert.equal('token' in ((await A('GET', '/auth/status')).data.user || {}), false);
+  // Bureau IA : chacun ses tâches et ses rapports
+  const u1 = await userWith({ ia: 'user' }), u2 = await userWith({ ia: 'user' });
+  const task = (await call('POST', '/agent-tasks', { agent_id: 'cio', title: 'Ma tâche', prompt: 'Résume', schedule_type: 'daily', schedule_time: '08:00' }, u1.tok)).data.id;
+  assert.equal((await call('GET', '/agent-tasks', undefined, u2.tok)).data.length, 0);
+  assert.equal((await call('PUT', `/agent-tasks/${task}`, { prompt: 'Autre chose' }, u2.tok)).status, 404);
+  assert.equal((await call('DELETE', `/agent-tasks/${task}`, undefined, u2.tok)).status, 404);
+  assert.equal((await A('GET', '/agent-tasks')).data.some((t) => t.id === task), true, 'le gérant voit tout');
+  assert.equal((await call('POST', '/agent-tasks', { agent_id: 'cio', title: 'x', prompt: 'y', schedule_time: '25:99' }, u1.tok)).status, 400);
+  // Achat : une ligne déjà réceptionnée ne se supprime pas et ne descend pas sous la quantité reçue
+  const sup = (await A('POST', '/suppliers', { name: 'Pièces SA' })).data.id;
+  const prod = (await A('POST', '/products', { name: 'Plaquettes', purchase_price: 20, sale_price: 40 })).data.id;
+  const pu = (await A('POST', '/purchases', { supplier_id: sup, lines: [{ product_id: prod, description: 'Plaquettes', quantity: 4, unit_price: 20, tax_rate: 17 }] })).data.id;
+  await A('POST', `/purchases/${pu}/receive`);
+  const line = (await A('GET', `/purchases/${pu}`)).data.lines[0];
+  assert.equal((await A('PUT', `/purchases/${pu}`, { lines: [] })).status, 400);
+  assert.equal((await A('PUT', `/purchases/${pu}`, { lines: [{ ...line, quantity: 1 }] })).status, 400);
+  assert.equal((await A('PUT', `/purchases/${pu}`, { lines: [{ ...line, quantity: 6 }] })).status, 200);
+  assert.equal((await A('GET', `/products/${prod}`)).data.qty_on_hand, 4);
+  // Facture payée, puis créditée, puis paiement annulé : la note de crédit couvre la facture (elle ne redevient pas « à payer »)
+  const cust = (await A('POST', '/customers', { name: 'Crédit' })).data.id;
+  const inv = (await A('POST', '/documents', { type: 'invoice', customer_id: cust, lines: [{ kind: 'part', description: 'x', quantity: 1, unit_price: 100, tax_rate: 0 }] })).data.id;
+  await A('POST', `/documents/${inv}/post`);
+  const pay = (await A('POST', `/documents/${inv}/payments`, { amount: 100 })).data.id;
+  const cn = (await A('POST', `/documents/${inv}/convert`, { type: 'credit_note' })).data.id;
+  await A('POST', `/documents/${cn}/post`);
+  assert.equal((await A('DELETE', `/payments/${pay}`)).status, 200);
+  assert.equal((await A('GET', `/documents/${inv}`)).data.status, 'paid', 'soldée par la note de crédit');
+  assert.equal((await A('GET', `/documents/${cn}`)).data.status, 'paid');
+  // Fiche client : les factures ne sont montrées qu'avec le droit Ventes
+  const mag = await userWith({ contacts: 'read', inventaire: 'user' });
+  const card = (await call('GET', `/customers/${cust}`, undefined, mag.tok)).data;
+  assert.equal(card.documents.length, 0);
+  assert.equal((await call('GET', '/customers', undefined, mag.tok)).data.find((c) => c.id === cust).balance, null);
+  // Paramètres de l'atelier contrôlés
+  assert.equal((await A('PUT', '/settings', { workshop: { default_tax: '' } })).status, 400);
+  assert.equal((await A('PUT', '/settings', { workshop: { payment_terms: -5 } })).status, 400);
+  assert.equal((await A('PUT', '/settings', { workshop: { labor_rate: '92,5' } })).data.workshop.labor_rate, 92.5);
+});
