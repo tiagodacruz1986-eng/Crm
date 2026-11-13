@@ -10,7 +10,7 @@ rem  jamais a vos donnees (dossier "data") ni a vos reglages (fichier ".env").
 rem ============================================================================
 set "GM_SELF=%~f0"
 set "GM_HERE=%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "if($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage'){Write-Host 'Windows bloque ce programme sur ce PC (mode protege). Montrez ce message a la personne qui gere ce PC.'; exit 1}; $t=[IO.File]::ReadAllText($env:GM_SELF); $i=$t.LastIndexOf('#GM' + '_POWERSHELL#'); if($i -lt 0){Write-Host 'Fichier incomplet : telechargez-le de nouveau.'; exit 1}; try{Invoke-Expression $t.Substring($i)}catch{Write-Host ''; Write-Host ('ERREUR inattendue : ' + $_.Exception.Message) -ForegroundColor Red; Write-Host 'Vos donnees sont intactes. Relancez ce fichier ; si le message revient, photographiez cette fenetre.' -ForegroundColor Yellow; exit 1}" & echo. & pause & exit /b
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage'){Write-Host 'Windows bloque ce programme sur ce PC (mode protege). Montrez ce message a la personne qui gere ce PC.'; exit 1}; $t=[IO.File]::ReadAllText($env:GM_SELF); $i=$t.LastIndexOf('#GM' + '_POWERSHELL#'); if($i -lt 0){Write-Host 'Fichier incomplet : telechargez-le de nouveau.'; exit 1}; try{Invoke-Expression $t.Substring($i)}catch{Write-Host ''; Write-Host ('ERREUR inattendue : ' + $_.Exception.Message) -ForegroundColor Red; Write-Host 'Vos donnees sont intactes. Relancez ce fichier ; si le message revient, photographiez cette fenetre.' -ForegroundColor Yellow; try{Remove-Temp}catch{}; exit 1}" & echo. & pause & exit /b
 #GM_POWERSHELL#
 # --------------------------------------------------------------------------
 # Suite du fichier : programme d'installation (PowerShell, fourni avec Windows)
@@ -109,10 +109,17 @@ if ($found.Count -gt 1) {
     Say ('    ' + ($n + 1) + ') ' + $sorted[$n] + '   (derniere utilisation : ' + (Get-LastUse $sorted[$n]).ToString('dd/MM/yyyy HH:mm') + ')') 'Yellow'
   }
   Say '  Le dossier 1 est celui qui a servi en dernier : c''est normalement celui de votre garage.' 'Yellow'
-  $pick = Read-Host '  Numero du dossier a mettre a jour (Entree = 1)'
-  $idx = 0
-  if ("$pick" -match '^\s*(\d{1,2})\s*$') { $idx = [int]$Matches[1] - 1 }
-  if (($idx -lt 0) -or ($idx -ge $sorted.Count)) { $idx = 0 }
+  $idx = -1
+  while ($idx -lt 0) {
+    $pick = Read-Host '  Numero du dossier a mettre a jour (Entree = 1)'
+    if ("$pick" -match '^\s*$') {
+      $idx = 0
+    } elseif (("$pick" -match '^\s*(\d{1,2})\s*$') -and ([int]$Matches[1] -ge 1) -and ([int]$Matches[1] -le $sorted.Count)) {
+      $idx = [int]$Matches[1] - 1
+    } else {
+      Say ('  Reponse non comprise. Tapez un numero de 1 a ' + $sorted.Count + ', puis Entree.') 'Yellow'
+    }
+  }
   $Dir = [string]$sorted[$idx]
 }
 $update  = Test-Path -LiteralPath (Join-Path $Dir 'server.js')
@@ -138,57 +145,7 @@ if ($hasData) {
   Say '  le dossier du logiciel (celui qui contient "demarrer-windows.bat") et lancez-le depuis la.' 'Yellow'
 }
 
-# --- 1. Node.js -------------------------------------------------------------
-function Add-NodeToPath {
-  foreach ($p in @((Join-Path $env:ProgramFiles 'nodejs'), (Join-Path $env:LOCALAPPDATA 'Programs\nodejs'))) {
-    if ((Test-Path -LiteralPath (Join-Path $p 'node.exe')) -and (($env:Path -split ';') -notcontains $p)) { $env:Path = $p + ';' + $env:Path }
-  }
-}
-function Test-Node {
-  try {
-    $v = & node -v
-    if ("$v" -match '^v(\d+)\.(\d+)') { $maj = [int]$Matches[1]; $min = [int]$Matches[2]; return (($maj -gt 22) -or (($maj -eq 22) -and ($min -ge 13))) }
-  } catch { }
-  return $false
-}
-Step 'Verification de Node.js (le moteur du logiciel)'
-Add-NodeToPath
-if (Test-Node) {
-  Say ('  Node.js ' + (& node -v) + ' est deja installe.') 'Green'
-} else {
-  Say ('  Node.js ' + $MinNode + ' ou plus recent est necessaire : installation...')
-  Say '  Windows va demander votre accord (fenetre "Voulez-vous autoriser...") : repondez Oui.' 'Yellow'
-  Say '  Si rien ne s''affiche, cliquez sur le bouclier qui clignote dans la barre des taches.' 'Yellow'
-  Say '  Si Windows demande un mot de passe administrateur, c''est celui de la personne qui gere ce PC.' 'Yellow'
-  $ok = $false
-  if (Get-Command winget -ErrorAction SilentlyContinue) {
-    try { & winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-package-agreements --accept-source-agreements } catch { }
-    Add-NodeToPath
-    $ok = Test-Node
-  }
-  if (-not $ok) {
-    try {
-      Say '  Telechargement de l''installateur officiel de Node.js...'
-      $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing
-      $lts = $index | Where-Object { $_.lts -and ($_.files -contains 'win-x64-msi') } | Select-Object -First 1
-      $arch = 'x64'
-      if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
-      $msi = Join-Path $env:TEMP ('node-' + $lts.version + '-' + $arch + '.msi')
-      Invoke-WebRequest -Uri ('https://nodejs.org/dist/' + $lts.version + '/node-' + $lts.version + '-' + $arch + '.msi') -OutFile $msi -UseBasicParsing
-      Start-Process -FilePath 'msiexec.exe' -ArgumentList ('/i "' + $msi + '" /passive /norestart') -Wait
-      Remove-Item -LiteralPath $msi -Force -ErrorAction SilentlyContinue
-    } catch { }
-    Add-NodeToPath
-    $ok = Test-Node
-  }
-  if (-not $ok) {
-    try { Start-Process 'https://nodejs.org' } catch { }
-    Fail 'Node.js n''a pas pu etre installe automatiquement (pas d''internet, ou accord administrateur refuse). La page https://nodejs.org vient de s''ouvrir : telechargez la version LTS, installez-la, puis relancez ce fichier.'
-  }
-  Say ('  Node.js ' + (& node -v) + ' installe.') 'Green'
-}
-
-# --- 2. Le logiciel ne doit pas tourner pendant la mise a jour ---------------
+# --- 1. Le logiciel ne doit pas tourner pendant la mise a jour ---------------
 function Get-Port {
   $port = '3000'
   $envFile = Join-Path $Dir '.env'
@@ -231,11 +188,13 @@ function Wait-AppClosed {
   }
   if (Test-AppOpen) { Fail 'Le logiciel est toujours ouvert. Fermez sa fenetre noire, puis relancez ce fichier.' }
 }
+$portBusy = $false
 if ($update) {
   Wait-AppClosed
 } elseif (Test-PortOpen (Get-Port)) {
+  $portBusy = $true
   Say ''
-  Say '  ATTENTION : un programme repond deja sur ce PC a l''adresse du logiciel (port 3000).' 'Yellow'
+  Say ('  ATTENTION : un programme repond deja sur ce PC a l''adresse du logiciel (port ' + (Get-Port) + ').') 'Yellow'
   Say '  C''est sans doute Garage Manager, demarre depuis un autre dossier.' 'Yellow'
   Say '  Continuer creerait une DEUXIEME installation, VIDE, a cote de la votre.' 'Yellow'
   Say '  Pour mettre a jour l''installation existante : fermez cette fenetre, copiez ce fichier dans le' 'Yellow'
@@ -243,9 +202,60 @@ if ($update) {
   $go = Read-Host '  Creer quand meme une nouvelle installation vide ? (O/N)'
   if ("$go" -notmatch '^\s*[oOyY]') {
     Say ''
-    Say '  Installation annulee : rien n''a ete modifie.'
+    Say '  Installation annulee : rien n''a ete installe.'
     exit 1
   }
+}
+
+# --- 2. Node.js -------------------------------------------------------------
+function Add-NodeToPath {
+  foreach ($p in @((Join-Path $env:ProgramFiles 'nodejs'), (Join-Path $env:LOCALAPPDATA 'Programs\nodejs'))) {
+    if ((Test-Path -LiteralPath (Join-Path $p 'node.exe')) -and (($env:Path -split ';') -notcontains $p)) { $env:Path = $p + ';' + $env:Path }
+  }
+}
+function Test-Node {
+  try {
+    $v = & node -v
+    if ("$v" -match '^v(\d+)\.(\d+)') { $maj = [int]$Matches[1]; $min = [int]$Matches[2]; return (($maj -gt 22) -or (($maj -eq 22) -and ($min -ge 13))) }
+  } catch { }
+  return $false
+}
+Step 'Verification de Node.js (le moteur du logiciel)'
+Add-NodeToPath
+if (Test-Node) {
+  Say ('  Node.js ' + (& node -v) + ' est deja installe.') 'Green'
+} else {
+  Say ('  Node.js ' + $MinNode + ' ou plus recent est necessaire : installation...')
+  Say '  Windows va demander votre accord (fenetre "Voulez-vous autoriser...") : repondez Oui.' 'Yellow'
+  Say '  Si rien ne s''affiche, cliquez sur le bouclier qui clignote dans la barre des taches.' 'Yellow'
+  Say '  Si Windows demande un mot de passe administrateur, c''est celui de la personne qui gere ce PC.' 'Yellow'
+  $ok = $false
+  if (Get-Command winget -ErrorAction SilentlyContinue) {
+    try { & winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-package-agreements --accept-source-agreements } catch { }
+    Add-NodeToPath
+    $ok = Test-Node
+  }
+  if (-not $ok) {
+    try {
+      Say '  Telechargement de l''installateur officiel de Node.js...'
+      $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing
+      $lts = $index | Where-Object { $_.lts -and ($_.files -contains 'win-x64-msi') } | Select-Object -First 1
+      $arch = 'x64'
+      if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+      $msi = Join-Path $env:TEMP ('node-' + $lts.version + '-' + $arch + '.msi')
+      Invoke-WebRequest -Uri ('https://nodejs.org/dist/' + $lts.version + '/node-' + $lts.version + '-' + $arch + '.msi') -OutFile $msi -UseBasicParsing
+      $proc = [System.Diagnostics.Process]::Start('msiexec.exe', ('/i "' + $msi + '" /passive /norestart'))
+      $proc.WaitForExit()
+      Remove-Item -LiteralPath $msi -Force -ErrorAction SilentlyContinue
+    } catch { }
+    Add-NodeToPath
+    $ok = Test-Node
+  }
+  if (-not $ok) {
+    try { $null = [System.Diagnostics.Process]::Start('https://nodejs.org') } catch { }
+    Fail 'Node.js n''a pas pu etre installe automatiquement (pas d''internet, ou accord administrateur refuse). La page https://nodejs.org vient de s''ouvrir : telechargez la version LTS, installez-la, puis relancez ce fichier.'
+  }
+  Say ('  Node.js ' + (& node -v) + ' installe.') 'Green'
 }
 
 # --- 3. Telechargement -------------------------------------------------------
@@ -278,7 +288,7 @@ try {
 $modsSrc = Join-Path $srcDir 'node_modules'
 if (($npmCode -ne 0) -or (-not (Test-Path -LiteralPath (Join-Path $modsSrc 'express')))) {
   if ($update) { Fail 'Les composants du logiciel n''ont pas pu etre telecharges. Le logiciel deja installe n''a pas ete modifie et fonctionne comme avant. Verifiez la connexion internet (si ce PC passe par un proxy d''entreprise, demandez a votre informaticien), puis relancez ce fichier.' }
-  Fail 'Les composants du logiciel n''ont pas pu etre telecharges. Rien n''a ete installe. Verifiez la connexion internet (si ce PC passe par un proxy d''entreprise, demandez a votre informaticien), puis relancez ce fichier.'
+  Fail 'Les composants du logiciel n''ont pas pu etre telecharges. Le logiciel n''a pas ete installe. Verifiez la connexion internet (si ce PC passe par un proxy d''entreprise, demandez a votre informaticien), puis relancez ce fichier.'
 }
 Say '  Composants telecharges.' 'Green'
 
@@ -293,15 +303,21 @@ if (Test-Path -LiteralPath $db) {
   try {
     $null = [IO.Directory]::CreateDirectory($backup)
     foreach ($f in @(Get-ChildItem -LiteralPath $dataDir -Filter 'garage.db*' -File)) { [IO.File]::Copy($f.FullName, (Join-Path $backup $f.Name), $true) }
-  } catch { Fail ('La sauvegarde de la base de donnees a echoue : par securite, rien n''a ete modifie. Verifiez que le logiciel est bien ferme et qu''il reste de la place sur le disque, puis relancez ce fichier. (' + $_.Exception.Message + ')') }
+  } catch {
+    $why = $_.Exception.Message
+    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+    Fail ('La sauvegarde de la base de donnees a echoue : par securite, rien n''a ete modifie. Verifiez que le logiciel est bien ferme et qu''il reste de la place sur le disque, puis relancez ce fichier. (' + $why + ')')
+  }
   $copy = Join-Path $backup 'garage.db'
   if ((-not (Test-Path -LiteralPath $copy)) -or ((Get-Item -LiteralPath $copy).Length -ne (Get-Item -LiteralPath $db).Length)) {
+    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
     Fail 'La sauvegarde de la base de donnees est incomplete : par securite, rien n''a ete modifie. Relancez ce fichier.'
   }
   # on garde les 10 dernieres sauvegardes faites par ce fichier (les autres dossiers ne sont jamais touches)
   Get-ChildItem -LiteralPath $backupRoot -Directory | Where-Object { $_.Name -match '^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$' } | Sort-Object Name -Descending | Select-Object -Skip 10 | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
   Say ('  Copie de la base enregistree dans : ' + $backup) 'Green'
-  Say '  (Pour revenir en arriere : remettre TOUS les fichiers de ce dossier dans le dossier "data".)'
+  Say '  (Pour revenir en arriere, logiciel ferme : dans le dossier "data", supprimez d''abord garage.db,'
+  Say '   garage.db-wal et garage.db-shm, puis copiez-y TOUS les fichiers de cette sauvegarde.)'
 }
 
 # --- 6. Copie des fichiers du logiciel (donnees et reglages jamais touches) --
@@ -311,7 +327,18 @@ $null = [IO.Directory]::CreateDirectory($Dir)
 if ($LASTEXITCODE -ge 8) { Fail ('La copie des fichiers a echoue (code ' + $LASTEXITCODE + '). Fermez le logiciel et relancez ce fichier.') }
 $null = [IO.Directory]::CreateDirectory((Join-Path $Dir 'data'))
 $envFile = Join-Path $Dir '.env'
-if (-not (Test-Path -LiteralPath $envFile)) { [IO.File]::Copy((Join-Path $Dir '.env.example'), $envFile, $false) }
+$freePort = 0
+if (-not (Test-Path -LiteralPath $envFile)) {
+  [IO.File]::Copy((Join-Path $Dir '.env.example'), $envFile, $false)
+  if ($portBusy) {
+    # le port habituel est pris par un autre programme : cette installation en utilise un libre
+    foreach ($cand in 3001..3020) { if ((-not $freePort) -and (-not (Test-PortOpen ([string]$cand)))) { $freePort = $cand } }
+    if ($freePort) {
+      [IO.File]::WriteAllText($envFile, ([IO.File]::ReadAllText($envFile) -replace '(?m)^(PORT[ \t]*=[ \t]*)\d+', ('${1}' + $freePort)))
+      Say ('  Le port 3000 est deja pris sur ce PC : cette installation utilisera le port ' + $freePort + '.') 'Yellow'
+    }
+  }
+}
 Say '  Fichiers installes.' 'Green'
 
 # --- 7. Composants : copie de ceux telecharges a l'etape 4 -------------------
@@ -323,10 +350,10 @@ if ($LASTEXITCODE -ge 8) {
   $npmCode = 1
   Push-Location -LiteralPath $Dir
   try {
-    & cmd.exe /d /c 'npm install --omit=dev --no-audit --no-fund'
+    & cmd.exe /d /c 'npm ci --omit=dev --no-audit --no-fund'
     $npmCode = $LASTEXITCODE
   } finally { Pop-Location }
-  if ($npmCode -ne 0) { Fail 'Les fichiers du logiciel ont ete mis a jour, mais ses composants n''ont pas pu etre installes : le logiciel risque de ne pas demarrer tant que cette etape n''a pas reussi. Fermez le logiciel et votre antivirus s''il bloque, puis relancez ce fichier.' }
+  if (($npmCode -ne 0) -or (-not (Test-Path -LiteralPath (Join-Path $modsDst 'express')))) { Fail 'Les fichiers du logiciel ont ete mis a jour, mais ses composants n''ont pas pu etre installes : le logiciel risque de ne pas demarrer tant que cette etape n''a pas reussi. Fermez le logiciel et votre antivirus s''il bloque, puis relancez ce fichier.' }
 }
 Say '  Composants installes.' 'Green'
 
@@ -361,9 +388,24 @@ if ($shortcutOk) {
   Say ('    ' + $Dir)
 }
 Say '  Une fenetre noire s''ouvre (laissez-la ouverte), puis votre navigateur affiche le logiciel.'
+if ($freePort) { Say ('  Adresse du logiciel sur ce PC : http://localhost:' + $freePort) }
 Say '  Pour mettre a jour plus tard : relancez ce fichier (une copie est rangee dans le dossier du logiciel).'
-if ($found.Count -gt 1) { Say '  Les autres dossiers n''ont pas ete modifies : utilisez desormais uniquement le raccourci du bureau.' 'Yellow' }
+if ($found.Count -gt 1) {
+  if ($shortcutOk) {
+    Say '  Les autres dossiers n''ont pas ete modifies : utilisez desormais uniquement le raccourci du bureau.' 'Yellow'
+  } else {
+    Say '  Les autres dossiers n''ont pas ete modifies. ATTENTION : le raccourci du bureau n''a pas pu etre mis a jour' 'Yellow'
+    Say '  et ouvre peut-etre un autre dossier : demarrez uniquement depuis le dossier indique ci-dessus.' 'Yellow'
+  }
+}
 Say ''
 $answer = Read-Host '  Demarrer Garage Manager maintenant ? (O/N)'
-if ("$answer" -match '^\s*[oOyY]') { Start-Process -FilePath (Join-Path $Dir 'demarrer-windows.bat') -WorkingDirectory $Dir }
+if ("$answer" -match '^\s*[oOyY]') {
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = Join-Path $Dir 'demarrer-windows.bat'
+    $psi.WorkingDirectory = $Dir
+    $null = [System.Diagnostics.Process]::Start($psi)
+  } catch { Say '  Le demarrage automatique n''a pas fonctionne : double-cliquez sur "demarrer-windows.bat" dans le dossier du logiciel.' 'Yellow' }
+}
 exit 0
