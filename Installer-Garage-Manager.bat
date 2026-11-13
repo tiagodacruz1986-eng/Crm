@@ -335,7 +335,11 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     foreach ($cand in 3001..3020) { if ((-not $freePort) -and (-not (Test-PortOpen ([string]$cand)))) { $freePort = $cand } }
     if ($freePort) {
       [IO.File]::WriteAllText($envFile, ([IO.File]::ReadAllText($envFile) -replace '(?m)^(PORT[ \t]*=[ \t]*)\d+', ('${1}' + $freePort)))
-      Say ('  Le port 3000 est deja pris sur ce PC : cette installation utilisera le port ' + $freePort + '.') 'Yellow'
+      if ((Get-Port) -eq [string]$freePort) {
+        Say ('  Le port 3000 est deja pris sur ce PC : cette installation utilisera le port ' + $freePort + '.') 'Yellow'
+      } else {
+        $freePort = 0
+      }
     }
   }
 }
