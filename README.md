@@ -36,7 +36,24 @@ Logiciel complet de gestion de garage automobile (pensé pour le Luxembourg), in
 
 ## 🚀 Installation
 
-### Le plus simple (sans taper de commande)
+### Le plus simple : le fichier d'installation
+
+**Windows 10 ou 11**
+
+1. Ouvrez la page du fichier [`Installer-Garage-Manager.bat`](Installer-Garage-Manager.bat) et cliquez sur **Download raw file** (la flèche ⬇ en haut à droite du fichier). Si le navigateur hésite à le garder, choisissez **Conserver**.
+2. Double-cliquez sur le fichier téléchargé. Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur **Informations complémentaires → Exécuter quand même**.
+3. Laissez faire : le fichier installe Node.js si besoin (répondez **Oui** quand Windows demande l'autorisation), télécharge le logiciel dans le dossier `GarageManager` de votre session et crée le raccourci **Garage Manager** sur le bureau.
+4. Double-cliquez sur **Garage Manager** : une fenêtre noire s'ouvre (laissez-la ouverte), puis le navigateur affiche le logiciel sur http://localhost:3000.
+
+**Mac** — ouvrez l'application **Terminal**, collez cette ligne puis appuyez sur Entrée (Node.js LTS doit être installé depuis https://nodejs.org) :
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/tiagodacruz1986-eng/Crm/main/installer-mac.sh)
+```
+
+**Mettre à jour** : relancez le même fichier (ou la même commande), logiciel fermé. Avant de changer quoi que ce soit, une copie de la base est rangée dans le dossier `sauvegardes/` du logiciel ; le dossier `data/` (clients, factures, photos) et le fichier `.env` (réglages) ne sont jamais touchés. Si le logiciel a déjà servi sur ce PC, le fichier Windows retrouve son dossier (là où il se trouve, raccourci du bureau, Bureau, Téléchargements, Documents) et le met à jour sur place ; s'il en trouve plusieurs, il demande lequel.
+
+### À la main (sans le fichier d'installation)
 
 1. Installez **Node.js** (version LTS) depuis https://nodejs.org
 2. Sur GitHub, bouton vert **Code → Download ZIP**, puis décompressez le dossier

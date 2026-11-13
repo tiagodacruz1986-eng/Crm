@@ -2,3 +2,6 @@ node_modules/
 .env
 data/*
 !data/.gitkeep
+# copies de la base faites par les fichiers d'installation (données clients)
+sauvegardes/
+node_modules.nouveau/

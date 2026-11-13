@@ -37,11 +37,18 @@ unzip -q "$TMP/logiciel.zip" -d "$TMP" || fail "Le fichier téléchargé est ill
 SRC=$(find "$TMP" -maxdepth 2 -name server.js -exec dirname {} \; | head -n 1)
 [ -n "$SRC" ] || fail "Le téléchargement ne contient pas le logiciel."
 
+# les composants sont téléchargés À CÔTÉ, avant de toucher au logiciel installé
+step "Téléchargement des composants (une à deux minutes)"
+(cd "$SRC" && npm install --omit=dev --no-audit --no-fund) && [ -d "$SRC/node_modules/express" ] \
+  || fail "Les composants du logiciel n'ont pas pu être téléchargés : rien n'a été modifié. Vérifiez la connexion internet, puis relancez."
+
 if [ -f "$DIR/data/garage.db" ]; then
   step "Sauvegarde de vos données"
   BACKUP="$DIR/sauvegardes/$(date +%Y-%m-%d_%H-%M-%S)"
-  mkdir -p "$BACKUP" && cp "$DIR"/data/garage.db* "$BACKUP"/ || fail "La sauvegarde a échoué : rien n'a été modifié."
-  ls -1d "$DIR"/sauvegardes/*/ 2>/dev/null | sort -r | tail -n +11 | while read -r old; do rm -rf "$old"; done
+  mkdir -p "$BACKUP" && cp "$DIR"/data/garage.db* "$BACKUP"/ && [ -s "$BACKUP/garage.db" ] \
+    || fail "La sauvegarde a échoué : par sécurité, rien n'a été modifié. Vérifiez que le logiciel est fermé, puis relancez."
+  # on garde les 10 dernières sauvegardes faites par cet installateur (les autres dossiers ne sont jamais touchés)
+  ls -1d "$DIR"/sauvegardes/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ 2>/dev/null | sort -r | tail -n +11 | while read -r old; do rm -rf "$old"; done
   echo "  Copie de la base enregistrée dans : $BACKUP"
 fi
 
@@ -56,8 +63,10 @@ done
 [ -f "$DIR/.env" ] || cp "$DIR/.env.example" "$DIR/.env"
 chmod +x "$DIR"/*.command "$DIR"/installer-mac.sh 2>/dev/null
 
-step "Installation des composants (une à deux minutes la première fois)"
-(cd "$DIR" && npm install --omit=dev --no-audit --no-fund) || fail "L'installation des composants a échoué. Vérifiez la connexion internet, puis relancez."
+step "Installation des composants"
+rm -rf "$DIR/node_modules.nouveau"
+cp -R "$SRC/node_modules" "$DIR/node_modules.nouveau" && rm -rf "$DIR/node_modules" && mv "$DIR/node_modules.nouveau" "$DIR/node_modules" \
+  || fail "Les fichiers du logiciel ont été mis à jour, mais ses composants n'ont pas pu être installés : le logiciel risque de ne pas démarrer. Relancez cette commande."
 
 if [ -d "$HOME/Desktop" ]; then
   printf '#!/bin/bash\nexec "%s/demarrer-mac.command"\n' "$DIR" > "$HOME/Desktop/Garage Manager.command" && chmod +x "$HOME/Desktop/Garage Manager.command" && echo "  Raccourci « Garage Manager » créé sur le bureau."
