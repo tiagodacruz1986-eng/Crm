@@ -316,7 +316,7 @@ export const DocumentEditor = {
                 <td>
                   <div v-if="!locked && l.kind === 'part' && !l.description && !l._free" style="display:flex;gap:4px"><div style="flex:1"><Picker endpoint="/products" :label="productLabel" placeholder="Réf. ou nom de la pièce / forfait…" @pick="p => pickProduct(l, p)"/></div><button class="btn sm" title="Saisie libre (pièce hors stock)" @click="l._free = true; l.description = 'Pièce'">✎</button></div>
                   <input v-else class="descr" v-model="l.description" :disabled="locked">
-                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && doc.status === 'draft' || (doc.type !== 'invoice' && doc.type !== 'credit_note' && !locked)">⚠ stock : {{ l.qty_on_hand }}</div>
+                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && !locked">⚠ stock : {{ l.qty_on_hand }}</div>
                 </td>
                 <template v-if="l.kind !== 'text'">
                   <td><input v-model.number="l.quantity" type="number" step="0.1" class="right" :disabled="locked"></td>
