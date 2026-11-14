@@ -37,6 +37,7 @@ import { options, cleanOptions, startAutomation, runFollowups, runAppointmentRem
 import { monthlyReport, reportPlan, sendMonthlyReports } from './src/reports.js';
 import * as studio from './src/studio.js';
 import { brandIndex, brandFile, saveBrandLogo, deleteBrandLogo, listBrands } from './src/brands.js';
+import { summarizeRequest } from './src/request-summary.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -702,6 +703,12 @@ api.get('/documents', (req, res) => {
     WHERE ${where.join(' AND ')} ORDER BY d.id DESC LIMIT 1000`, localDateTime(), localDateTime(), ...p));
 });
 api.get('/documents/:id', wrap((req) => getDocument(Number(req.params.id))));
+// « Écouter le client » : la demande dictée à l'accueil, résumée par l'IA pour le mécanicien (devis et OR).
+// Droits : ceux du type de document (OR → Atelier, devis → Ventes), niveau « Utilisateur ».
+api.post('/documents/request-summary', wrap((req) => {
+  if (!['quote', 'order'].includes(req.body?.type)) throw new BusinessError('Type de document inconnu');
+  return summarizeRequest(req.body);
+}));
 api.post('/documents', wrap((req) => ({ id: saveDocument(req.body) })));
 api.put('/documents/:id', wrap((req) => ({ id: saveDocument(req.body, Number(req.params.id)) })));
 api.delete('/documents/:id', wrap((req) => {

@@ -33,7 +33,7 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-order.mine { border-color: #3a4250; }
 .k-order.active { border-color: #16a34a; }
 .k-order h3 { font-size: 20px; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.k-order .complaint { color: #cbd5e1; margin: 8px 0; }
+.k-order .complaint { color: #cbd5e1; margin: 8px 0; white-space: pre-line; }
 .k-line { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid #272d37; font-size: 16px; cursor: pointer; }
 .k-line .box { width: 30px; height: 30px; border-radius: 8px; border: 2px solid #475569; display: grid; place-items: center; flex-shrink: 0; font-size: 18px; }
 .k-line.done .box { background: #16a34a; border-color: #16a34a; }

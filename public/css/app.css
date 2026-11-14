@@ -536,7 +536,7 @@ a.live { text-decoration: none; white-space: nowrap; }
 .ip-vehicle { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 5mm; font-size: 9.5pt; }
 .ip-plate { display: inline-block; background: #f7d117; color: #111; font-family: 'Arial Narrow', Arial, sans-serif; font-weight: 800; font-size: 11pt; letter-spacing: .06em; padding: 3px 10px; border: 1.5px solid #111; border-radius: 4px; white-space: nowrap; }
 .ip-sub { color: #6b7280; font-size: 8.5pt; }
-.ip-text { margin: 0 0 3mm; font-size: 9.5pt; }
+.ip-text { margin: 0 0 3mm; font-size: 9.5pt; white-space: pre-line; }
 .ip-lines { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 9.5pt; }
 .ip-lines th { text-align: left; font-size: 8pt; text-transform: uppercase; letter-spacing: .05em; color: var(--p); padding: 6px 7px; border-bottom: 2px solid var(--p); background: transparent; }
 .ip-lines td { padding: 6px 7px; border-bottom: 1px solid #eef0f3; vertical-align: top; color: #1f2937; }
@@ -642,6 +642,29 @@ a.live { text-decoration: none; white-space: nowrap; }
 .logo-box { width: 120px; height: 70px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; overflow: hidden;
   background: repeating-conic-gradient(#e5e7eb 0 25%, #fff 0 50%) 0 0 / 14px 14px; color: #6b7280; font-size: 11px; text-align: center; }
 .logo-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* « Écouter le client » : bouton à côté de « Demande du client », et fenêtre d'écoute */
+.field-voice { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.field-head label { flex: 0 1 auto; }
+.vr-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.vr-mic { flex: 0 0 auto; width: 76px; height: 76px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center; color: #fff; background: var(--accent, var(--brand));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -8px 14px rgba(0, 0, 0, .14), 0 8px 22px color-mix(in srgb, var(--accent, var(--brand)) 38%, transparent); transition: transform .12s, background .15s; }
+.vr-mic .icon { width: 32px; height: 32px; }
+.vr-mic:hover:not(:disabled) { transform: scale(1.04); }
+.vr-mic:active:not(:disabled) { transform: scale(.96); }
+.vr-mic:disabled { opacity: .45; cursor: not-allowed; }
+.vr-mic.on { background: #d92d20; animation: vr-pulse 1.6s ease-out infinite; } /* rouge fixe : l'icône blanche reste lisible dans tous les thèmes */
+.vr-mic.on .icon { width: 26px; height: 26px; }
+@keyframes vr-pulse { 0% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 -8px 14px rgba(0, 0, 0, .16), 0 0 0 0 rgba(217, 45, 32, .5); } 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 -8px 14px rgba(0, 0, 0, .16), 0 0 0 18px rgba(217, 45, 32, 0); } }
+.vr-state { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 4px; } .vr-state b { font-size: 16px; color: var(--ink); } .vr-clock { font-variant-numeric: tabular-nums; }
+.vr-lang { flex: 0 0 150px; }
+.vr-note { margin: 0; display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--panel-2); color: var(--ink-2); font-size: 13px; }
+.vr-note .icon { flex: 0 0 auto; margin-top: 1px; } .vr-note.bad { background: var(--b-red); color: var(--b-red-i); }
+.vr-interim { min-height: 20px; margin-top: -6px; color: var(--muted); font-style: italic; font-size: 13px; overflow-wrap: anywhere; }
+.vr-ask { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--b-yellow); color: var(--b-yellow-i); font-size: 13px; }
+.vr-ask b { display: flex; align-items: center; gap: 6px; } .vr-ask ul { margin: 6px 0 0; padding-left: 20px; } .vr-ask li { margin: 2px 0; }
+.vr-said summary { cursor: pointer; color: var(--muted); font-size: 13px; } .vr-said p { margin: 8px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--panel-2); color: var(--ink-2); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; }
+.vr-mode { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .seg button.on { background: var(--brand-soft); color: var(--ink); font-weight: 650; }

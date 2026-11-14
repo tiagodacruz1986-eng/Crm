@@ -146,7 +146,7 @@ const App = {
       </div>
 
       <div class="card" v-if="d.order.customer_complaint">
-        <div class="muted small">Demande</div><div>{{ d.order.customer_complaint }}</div>
+        <div class="muted small">Demande</div><div style="white-space:pre-line">{{ d.order.customer_complaint }}</div>
         <template v-if="isMech && d.order.diagnosis"><div class="muted small" style="margin-top:8px">Diagnostic</div><div>{{ d.order.diagnosis }}</div></template>
       </div>
 

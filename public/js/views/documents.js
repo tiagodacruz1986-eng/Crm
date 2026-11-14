@@ -5,6 +5,7 @@ import { LivePanel } from '../live-panel.js';
 import { DocPrint } from '../doc-print.js';
 import { lineTotal, computeTotals } from '../totals.js';
 import { can } from '../apps.js';
+import { VoiceRequest } from '../voice-request.js';
 
 export const DocumentList = {
   setup() {
@@ -121,7 +122,7 @@ export const PaymentModal = {
 
 // ---------- Éditeur de document (devis / OR / facture / avoir) ----------
 export const DocumentEditor = {
-  components: { QuickCustomer, PaymentModal, LivePanel, DocPrint },
+  components: { QuickCustomer, PaymentModal, LivePanel, DocPrint, VoiceRequest },
   setup() {
     const isNew = route.params.id === 'new';
     const doc = ref(null);
@@ -130,6 +131,20 @@ export const DocumentEditor = {
     const curMake = computed(() => (doc.value?.vehicle_id ? vehicles.value.find((v) => v.id === doc.value.vehicle_id)?.make || doc.value.make || '' : ''));
     const mechanics = ref([]);
     const showCustomer = ref(false);
+    // « Écouter le client » : la demande dictée (ou son résumé) arrive dans « Demande du client »
+    const showVoice = ref(false);
+    const complaintBox = ref(null);
+    const canVoice = computed(() => can(doc.value?.type === 'order' ? 'atelier' : 'ventes', 'user'));
+    const onVoice = async ({ text, mode }) => {
+      const cur = String(doc.value.customer_complaint || '').trim();
+      doc.value.customer_complaint = mode === 'append' && cur ? cur + '\n' + text : text;
+      showVoice.value = false;
+      toast('Demande du client mise à jour — pensez à enregistrer');
+      await nextTick();
+      // la zone s'agrandit pour montrer tout le texte
+      const el = complaintBox.value;
+      if (el) el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px';
+    };
     const showPay = ref(false);
     const dirty = ref(false);
     const s = store.settings?.workshop || { labor_rate: 85, default_tax: 17 };
@@ -345,7 +360,7 @@ export const DocumentEditor = {
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
     return { curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
-      showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
+      showCustomer, showVoice, canVoice, onVoice, complaintBox, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
   <div v-if="doc">
@@ -397,7 +412,11 @@ export const DocumentEditor = {
             <label v-if="doc.type==='order'">Mécanicien<select v-model="doc.mechanic_id" :disabled="locked"><option :value="null">—</option><option v-for="m in mechanics" :value="m.id">{{ m.name }}</option></select></label>
             <label v-if="doc.type==='order'">Promis pour<input v-model="doc.promised_at" type="datetime-local" :disabled="locked"></label>
             <label>Référence<input v-model="doc.reference" :disabled="locked" placeholder="Bon de commande, sinistre…"></label>
-            <label class="full" v-if="doc.type!=='invoice' && doc.type!=='credit_note'">Demande du client<textarea v-model="doc.customer_complaint" :disabled="locked" placeholder="Bruit à l'avant gauche au freinage…"></textarea></label>
+            <div class="full field-voice" v-if="doc.type!=='invoice' && doc.type!=='credit_note'">
+              <div class="field-head"><label for="doc-complaint">Demande du client</label>
+                <button type="button" class="btn sm" v-if="!locked && canVoice" @click="showVoice = true" title="Le client explique sa demande : elle est transcrite, puis résumée pour le mécanicien"><Icon name="mic" class="ti"/> Écouter le client</button></div>
+              <textarea id="doc-complaint" ref="complaintBox" v-model="doc.customer_complaint" :disabled="locked" placeholder="Bruit à l'avant gauche au freinage…"></textarea>
+            </div>
             <label class="full" v-if="doc.type==='order'">Diagnostic / constat du mécanicien<textarea v-model="doc.diagnosis" :disabled="locked"></textarea></label>
           </div>
         </div>
@@ -539,6 +558,7 @@ export const DocumentEditor = {
     <div class="print-only"><DocPrint :doc="doc"/></div>
 
     <QuickCustomer v-if="showCustomer" @close="showCustomer = false" @saved="onQuickCustomer"/>
+    <VoiceRequest v-if="showVoice" :type="doc.type" :vehicle-id="doc.vehicle_id" :mileage="doc.mileage" :current="doc.customer_complaint" @close="showVoice = false" @apply="onVoice"/>
     <PaymentModal v-if="showPay" :residual="Math.round((doc.total - doc.amount_paid) * 100) / 100" :title="doc.type === 'credit_note' ? 'Remboursement au client' : 'Encaissement'" @close="showPay = false" @save="pay"/>
   </div>`,
 };
