@@ -13,7 +13,7 @@
   --panel: #ffffff; --panel-solid: #ffffff; --panel-2: #f2f2f7; --panel-hover: #e9e9ee; --field: #ffffff; --btn-bg: #ffffff;
   --ink: #111114; --ink-2: #3a3a3c; --muted: #6c6c70; --line: rgba(60, 60, 67, .14); --line-strong: rgba(60, 60, 67, .28); --soft: #f6f6f9;
   --brand: #0a6ff0; --brand-2: #0a6ff0; --brand-3: #0a6ff0; --brand-ink: #ffffff; --brand-soft: rgba(10, 111, 240, .10);
-  --accent: #0a6ff0; --accent-hover: #0963d8; /* fond des boutons principaux (texte blanc) */
+  --accent: #0a66e0; --accent-hover: #0958c4; /* fond des boutons principaux (texte blanc) */
   --link: #0066d6;
   --grad: linear-gradient(var(--accent), var(--accent));
   --grad-soft: linear-gradient(rgba(10, 111, 240, .07), rgba(10, 111, 240, .07));
@@ -41,7 +41,7 @@
   --panel: #1c1c1e; --panel-solid: #1c1c1e; --panel-2: #2a2a2d; --panel-hover: #38383b; --field: #252528; --btn-bg: #2c2c2e;
   --ink: #f5f5f7; --ink-2: #d1d1d6; --muted: #98989f; --line: rgba(255, 255, 255, .10); --line-strong: rgba(255, 255, 255, .22); --soft: #232326;
   --brand: #4a9dff; --brand-2: #4a9dff; --brand-3: #4a9dff; --brand-ink: #04101f; --brand-soft: rgba(74, 157, 255, .16);
-  --accent: #0a6ff0; --accent-hover: #2b84ff;
+  --accent: #0a66e0; --accent-hover: #2a7cf0;
   --link: #5aa8ff;
   --grad: linear-gradient(var(--accent), var(--accent));
   --grad-soft: linear-gradient(rgba(74, 157, 255, .10), rgba(74, 157, 255, .10));
@@ -1440,11 +1440,11 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 :root:not([data-skin]) .btn.sm { border-radius: 999px; padding: 5px 12px; }
 :root:not([data-skin]) .btn.big { padding: 13px 22px; }
 :root:not([data-skin]) .btn.primary { color: #fff; border-color: color-mix(in srgb, var(--accent) 70%, #000 8%);
-  background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, #fff), var(--accent));
+  background: radial-gradient(130% 70% at 50% -30%, rgba(255, 255, 255, .34), transparent 55%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 94%, #fff), var(--accent));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 30, 90, .22), 0 1px 2px rgba(0, 50, 130, .3), 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent); }
-:root:not([data-skin]) .btn.primary:hover { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, #fff), var(--accent)); border-color: color-mix(in srgb, var(--accent) 70%, #000 8%); filter: brightness(1.06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 30, 90, .22), 0 2px 4px rgba(0, 50, 130, .3), 0 10px 24px color-mix(in srgb, var(--accent) 40%, transparent); }
-:root:not([data-skin]) .btn.success, :root:not([data-skin]) .won-btn { color: #fff; border-color: #1c7c35 !important;
-  background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .4), transparent 60%), linear-gradient(180deg, #2fa24f, #1f8a3b) !important;
+:root:not([data-skin]) .btn.primary:hover { background: radial-gradient(130% 70% at 50% -30%, rgba(255, 255, 255, .34), transparent 55%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 94%, #fff), var(--accent)); border-color: color-mix(in srgb, var(--accent) 70%, #000 8%); filter: brightness(1.06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 30, 90, .22), 0 2px 4px rgba(0, 50, 130, .3), 0 10px 24px color-mix(in srgb, var(--accent) 40%, transparent); }
+:root:not([data-skin]) .btn.success, :root:not([data-skin]) .won-btn { color: #fff; border-color: #166a2c !important;
+  background: radial-gradient(130% 70% at 50% -30%, rgba(255, 255, 255, .32), transparent 55%), linear-gradient(180deg, #22883d, #1a7a33) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 3px rgba(0, 60, 20, .22), 0 6px 16px rgba(31, 138, 59, .28); }
 :root:not([data-skin]) .btn.success:hover { filter: brightness(1.06); }
 :root:not([data-skin]) .btn.danger { color: var(--bad); }
@@ -1539,16 +1539,16 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 
 /* --- Menu des applications : icônes comme sur l'écran d'accueil d'un iPhone --- */
 :root:not([data-skin]) .app-icon { width: 76px; height: 76px; border-radius: 22px; border: 0;
-  background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, color-mix(in srgb, var(--c1) 78%, #fff), var(--c1));
+  background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, var(--c1), color-mix(in srgb, var(--c1) 82%, #000));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -3px 6px rgba(0, 0, 0, .1), 0 6px 16px color-mix(in srgb, var(--c1) 28%, transparent), 0 1px 2px rgba(0, 0, 0, .12); transition: transform .18s cubic-bezier(.3, .7, .4, 1), box-shadow .18s; }
 :root:not([data-skin]) .app-icon .icon, :root:not([data-skin]) .app-icon svg { color: #fff; width: 36px; height: 36px; stroke-width: 1.9; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18)); }
 :root:not([data-skin]) .app-tile:hover .app-icon { transform: scale(1.06); border: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -3px 6px rgba(0, 0, 0, .1), 0 12px 26px color-mix(in srgb, var(--c1) 36%, transparent), 0 1px 2px rgba(0, 0, 0, .12); }
 :root:not([data-skin]) .app-tile:active .app-icon { transform: scale(.94); filter: brightness(.92); }
-:root:not([data-skin]) .home.custom .app-icon { background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, color-mix(in srgb, var(--c1) 78%, #fff), var(--c1)); }
+:root:not([data-skin]) .home.custom .app-icon { background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, var(--c1), color-mix(in srgb, var(--c1) 82%, #000)); }
 
 /* --- Présences : gros bouton rond brillant --- */
-:root:not([data-skin]) .att-btn.in { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #3bc45f, #1f8a3b); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(0, 60, 20, .25), 0 14px 34px rgba(31, 138, 59, .35); }
-:root:not([data-skin]) .att-btn.out { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #ff6a5e, #d92d20); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(110, 10, 0, .25), 0 14px 34px rgba(217, 45, 32, .35); }
+:root:not([data-skin]) .att-btn.in { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #2fae52, #1a7a33); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(0, 60, 20, .25), 0 14px 34px rgba(31, 138, 59, .35); }
+:root:not([data-skin]) .att-btn.out { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #f0564a, #c9271b); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(110, 10, 0, .25), 0 14px 34px rgba(217, 45, 32, .35); }
 :root:not([data-skin]) .att-btn:hover { transform: scale(1.03); filter: none; }
 :root:not([data-skin]) .att-btn:active { transform: scale(.96); }
 :root:not([data-skin]) .att-btn.sm { border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }

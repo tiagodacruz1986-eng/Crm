@@ -161,7 +161,7 @@ export const Settings = {
       <div v-if="odoo.job.running || odoo.job.finished_at" style="margin-top:14px">
         <div><b>{{ odoo.job.step }}</b> <span v-if="odoo.job.running" class="typing"><span></span><span></span><span></span></span></div>
         <div v-if="odoo.job.error" class="error" style="margin-top:6px">{{ odoo.job.error }}</div>
-        <table style="margin-top:8px;max-width:420px"><tbody><tr v-for="(v, k) in odoo.job.done"><td>{{ {customers: 'Clients', suppliers: 'Fournisseurs', vehicles: 'Véhicules', products: 'Articles'}[k] }}</td><td class="num">{{ v.created }} créés</td><td class="num">{{ v.updated }} mis à jour</td></tr></tbody></table>
+        <table style="margin-top:8px;max-width:420px"><tbody><tr v-for="(v, k) in odoo.job.done"><td>{{ {customers: 'Clients', suppliers: 'Fournisseurs', vehicles: 'Véhicules', products: 'Articles', brand_logos: 'Logos des marques'}[k] || k }}</td><td class="num">{{ v.created }} créés</td><td class="num">{{ v.updated }} mis à jour</td></tr></tbody></table>
       </div>
       <p v-else-if="odoo.last" class="muted small" style="margin-top:12px">Dernier import : {{ datetime(odoo.last.at) }}</p>
     </div>

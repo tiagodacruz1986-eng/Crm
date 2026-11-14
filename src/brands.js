@@ -13,6 +13,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS vehicle_brands (
 
 const TYPES = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
 const MAX_BYTES = 1024 * 1024;
+// nom du fichier sur le disque : toujours préfixé (« logo-con.png »), car Windows refuse certains noms seuls (CON, NUL, AUX, COM1…)
+const fileName = (slug, ext) => `logo-${slug}.${ext}`;
 
 // Type réel du fichier d'après sa signature (pas de SVG : il pourrait contenir du script)
 function sniff(buf) {
@@ -38,7 +40,8 @@ export function brandSlug(make) {
 /** Ce dont l'interface a besoin pour afficher les logos : les variantes d'écriture et les marques qui ont une image. */
 export function brandIndex() {
   const logos = {};
-  for (const b of all('SELECT slug, name, updated_at FROM vehicle_brands')) logos[b.slug] = { name: b.name, v: (b.updated_at || '').replace(/\D/g, '') };
+  // seulement les logos dont le fichier est bien là (un fichier retiré à la main ne laisse pas une image cassée à l'écran)
+  for (const b of all('SELECT slug, name, ext, updated_at FROM vehicle_brands')) if (fs.existsSync(path.join(DIR, fileName(b.slug, b.ext)))) logos[b.slug] = { name: b.name, v: (b.updated_at || '').replace(/\D/g, '') };
   return { aliases: ALIASES, logos };
 }
 
@@ -47,7 +50,7 @@ export function brandFile(slug) {
   const s = brandSlug(slug);
   const b = s && get('SELECT ext FROM vehicle_brands WHERE slug=?', s);
   if (!b || !TYPES[b.ext]) return null;
-  const file = path.join(DIR, `${s}.${b.ext}`);
+  const file = path.join(DIR, fileName(s, b.ext));
   return fs.existsSync(file) ? { file, type: TYPES[b.ext] } : null;
 }
 
@@ -61,8 +64,8 @@ export function saveBrandLogo(name, buf, source = 'upload') {
   const ext = sniff(buf);
   if (!ext) throw new BusinessError('Format non pris en charge : utilisez une image PNG, JPEG ou WebP');
   fs.mkdirSync(DIR, { recursive: true });
-  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, `${slug}.${e}`), { force: true });
-  fs.writeFileSync(path.join(DIR, `${slug}.${ext}`), buf);
+  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, fileName(slug, e)), { force: true });
+  fs.writeFileSync(path.join(DIR, fileName(slug, ext)), buf);
   run(`INSERT INTO vehicle_brands(slug, name, ext, source, updated_at) VALUES(?,?,?,?,?)
     ON CONFLICT(slug) DO UPDATE SET name=excluded.name, ext=excluded.ext, source=excluded.source, updated_at=excluded.updated_at`, slug, label, ext, source === 'odoo' ? 'odoo' : 'upload', localDateTime());
   return { slug, name: label };
@@ -71,14 +74,14 @@ export function saveBrandLogo(name, buf, source = 'upload') {
 export function deleteBrandLogo(slug) {
   const s = brandSlug(slug);
   if (!get('SELECT 1 FROM vehicle_brands WHERE slug=?', s)) throw new BusinessError('Cette marque n\'a pas de logo', 404);
-  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, `${s}.${e}`), { force: true });
+  for (const e of Object.keys(TYPES)) fs.rmSync(path.join(DIR, fileName(s, e)), { force: true });
   run('DELETE FROM vehicle_brands WHERE slug=?', s);
   return { ok: true };
 }
 
 /** Liste pour la fenêtre « Logos des marques » : les marques des véhicules du garage, puis les autres logos enregistrés. */
 export function listBrands() {
-  const logos = new Map(all('SELECT slug, name, source, updated_at FROM vehicle_brands').map((b) => [b.slug, b]));
+  const logos = new Map(all('SELECT slug, name, ext, source, updated_at FROM vehicle_brands').filter((b) => fs.existsSync(path.join(DIR, fileName(b.slug, b.ext)))).map((b) => [b.slug, b]));
   const out = new Map();
   for (const r of all("SELECT make, COUNT(*) AS n FROM vehicles WHERE make IS NOT NULL AND TRIM(make) != '' GROUP BY make")) {
     const slug = brandSlug(r.make);
