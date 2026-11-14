@@ -200,7 +200,8 @@ export function convertDocument(id, targetType) {
       ...src, type: targetType, status, number, date, due_date: due, parent_id: src.id, updated_at: new Date().toISOString(),
       reference: targetType === 'credit_note' ? `Avoir sur ${src.number}` : src.reference,
     }, [...DOC_COLS, 'updated_at']);
-    src.lines.forEach((l, i) => insert('document_lines', { ...l, document_id: newId, sequence: i, done: 0 }, LINE_COLS));
+    // (le temps prévu d'une intervention est une donnée d'atelier : il suit le devis vers l'OR, jamais vers la facture ou l'avoir)
+    src.lines.forEach((l, i) => insert('document_lines', { ...l, document_id: newId, sequence: i, done: 0, planned_hours: targetType === 'order' ? l.planned_hours : null }, LINE_COLS));
     refreshTotals(newId);
     if (src.type === 'quote') run("UPDATE documents SET status='accepted' WHERE id=?", src.id);
     if (src.type === 'order' && targetType === 'invoice') {

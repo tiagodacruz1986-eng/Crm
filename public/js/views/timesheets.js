@@ -44,6 +44,7 @@ export const Timesheets = {
             {{ statOf(u).interventions }} intervention(s) : prévu {{ hours(statOf(u).planned) }}, passé {{ hours(statOf(u).spent) }}
             <b :class="statOf(u).gap > 0.005 ? 'neg' : 'pos'">({{ gapLabel(statOf(u).gap) }})</b>
             <b v-if="statOf(u).overruns" class="wt-over"> · {{ statOf(u).overruns }} dépassement(s)</b>
+            <span v-if="statOf(u).to_check" class="warn"> · {{ statOf(u).to_check }} à vérifier</span>
           </div>
         </div>
       </div>
@@ -55,10 +56,11 @@ export const Timesheets = {
             <td>{{ x.description }}</td>
             <td><a :href="'#/document/' + x.document_id">{{ x.number }}</a> <span class="plate" v-if="x.plate">{{ x.plate }}</span></td>
             <td>{{ x.mechanics }}</td>
-            <td class="num">{{ x.planned ? hours(x.planned) : '—' }}</td>
-            <td class="num"><b :class="{ 'wt-over': x.over > 0 }">{{ hours(x.spent) }}</b></td>
-            <td class="num"><b v-if="x.planned" :class="x.over > 0 ? 'wt-over' : 'pos'">{{ gapLabel(x.spent - x.planned) }}</b><span v-else class="muted">—</span></td>
-            <td><span v-if="x.active" class="live" :class="{ over: x.over > 0 }">en cours</span><span v-else-if="x.finished" class="badge b-green">Terminé</span><span v-else class="badge b-gray">En pause</span></td>
+            <td class="num">{{ x.planned !== null ? hours(x.planned) : '—' }}</td>
+            <td class="num"><b :class="{ 'wt-over': x.over > 0 }">{{ hours(x.spent) }}</b><div v-if="Math.abs(x.spent - x.period_spent) > 0.01" class="small muted">dont {{ hours(x.period_spent) }} sur la période</div></td>
+            <td class="num"><b v-if="x.planned !== null" :class="x.over > 0 ? 'wt-over' : 'pos'">{{ gapLabel(x.spent - x.planned) }}</b><span v-else class="muted">—</span></td>
+            <td><span v-if="x.active" class="live" :class="{ over: x.over > 0 }">en cours</span><span v-else-if="x.finished" class="badge b-green">Terminé</span><span v-else class="badge b-gray">En pause</span>
+              <div v-if="x.auto" class="small warn" title="Un chrono oublié a été arrêté automatiquement : corrigez ses heures dans la liste ci-dessous">⚠ durée à vérifier</div></td>
           </tr></tbody>
         </table></div>
       </div>

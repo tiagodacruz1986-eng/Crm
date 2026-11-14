@@ -157,7 +157,8 @@ export function autoCheckout() {
       run('UPDATE time_entries SET end=?, note=? WHERE id=?', end, note(e, 'Départ automatique (pointage oublié)'), e.id);
       // les chronos de tâche restés ouverts s'arrêtent avec le départ (jamais avant leur propre début)
       for (const w of all("SELECT * FROM time_entries WHERE user_id=? AND kind='work' AND end IS NULL AND start < ?", e.user_id, end)) {
-        run('UPDATE time_entries SET end=?, note=? WHERE id=?', end, note(w, 'Arrêt automatique (chrono oublié)'), w.id);
+        // (source « auto » : durée estimée — l'intervention est signalée « à vérifier » tant que le gérant ne l'a pas corrigée)
+        run("UPDATE time_entries SET end=?, note=?, source='auto' WHERE id=?", end, note(w, 'Arrêt automatique (chrono oublié)'), w.id);
         n++;
       }
       n++;
@@ -165,7 +166,7 @@ export function autoCheckout() {
     // chrono de tâche ouvert sans pointage de présence ouvert : arrêté au départ de la personne, sinon durée nulle à corriger
     for (const w of all("SELECT * FROM time_entries w WHERE end IS NULL AND kind='work' AND start < ? AND NOT EXISTS (SELECT 1 FROM time_entries p WHERE p.user_id=w.user_id AND p.kind='presence' AND p.end IS NULL)", limit)) {
       const p = get("SELECT end FROM time_entries WHERE user_id=? AND kind='presence' AND start<=? AND end>? ORDER BY start DESC LIMIT 1", w.user_id, w.start, w.start);
-      run('UPDATE time_entries SET end=?, note=? WHERE id=?', p?.end || w.start, note(w, 'Arrêt automatique (chrono oublié)'), w.id);
+      run("UPDATE time_entries SET end=?, note=?, source='auto' WHERE id=?", p?.end || w.start, note(w, 'Arrêt automatique (chrono oublié)'), w.id);
       n++;
     }
   });

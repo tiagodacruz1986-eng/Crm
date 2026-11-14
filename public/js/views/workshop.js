@@ -32,7 +32,8 @@ export const Workshop = {
     const moveTo = async (o, status) => { dragged = o; await drop(status); };
     const isLate = (o) => o.promised_at && new Date(o.promised_at) < new Date() && o.status !== 'done';
     // Temps pointé au-delà du temps prévu : affiché en rouge sur la fiche
-    const timeOver = (o) => o.hours_planned > 0 && (o.hours_spent || 0) - o.hours_planned > 1 / 120;
+    // (le temps pointé sur des interventions sans temps prévu n'est pas comparé)
+    const timeOver = (o) => o.hours_planned > 0 && (o.hours_spent || 0) - (o.hours_unplanned || 0) - o.hours_planned > 1 / 120;
     return { timeOver, moveTo, STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
   },
   template: `

@@ -372,7 +372,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
   const uid = req.user.id;
   const { action, document_id, note } = req.body;
   const lineRef = req.body.line_id;
-  let resumed = null;
+  let resumed = null, reopened = null;
   tx(() => {
     const presence = get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid);
     if (action === 'in') {
@@ -388,16 +388,19 @@ api.post('/kiosk/clock', mech, wrap((req) => {
       // Chrono sur une intervention précise (ligne de main-d'œuvre ou forfait de cet OR) ; sans ligne : sur l'OR entier
       let lineId = null;
       if (lineRef !== undefined && lineRef !== null && lineRef !== '') {
-        const l = Number.isInteger(Number(lineRef)) ? get('SELECT id, kind FROM document_lines WHERE id=? AND document_id=?', Number(lineRef), d.id) : null;
+        const l = Number.isInteger(Number(lineRef)) ? get('SELECT id, kind, done FROM document_lines WHERE id=? AND document_id=?', Number(lineRef), d.id) : null;
         if (!isIntervention(l)) throw new BusinessError('Intervention introuvable sur cet OR');
         lineId = l.id;
+        // Reprise d'une intervention déjà cochée « fait » : elle redevient « à faire » (sinon elle resterait cochée, chrono en marche)
+        if (l.done) { run('UPDATE document_lines SET done=0 WHERE id=?', l.id); touchDocument(d.id); reopened = d.id; }
       }
+      if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
       // Déjà en cours sur ce même travail : le chrono continue (un second appui ne le découpe pas)
       const running = get("SELECT document_id, line_id FROM time_entries WHERE user_id=? AND kind='work' AND end IS NULL", uid);
-      if (running && running.document_id === d.id && (running.line_id || null) === lineId) return;
-      if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
-      stopWork(uid, now);
-      insert('time_entries', { user_id: uid, kind: 'work', document_id: d.id, line_id: lineId, start: now, note: typeof note === 'string' ? note.slice(0, 500) : undefined }, ['user_id', 'kind', 'document_id', 'line_id', 'start', 'note']);
+      if (!(running && running.document_id === d.id && (running.line_id || null) === lineId)) {
+        stopWork(uid, now);
+        insert('time_entries', { user_id: uid, kind: 'work', document_id: d.id, line_id: lineId, start: now, note: typeof note === 'string' ? note.slice(0, 500) : undefined }, ['user_id', 'kind', 'document_id', 'line_id', 'start', 'note']);
+      }
       // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
       if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
     } else if (action === 'stop') {
@@ -405,6 +408,7 @@ api.post('/kiosk/clock', mech, wrap((req) => {
     } else throw new BusinessError('Action inconnue');
   });
   if (resumed) stageFromStatus(resumed, 'in_progress');
+  else if (reopened) livePublish(reopened);
   return fullKioskState(req.user);
 }));
 api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
@@ -657,12 +661,15 @@ api.get('/documents', (req, res) => {
   res.json(all(`SELECT d.id, d.type, d.number, d.status, d.date, d.due_date, d.subtotal, d.total, d.amount_paid, d.promised_at, d.customer_complaint,
       d.mechanic_id, d.stage, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
       (SELECT ROUND(SUM(quantity),2) FROM document_lines WHERE document_id=d.id AND kind='labor') AS hours_sold,
-      (SELECT ROUND(SUM(CASE WHEN kind NOT IN ('labor','fee') THEN 0 WHEN planned_hours IS NOT NULL THEN planned_hours WHEN kind='labor' THEN MAX(quantity, 0) ELSE 0 END),2)
-        FROM document_lines WHERE document_id=d.id) AS hours_planned,
-      (SELECT ROUND(SUM((julianday(COALESCE(end, ?)) - julianday(start)) * 24), 4) FROM time_entries WHERE document_id=d.id AND kind='work') AS hours_spent,
+      CASE WHEN d.type='order' THEN (SELECT ROUND(SUM(CASE WHEN kind NOT IN ('labor','fee') THEN 0 WHEN planned_hours IS NOT NULL THEN planned_hours WHEN kind='labor' THEN MAX(quantity, 0) ELSE 0 END),2)
+        FROM document_lines WHERE document_id=d.id) END AS hours_planned,
+      CASE WHEN d.type='order' THEN (SELECT ROUND(SUM(MAX(0, (julianday(COALESCE(end, ?)) - julianday(start)) * 24)), 4) FROM time_entries WHERE document_id=d.id AND kind='work') END AS hours_spent,
+      CASE WHEN d.type='order' THEN (SELECT ROUND(SUM(MAX(0, (julianday(COALESCE(t.end, ?)) - julianday(t.start)) * 24)), 4) FROM time_entries t JOIN document_lines l ON l.id=t.line_id AND l.document_id=t.document_id
+        WHERE t.document_id=d.id AND t.kind='work' AND l.kind IN ('labor','fee')
+          AND (CASE WHEN l.planned_hours IS NOT NULL THEN l.planned_hours WHEN l.kind='labor' THEN MAX(l.quantity, 0) ELSE 0 END) <= 0) END AS hours_unplanned,
       (SELECT COUNT(*) FROM time_entries WHERE document_id=d.id AND end IS NULL AND kind='work') AS active_workers
     FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id LEFT JOIN users u ON u.id=d.mechanic_id
-    WHERE ${where.join(' AND ')} ORDER BY d.id DESC LIMIT 1000`, localDateTime(), ...p));
+    WHERE ${where.join(' AND ')} ORDER BY d.id DESC LIMIT 1000`, localDateTime(), localDateTime(), ...p));
 });
 api.get('/documents/:id', wrap((req) => getDocument(Number(req.params.id))));
 api.post('/documents', wrap((req) => ({ id: saveDocument(req.body) })));
@@ -899,7 +906,8 @@ api.get('/timesheets', (req, res) => {
     LEFT JOIN documents d ON d.id=t.document_id LEFT JOIN vehicles v ON v.id=d.vehicle_id LEFT JOIN document_lines l ON l.id=t.line_id AND l.document_id=t.document_id
     WHERE substr(t.start,1,10) BETWEEN ? AND ? ORDER BY t.start`, from, to);
   for (const e of entries) e.hours = round2(durationHours(e));
-  const users = all("SELECT id, name, color, hourly_cost FROM users WHERE role='mechanic' AND active=1 ORDER BY name").map((u) => {
+  const seen = new Set(entries.map((e) => e.user_id));
+  const users = all("SELECT id, name, color, hourly_cost, active AS enabled FROM users WHERE role='mechanic' ORDER BY name").filter((u) => u.enabled || seen.has(u.id)).map((u) => {
     const mine = entries.filter((e) => e.user_id === u.id);
     const presence = round2(mine.filter((e) => e.kind === 'presence').reduce((s, e) => s + e.hours, 0));
     const work = round2(mine.filter((e) => e.kind === 'work').reduce((s, e) => s + e.hours, 0));
@@ -921,9 +929,13 @@ api.put('/timesheets/:id', needManager('presences'), wrap((req) => {
   if (!validDateTime(start)) throw new BusinessError('Heure de début invalide');
   if (end && !validDateTime(end)) throw new BusinessError('Heure de fin invalide');
   if (end && end <= start) throw new BusinessError('La fin doit être après le début');
+  // un pointage ne peut pas commencer dans le futur (les heures seraient comptées avant d'être faites)
+  if (start.slice(0, 16) > localDateTime(new Date(Date.now() + 60000)).slice(0, 16)) throw new BusinessError('Un pointage ne peut pas commencer dans le futur');
   // pointage déplacé sur un autre OR : il n'est plus rattaché à une intervention de l'ancien
   const moved = b.document_id !== undefined && (b.document_id || null) !== (cur.document_id || null);
-  update('time_entries', cur.id, { ...b, start, end, line_id: moved ? null : undefined }, ['start', 'end', 'note', 'document_id', 'line_id']);
+  // chrono arrêté automatiquement, dont le gérant corrige les heures : il redevient un pointage normal (plus « à vérifier »)
+  const fixed = cur.source === 'auto' && (start !== cur.start || end !== cur.end);
+  update('time_entries', cur.id, { ...b, start, end, line_id: moved ? null : undefined, source: fixed ? 'manual' : undefined }, ['start', 'end', 'note', 'document_id', 'line_id', 'source']);
   return { ok: true };
 }));
 api.delete('/timesheets/:id', needManager('presences'), wrap((req) => { run('DELETE FROM time_entries WHERE id=?', req.params.id); return { ok: true }; }));

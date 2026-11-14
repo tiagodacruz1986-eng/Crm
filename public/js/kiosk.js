@@ -64,6 +64,11 @@ const App = {
       ['pointerdown', 'keydown'].forEach((e) => window.addEventListener(e, bump));
       window.addEventListener('keydown', onKey);
       setInterval(() => { if (!who.value) loadUsers(); }, 30_000);
+      setInterval(async () => {
+        if (!token.value || !st.value) return;
+        const tk = token.value;
+        try { const s = await call('GET', '/kiosk/state'); if (token.value === tk) setState(s); } catch { /* prochain essai */ }
+      }, 20_000);
     });
     onUnmounted(() => { clearInterval(clock); window.removeEventListener('keydown', onKey); });
 
@@ -136,11 +141,14 @@ const App = {
     // Temps passé « en direct » : le temps reçu du serveur + ce qui s'est écoulé depuis sur les chronos en cours
     const liveHours = (spent, active) => (spent || 0) + (active || 0) * Math.max(0, now.value - fetchedAt) / 3.6e6;
     const over = (spent, planned) => planned > 0 && spent - planned > 1 / 120;
-    const hms = (hrs) => fmt(hrs * 3600);
     const lSpent = (l) => liveHours(l.spent, l.active);
     const oSpent = (o) => liveHours(o.hours_spent, o.active);
     const lOver = (l) => over(lSpent(l), l.planned);
-    const oOver = (o) => over(oSpent(o), o.hours_planned);
+    // Total de l'OR comparé au temps prévu : sans le temps pointé sur des interventions qui n'ont pas de temps prévu
+    const oJudged = (o) => oSpent(o) - o.lines.reduce((s, l) => s + (l.timed && !l.planned ? lSpent(l) : 0), 0);
+    const oOver = (o) => over(oJudged(o), o.hours_planned);
+    // Collègues qui travaillent en ce moment sur la même intervention (ou sur l'OR, sans intervention précise)
+    const others = (names) => (names || []).filter((n) => n !== who.value?.name);
     const isMine = (o, l) => !!st.value?.work && st.value.work.document_id === o.id && st.value.work.line_id === l.id;
     // Travail en cours : temps passé / prévu de l'intervention (ou de l'OR entier si le chrono n'est pas sur une intervention)
     const cur = computed(() => {
@@ -148,8 +156,8 @@ const App = {
       const o = w && (st.value.orders || []).find((x) => x.id === w.document_id);
       if (!o) return null;
       const l = w.line_id ? o.lines.find((x) => x.id === w.line_id && x.timed) : null;
-      const spent = l ? lSpent(l) : oSpent(o), planned = l ? l.planned : o.hours_planned;
-      return { spent, planned, over: over(spent, planned) };
+      const spent = l ? lSpent(l) : oJudged(o), planned = l ? l.planned : o.hours_planned;
+      return { spent, planned, over: over(spent, planned), line: !!l, with: others(l ? l.workers : o.general_workers) };
     });
     const elapsed = computed(() => (st.value?.work ? fmt((now.value - new Date(st.value.work.start)) / 1000) : ''));
     const presentFor = computed(() => (st.value?.attendance?.present ? fmt((now.value - new Date(st.value.attendance.since)) / 1000) : ''));
@@ -159,7 +167,7 @@ const App = {
     const h = hm;
     const since = (s) => (s ? s.slice(11, 16) : '');
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
-    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startOrder, startLine, hint, lSpent, oSpent, lOver, oOver, isMine, cur, hms,
+    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startOrder, startLine, hint, lSpent, oSpent, lOver, oOver, isMine, cur, others,
       updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
   },
   template: `
@@ -213,10 +221,10 @@ const App = {
             <div class="k-muted">En cours sur</div>
             <div style="font-size:22px;font-weight:700">{{ st.work.number }} <span class="plate">{{ st.work.plate }}</span></div>
             <div v-if="st.work.line_description" class="k-work-line">{{ st.work.line_description }}</div>
-            <div class="k-timer" :class="{ over: cur && cur.over }">{{ cur ? hms(cur.spent) : elapsed }}</div>
-            <div v-if="cur && cur.planned" class="k-budget" :class="{ over: cur.over }">
-              <template v-if="cur.over">⚠ Temps prévu dépassé de {{ h(cur.spent - cur.planned) }}</template><template v-else>Reste {{ h(cur.planned - cur.spent) }}</template>
-              · prévu {{ h(cur.planned) }}
+            <div class="k-timer" :class="{ over: cur && cur.over }">{{ elapsed }}</div>
+            <div v-if="cur" class="k-budget" :class="{ over: cur.over }">
+              {{ cur.line ? 'Intervention' : 'OR' }} : {{ h(cur.spent) }}<template v-if="cur.planned"> / {{ h(cur.planned) }} prévu</template><template v-if="cur.with.length"> · avec {{ cur.with.join(', ') }}</template>
+              <template v-if="cur.over"><br>⚠ Temps prévu dépassé de {{ h(cur.spent - cur.planned) }}</template><template v-else-if="cur.planned"> · reste {{ h(cur.planned - cur.spent) }}</template>
             </div>
           </div>
           <button class="k-btn orange" @click="clockAction('stop')">⏸ Pause / arrêter</button>
@@ -237,7 +245,7 @@ const App = {
             <div v-if="hint === o.id" class="k-hint">👉 Touchez ▶ en face de l'intervention que vous commencez.</div>
             <div v-for="l in o.lines" class="k-line" :class="{ done: l.done, running: isMine(o, l) }">
               <span class="box" @click="toggleLine(o, l)">{{ l.done ? '✓' : '' }}</span>
-              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="l.active && !isMine(o, l)"> · 👤 {{ l.workers.join(', ') }}</span>
+              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="others(l.workers).length"> · 👤 {{ others(l.workers).join(', ') }}</span>
                 <span v-if="l.timed && (l.planned || lSpent(l) > 0)" class="k-time" :class="{ over: lOver(l) }">⏱ {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
               </span>
               <template v-if="l.timed">

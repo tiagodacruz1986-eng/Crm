@@ -12,7 +12,7 @@ export function periodRange(period) {
   return [t, t];
 }
 /** Écart entre temps passé et temps prévu : « + 0h30 » (plus long que prévu) ou « − 0h15 » (plus court). */
-export const gapLabel = (g) => (Math.abs(g) < 0.005 ? '0h00' : (g > 0 ? '+ ' : '− ') + hours(Math.abs(g)));
+export const gapLabel = (g) => (Math.abs(g) < 0.005 ? '0h00' : (g > 0 ? '+\u00a0' : '−\u00a0') + hours(Math.abs(g)));
 
 export const MechanicStats = {
   setup() {
@@ -38,7 +38,7 @@ export const MechanicStats = {
       <thead><tr><th>Mécanicien</th><th>En ce moment</th><th class="num">Heures sur OR</th><th class="num">Interventions</th><th class="num">Prévu</th><th class="num">Passé</th><th class="num">Écart</th><th class="num">Dépassements</th></tr></thead>
       <tbody>
         <tr v-for="m in data.mechanics" :key="m.id">
-          <td><span style="display:inline-flex;gap:8px;align-items:center"><span class="avatar" :style="{ background: m.color, width: '24px', height: '24px', fontSize: '11px' }">{{ m.name[0] }}</span>{{ m.name }}</span></td>
+          <td><span style="display:inline-flex;gap:8px;align-items:center"><span class="avatar" :style="{ background: m.color, width: '24px', height: '24px', fontSize: '11px' }">{{ m.name[0] }}</span>{{ m.name }}<span v-if="m.inactive" class="muted small">(inactif)</span></span></td>
           <td>
             <span v-if="m.current" class="wt-cur">
               <a :href="'#/document/' + m.current.document_id">{{ m.current.number }}</a>
@@ -52,11 +52,11 @@ export const MechanicStats = {
           <td class="num">{{ m.interventions ? hours(m.planned) : '—' }}</td>
           <td class="num">{{ m.interventions ? hours(m.spent) : '—' }}</td>
           <td class="num"><b v-if="m.interventions" :class="m.gap > 0.005 ? 'neg' : 'pos'">{{ gapLabel(m.gap) }}</b><span v-else class="muted">—</span></td>
-          <td class="num"><b v-if="m.overruns" class="wt-over">{{ m.overruns }}</b><span v-else class="muted">0</span></td>
+          <td class="num"><b v-if="m.overruns" class="wt-over">{{ m.overruns }}</b><span v-else class="muted">0</span><span v-if="m.to_check" class="warn small" title="Chrono oublié, arrêté automatiquement : durée à corriger dans Feuilles de temps"> · {{ m.to_check }} à vérifier</span></td>
         </tr>
       </tbody>
     </table></div>
     <Empty v-else icon="🔧" text="Aucun mécanicien"/>
-    <div class="small muted" style="margin-top:10px">Interventions terminées (ou déjà en dépassement) sur la période. En rouge : le temps prévu est dépassé. <a href="#/timesheets">Détail par intervention →</a></div>
+    <div class="small muted" style="margin-top:10px">Interventions avec un temps prévu, terminées (ou déjà en dépassement) sur la période : « Prévu » et « Passé » comptent toute leur durée, jours précédents compris. À plusieurs, le temps prévu est partagé selon le temps de chacun. En rouge : temps prévu dépassé. <a href="#/timesheets">Détail par intervention →</a></div>
   </div>`,
 };
