@@ -258,11 +258,14 @@ test('bureau : ligne retirée, OR facturé ou supprimé — aucun temps perdu, a
   doc = (await A('GET', `/documents/${d.id}`)).data;
   assert.ok(near(doc.hours_spent, 1) && near(doc.hours_general, 1), JSON.stringify([doc.hours_spent, doc.hours_general]));
   assert.equal(doc.time_entries[0].line_description, null);
-  // statistiques : ce temps « général » se compare au temps prévu des interventions sans chrono propre (1 h + 1 h)
+  // statistiques : ce temps « général » n'a pas de temps prévu — il n'est jugé pour personne
   const unit = (await A('GET', `/timesheets/stats?${RANGE()}`)).data.interventions.find((x) => x.document_id === d.id);
   assert.equal(unit.line_id, null);
-  assert.equal(unit.planned, 2);
+  assert.equal(unit.planned, null);
   assert.equal(unit.over, 0);
+  const mine = await statsOf(m.id);
+  assert.equal(mine.interventions, 0);
+  assert.ok(near(mine.work, 1), 'mais ses heures sur OR sont bien comptées');
 
   // OR facturé pendant qu'un chrono tourne : il s'arrête, et on ne peut plus pointer dessus
   await call('POST', '/kiosk/clock', { action: 'start', document_id: d.id, line_id: d.lines[0].id }, m.tok);
@@ -310,25 +313,58 @@ test('chiffres justes : temps pointé sur l\'OR entier, interventions sans temps
   await backdate(s.id, 1 / 3);
   await K(s.tok, { action: 'stop' });
   await A('POST', `/documents/${d.id}/status`, { status: 'done' });
-  // Sven : 20 min sur une intervention prévue 3 h, mais Kevin a aussi travaillé dessus sans le dire → pas de faux gain pour Sven ;
-  // Kevin : ses 3 h sont comparées à ce qui reste du temps prévu de l'OR (4 h − 20 min) → pas de faux dépassement
+  // Kevin (3 h sans choisir d'intervention) : ni dépassement ni gain — ce temps n'a pas de temps prévu.
+  // Sven (20 min sur l'embrayage prévu 3 h, coché « fait ») : il ne reçoit pas un gain de 2 h 40. Le temps de Kevin explique d'abord
+  // la géométrie que personne n'a chronométrée (1 h), le reste (2 h) réduit le gain de l'embrayage : gain retenu = 40 min,
+  // c'est-à-dire exactement l'avance réelle de l'OR (3 h 20 passées pour 4 h prévues).
   const sk = await statsOf(k.id), ss = await statsOf(s.id);
   assert.equal(sk.overruns, 0, JSON.stringify(sk));
-  assert.ok(near(sk.planned, 4 - 1 / 3, 0.03) && near(sk.spent, 3), JSON.stringify(sk));
-  assert.ok(near(ss.planned, 1 / 3, 0.03) && near(ss.spent, 1 / 3) && near(ss.gap, 0, 0.03), JSON.stringify(ss));
+  assert.equal(sk.interventions, 0);
+  assert.ok(near(sk.work, 3), 'les 3 h de Kevin comptent dans ses heures sur OR');
+  assert.ok(near(ss.planned, 1, 0.03) && near(ss.spent, 1 / 3) && near(ss.gap, 1 / 3 - 1, 0.03), JSON.stringify(ss));
   assert.equal(ss.overruns, 0);
-  // la somme des écarts des deux mécaniciens = temps passé − temps prévu de l'OR (3 h 20 − 4 h)
-  assert.ok(near(sk.gap + ss.gap, 3 + 1 / 3 - 4, 0.04), JSON.stringify([sk.gap, ss.gap]));
   const units = (await A('GET', `/timesheets/stats?${RANGE()}`)).data.interventions.filter((x) => x.document_id === d.id);
-  assert.equal(units.length, 2, 'l\'intervention chronométrée + le reste de l\'OR');
+  assert.equal(units.length, 2, 'l\'intervention chronométrée + le temps sans intervention précise');
   assert.ok(units.every((u) => u.over === 0), JSON.stringify(units));
-  assert.ok(near(units.find((u) => u.whole).planned, 4 - 1 / 3, 0.03));
+  const gen = units.find((u) => u.whole), emb = units.find((u) => !u.whole);
+  assert.equal(gen.planned, null, 'temps sans intervention précise : pas de temps prévu');
+  assert.ok(emb.planned === 3 && near(emb.credit, 1, 0.03), 'la liste garde le vrai temps prévu (3 h) et indique ce qui est retenu');
+
+  // quelques secondes pointées par erreur « sur l'OR » ne retirent rien au gain d'un collègue
+  const t2 = await order([
+    { kind: 'labor', description: 'Courroie', quantity: 2, unit_price: 80, tax_rate: 17 },
+  ]);
+  await K(s.tok, { action: 'start', document_id: t2.id, line_id: t2.lines[0].id });
+  await backdate(s.id, 1);
+  await call('POST', `/kiosk/orders/${t2.id}`, { line_id: t2.lines[0].id, done: true }, s.tok);
+  const before = (await statsOf(s.id)).gap;
+  await K(k.tok, { action: 'start', document_id: t2.id });
+  await K(k.tok, { action: 'stop' });
+  assert.ok(near((await statsOf(s.id)).gap, before, 0.02), 'gain de Sven inchangé');
+  assert.equal((await statsOf(k.id)).interventions, 0);
+
+  // diagnostic fait d'abord sans intervention précise, puis l'intervention exactement dans son temps : aucun dépassement pour personne
+  const t3 = await order([{ kind: 'labor', description: 'Turbo', quantity: 2, unit_price: 80, tax_rate: 17 }]);
+  await K(k.tok, { action: 'start', document_id: t3.id });
+  await backdate(k.id, 0.5);
+  await K(k.tok, { action: 'stop' });
+  const kBefore = await statsOf(k.id);
+  await K(s.tok, { action: 'start', document_id: t3.id, line_id: t3.lines[0].id });
+  await backdate(s.id, 2);
+  await call('POST', `/kiosk/orders/${t3.id}`, { line_id: t3.lines[0].id, done: true }, s.tok);
+  const kAfter = await statsOf(k.id);
+  assert.equal(kAfter.overruns, kBefore.overruns, 'le diagnostic de Kevin ne devient pas un dépassement');
+  assert.ok(near(kAfter.gap, kBefore.gap, 0.02));
+  // … mais l'OR, lui, affiche bien son dépassement global (2 h 30 pour 2 h)
+  const d3 = (await A('GET', `/documents/${t3.id}`)).data;
+  assert.ok(d3.hours_spent - d3.hours_unplanned > d3.hours_planned);
 
   // un dépassement sur une intervention reste visible même si un peu de temps « général » a été pointé sur l'OR
   const g = await order([
     { kind: 'labor', description: 'Plaquettes', quantity: 1, unit_price: 80, tax_rate: 17 },
     { kind: 'labor', description: 'Purge', quantity: 1, unit_price: 80, tax_rate: 17 },
   ]);
+  const o0 = (await statsOf(k.id)).overruns;
   await K(k.tok, { action: 'start', document_id: g.id, line_id: g.lines[0].id });
   await backdate(k.id, 1.5);
   await call('POST', `/kiosk/orders/${g.id}`, { line_id: g.lines[0].id, done: true }, k.tok);
@@ -337,14 +373,8 @@ test('chiffres justes : temps pointé sur l\'OR entier, interventions sans temps
   await K(k.tok, { action: 'stop' });
   const gu = (await A('GET', `/timesheets/stats?${RANGE()}`)).data.interventions.filter((x) => x.document_id === g.id);
   assert.ok(near(gu.find((u) => u.line_id === g.lines[0].id).over, 0.5), 'intervention dépassée de 30 min');
-  assert.equal((await statsOf(k.id)).overruns, 1);
-  // tout le temps prévu consommé puis encore du travail « général » : ce temps en plus est un dépassement de l'OR
-  await A('POST', `/documents/${g.id}/status`, { status: 'in_progress' });
-  await K(k.tok, { action: 'start', document_id: g.id, line_id: g.lines[1].id });
-  await backdate(k.id, 1);
-  await call('POST', `/kiosk/orders/${g.id}`, { line_id: g.lines[1].id, done: true }, k.tok);
-  const rest = (await A('GET', `/timesheets/stats?${RANGE()}`)).data.interventions.find((x) => x.document_id === g.id && x.whole);
-  assert.ok(rest.planned === 0 && near(rest.over, 0.1) && rest.finished, JSON.stringify(rest));
+  assert.equal((await statsOf(k.id)).overruns, o0 + 1);
+  assert.equal(gu.find((u) => u.whole).over, 0, 'le temps sans intervention précise n\'est jamais un dépassement');
   assert.equal((await A('GET', `/documents/${d.id}`)).data.hours_planned, 4);
 
   // forfait sans temps prévu : le temps passé dessus ne met jamais l'OR en rouge

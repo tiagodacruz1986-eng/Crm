@@ -188,10 +188,11 @@ async function documentBlock(model, id, attachments) {
   return '';
 }
 
-export async function renderEmail({ model, record_id, intro, include_document }) {
+export async function renderEmail({ model, record_id, intro, include_document, block: given = null }) {
   const s = getSettings();
   const attachments = [];
-  const block = include_document ? await documentBlock(model, record_id, attachments) : '';
+  // « block » : contenu déjà mis en page par l'appelant (rapports) ; sinon le document lié à la fiche
+  const block = given ?? (include_document ? await documentBlock(model, record_id, attachments) : '');
   const c = s.company;
   const L = s.layout || {};
   const logo = L.show_logo !== false ? logoFile() : null;
@@ -211,11 +212,12 @@ export function logMessage(model, record_id, body, user_id = null, kind = 'note'
   insert('messages', { model, record_id, body, user_id, kind, email_id }, ['model', 'record_id', 'body', 'user_id', 'kind', 'email_id']);
 }
 
+const fromAddress = (c) => (c.from_email ? (c.from_name ? `"${c.from_name.replace(/"/g, '')}" <${c.from_email}>` : c.from_email) : 'garage@localhost');
 async function deliver(email) {
   const c = mailConfig();
   const { html, attachments, text } = await renderEmail({ model: email.model, record_id: email.record_id, intro: email.intro, include_document: email.include_document });
   const me = email.user_id ? get('SELECT email FROM users WHERE id=?', email.user_id)?.email : null;
-  const from = c.from_email ? (c.from_name ? `"${c.from_name.replace(/"/g, '')}" <${c.from_email}>` : c.from_email) : 'garage@localhost';
+  const from = fromAddress(c);
   await transport().sendMail({ from, to: email.to_addr, cc: email.cc || undefined, bcc: c.bcc_me && me ? me : undefined, replyTo: c.from_email || undefined, subject: email.subject, html, text, attachments });
   run("UPDATE emails SET status='sent', sent_at=?, error=NULL WHERE id=?", localDateTime(), email.id);
   logMessage(email.model, email.record_id, `✉️ E-mail envoyé à ${email.to_addr} : « ${email.subject} »`, email.user_id, 'email', email.id);
@@ -252,6 +254,27 @@ export async function sendEmail({ model, record_id, to, cc, subject, intro, incl
   }
   markQuoteSent(model, record_id);
   return { id, status: 'sent' };
+}
+/**
+ * E-mail dont le contenu (bloc HTML) est fourni par l'appelant : rapports mensuels de l'atelier.
+ * Enregistré comme un e-mail lié à un utilisateur : seuls les administrateurs le voient dans la boîte d'envoi.
+ */
+export async function sendReportEmail({ to, subject, intro, html, user_id = null, sender_id = null }) {
+  if (!to || !/@/.test(to)) throw new BusinessError('Adresse e-mail du destinataire manquante');
+  if (!subject) throw new BusinessError('Objet manquant');
+  if (!isConfigured()) throw new BusinessError('Configurez d\'abord l\'envoi d\'e-mails dans Paramètres → E-mails.');
+  const id = insert('emails', { model: 'user', record_id: user_id, to_addr: to, subject, intro, include_document: 0, status: 'sending', user_id: sender_id },
+    ['model', 'record_id', 'to_addr', 'subject', 'intro', 'include_document', 'status', 'user_id']);
+  try {
+    const c = mailConfig();
+    const mail = await renderEmail({ model: 'user', record_id: user_id, intro, include_document: false, block: html });
+    await transport().sendMail({ from: fromAddress(c), to, replyTo: c.from_email || undefined, subject, html: mail.html, text: `${intro}\n\n(Le rapport complet s'affiche dans une messagerie qui montre la mise en forme.)`, attachments: mail.attachments });
+    run("UPDATE emails SET status='sent', sent_at=?, error=NULL WHERE id=?", localDateTime(), id);
+  } catch (e) {
+    run("UPDATE emails SET status='error', error=? WHERE id=?", e.message, id);
+    throw new BusinessError(`Envoi impossible : ${e.message}`);
+  }
+  return { id };
 }
 // Un devis en brouillon passe « Envoyé » une fois l'e-mail réellement parti (envoi immédiat ou programmé)
 function markQuoteSent(model, record_id) {

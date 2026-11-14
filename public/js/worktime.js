@@ -57,6 +57,6 @@ export const MechanicStats = {
       </tbody>
     </table></div>
     <Empty v-else icon="🔧" text="Aucun mécanicien"/>
-    <div class="small muted" style="margin-top:10px">Interventions avec un temps prévu, terminées (ou déjà en dépassement) sur la période : « Prévu » et « Passé » comptent toute leur durée, jours précédents compris. À plusieurs, le temps prévu est partagé selon le temps de chacun. En rouge : temps prévu dépassé. <a href="#/timesheets">Détail par intervention →</a></div>
+    <div class="small muted" style="margin-top:10px">Interventions avec un temps prévu, terminées (ou déjà en dépassement) sur la période : « Prévu » et « Passé » comptent toute leur durée, jours précédents compris. À plusieurs, le temps prévu est partagé selon le temps de chacun. Le temps pointé sur un OR sans choisir d'intervention n'est jamais un dépassement. En rouge : temps prévu dépassé. <a href="#/timesheets">Détail par intervention →</a></div>
   </div>`,
 };

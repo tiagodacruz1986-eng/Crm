@@ -53,7 +53,7 @@ export function monthlyReport(ym) {
     const rows = stats.interventions.map((u) => {
       const me = (u.people || []).find((p) => p.id === m.id);
       if (!me || !inPeriod(me.last)) return null;
-      const share = u.planned !== null && u.spent > 0 ? round2(u.planned * (me.hours / u.spent)) : null;
+      const share = u.credit !== null && u.spent > 0 ? round2(u.credit * (me.hours / u.spent)) : null;
       const state = u.auto ? 'check' : u.planned === null ? 'unplanned' : !(u.finished || u.over > 0) ? 'open' : u.over > 0 ? 'over' : 'ok';
       return { date: me.last.slice(0, 10), document_id: u.document_id, number: u.number, plate: u.plate, description: u.description,
         planned: share, spent: me.hours, gap: share === null ? null : round2(me.hours - share), state,

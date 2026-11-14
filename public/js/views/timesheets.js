@@ -58,7 +58,8 @@ export const Timesheets = {
             <td>{{ x.mechanics }}</td>
             <td class="num">{{ x.planned !== null ? hours(x.planned) : '—' }}</td>
             <td class="num"><b :class="{ 'wt-over': x.over > 0 }">{{ hours(x.spent) }}</b><div v-if="Math.abs(x.spent - x.period_spent) > 0.01" class="small muted">dont {{ hours(x.period_spent) }} sur la période</div></td>
-            <td class="num"><b v-if="x.planned !== null" :class="x.over > 0 ? 'wt-over' : 'pos'">{{ gapLabel(x.spent - x.planned) }}</b><span v-else class="muted">—</span></td>
+            <td class="num"><b v-if="x.planned !== null" :class="x.over > 0 ? 'wt-over' : 'pos'">{{ gapLabel(x.spent - x.planned) }}</b><span v-else class="muted">—</span>
+              <div v-if="x.planned !== null && x.credit < x.planned - 0.01" class="small muted" title="Du temps a été pointé sur cet OR sans choisir d'intervention : on ne sait pas à quoi il a servi, le gain retenu est réduit d'autant">gain retenu : {{ gapLabel(x.spent - x.credit) }}</div></td>
             <td><span v-if="x.active" class="live" :class="{ over: x.over > 0 }">en cours</span><span v-else-if="x.finished" class="badge b-green">Terminé</span><span v-else class="badge b-gray">En pause</span>
               <div v-if="x.auto" class="small warn" title="Un chrono oublié a été arrêté automatiquement : corrigez ses heures dans la liste ci-dessous">⚠ durée à vérifier</div></td>
           </tr></tbody>

@@ -161,14 +161,20 @@ export const DocumentEditor = {
       tick.value = Date.now();
     };
     // Les chronos en cours avancent à l'écran ; les temps d'un OR ouvert sont relus chaque minute (seulement les temps)
-    let ticker;
+    let ticker, reading = false;
     onMounted(() => { ticker = setInterval(async () => {
       tick.value = Date.now();
       const d = doc.value;
-      if (!d || d.type !== 'order' || !d.id || d.status === 'invoiced' || Date.now() - times.value.at < 60000) return;
+      if (reading || !d || d.type !== 'order' || !d.id || d.status === 'invoiced' || Date.now() - times.value.at < 60000) return;
       const id = d.id;
-      times.value.at = Date.now(); // pas deux relectures en même temps
-      try { const fresh = await GET('/documents/' + id); if (doc.value?.id === id) takeTimes(fresh); } catch { /* prochain essai dans une minute */ }
+      reading = true;
+      try {
+        const fresh = await GET('/documents/' + id);
+        if (doc.value?.id !== id) return;
+        // Modifié ailleurs (diagnostic saisi à la tablette, ligne cochée…) et rien en cours de saisie ici : on prend tout le document
+        if (!dirty.value && fresh.updated_at !== doc.value.updated_at) { doc.value = fresh; takeTimes(fresh); await nextTick(); dirty.value = false; }
+        else takeTimes(fresh);
+      } catch { /* prochain essai dans une minute */ } finally { reading = false; }
     }, 10000); });
     onUnmounted(() => clearInterval(ticker));
     const isWork = (l) => l.kind === 'labor' || l.kind === 'fee';

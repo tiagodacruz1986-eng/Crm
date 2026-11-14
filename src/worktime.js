@@ -142,22 +142,22 @@ const inRange = (start, from, to) => { const day = String(start || '').slice(0, 
 /**
  * Statistiques par mécanicien et liste des interventions sur une période.
  *
- * Ce que l'on juge (« unité ») :
- * - chaque intervention sur laquelle un chrono a été démarré : son temps passé contre son temps prévu ;
- * - le temps pointé sur l'OR sans intervention précise (« autre travail », vieille habitude) : contre ce qui RESTE du temps
- *   prévu de l'OR, c'est-à-dire le total prévu moins ce que les interventions chronométrées ont déjà consommé. Dans ce cas,
- *   une intervention finie plus vite que prévu ne donne pas de « gain » (le reste de son temps prévu passe dans ce pot commun,
- *   puisqu'on ne sait pas à quoi le temps général a servi) ; un dépassement sur une intervention reste un dépassement.
- *   La somme des écarts d'un OR est ainsi toujours égale à (temps passé − temps prévu) de l'OR.
+ * Ce que l'on juge : chaque intervention qui a un temps prévu et sur laquelle un chrono a été démarré — son temps passé contre
+ * son temps prévu. Rien d'autre :
+ * - une intervention sans temps prévu n'est jamais jugée ;
+ * - le temps pointé sur l'OR sans choisir d'intervention (« autre travail », diagnostic, vieille habitude) n'a pas de temps prévu :
+ *   il compte dans les heures sur OR et dans le total de l'OR, mais ne donne à personne ni dépassement ni gain. Sa seule
+ *   conséquence : s'il dépasse le temps prévu des interventions que personne n'a chronométrées, le surplus réduit d'autant le
+ *   « gain » des interventions du même OR terminées en avance (on ne sait pas à quoi ce temps a servi). C'est progressif :
+ *   quelques secondes pointées par erreur ne changent rien ;
+ * - une intervention dont un chrono a été arrêté automatiquement (oubli) n'est pas jugée : elle est « à vérifier ».
  *
- * Règles :
+ * Pour chaque mécanicien :
  * - « heures sur OR » et « présence » : pointages commencés pendant la période ;
- * - prévu / passé / écart : interventions avec un temps prévu, terminées (ou déjà en dépassement). Chaque mécanicien la compte
- *   une seule fois, dans la période de SON dernier pointage dessus, pour toute la durée de l'intervention ;
+ * - prévu / passé / écart : interventions terminées (ou déjà en dépassement), comptées une seule fois, dans la période de SON
+ *   dernier pointage dessus, pour toute la durée de l'intervention ;
  * - à plusieurs sur la même intervention, le temps prévu est partagé au prorata du temps de chacun, et le « dépassement »
- *   est compté à celui (ou ceux) qui y a passé le plus de temps (au moins la moitié, sinon la plus grande part) ;
- * - une intervention sans temps prévu n'est jamais jugée ; une intervention dont un chrono a été arrêté automatiquement
- *   (oubli) non plus : elle est « à vérifier ».
+ *   est compté à celui (ou ceux) qui y a passé le plus de temps (au moins la moitié, sinon la plus grande part).
  */
 export function workStats(from, to, now = localDateTime()) {
   const period = all('SELECT user_id, kind, document_id, start, end FROM time_entries WHERE substr(start,1,10) BETWEEN ? AND ?', from, to);
@@ -179,8 +179,10 @@ export function workStats(from, to, now = localDateTime()) {
       const key = line ? line.id : 0;
       let u = map.get(key);
       if (!u) {
-        u = { document_id: doc.id, number: doc.number, plate: doc.plate, line_id: line ? line.id : null, whole: !line, description: line ? line.description : '',
-          planned: null, judged: false, spent: 0, period_spent: 0, active: 0, auto: false, byUser: new Map(), lastBy: new Map(), names: new Map(), finished: false };
+        u = { document_id: doc.id, number: doc.number, plate: doc.plate, line_id: line ? line.id : null, whole: !line,
+          description: line ? line.description : 'Autre travail sur l\'OR (sans intervention précise)',
+          planned: null, credit: null, judged: false, spent: 0, period_spent: 0, active: 0, auto: false, over: 0,
+          byUser: new Map(), lastBy: new Map(), names: new Map(), finished: false };
         map.set(key, u);
       }
       const h = hoursOf(e, now);
@@ -193,27 +195,25 @@ export function workStats(from, to, now = localDateTime()) {
       if (e.start > (u.lastBy.get(e.user_id) || '')) u.lastBy.set(e.user_id, e.start);
     }
     const general = map.get(0) || null;
-    let consumed = 0; // temps prévu déjà « utilisé » par les interventions chronométrées
+    if (general) general.finished = closed;
+    // interventions chronométrées : temps prévu réel ; « free » = temps prévu que le temps général peut expliquer sans rien retirer à personne
+    let free = 0, early = 0;
+    for (const l of interventions.values()) if (!map.has(l.id)) free += plannedOf(l) || 0; // interventions que personne n'a chronométrées
     for (const u of map.values()) {
       if (u.whole) continue;
       const l = interventions.get(u.line_id);
-      const p = plannedOf(l);
       u.finished = !!l.done || closed;
-      if (!p) continue; // pas de temps prévu : jamais jugée
-      consumed += Math.min(p, u.spent);
-      // avec du temps « général » sur l'OR, une intervention finie en avance ne crée pas de gain : le reste va au pot commun
-      u.planned = general && u.finished && u.spent < p ? u.spent : p;
-      u.judged = true;
+      const p = plannedOf(l);
+      if (!p) continue;
+      u.planned = p; u.credit = p; u.judged = true;
+      u.over = isOver(u.spent, p) ? u.spent - p : 0;
+      if (u.auto || u.spent >= p) continue;
+      if (u.finished) early += p - u.spent; else free += p - u.spent;
     }
-    if (general) {
-      let total = 0;
-      for (const l of interventions.values()) total += plannedOf(l) || 0;
-      general.description = map.size > 1 ? 'Autre travail sur l\'OR (comparé au reste du temps prévu)' : 'OR entier (temps pointé sans intervention précise)';
-      general.finished = closed || (interventions.size > 0 && [...interventions.values()].every((l) => l.done));
-      if (total > 0) { general.planned = Math.max(0, total - consumed); general.judged = true; }
-    }
+    // temps général au-delà de « free » : il réduit, en proportion, le gain des interventions terminées en avance
+    const taken = general && !general.auto && early > 0 ? Math.min(early, Math.max(0, general.spent - free)) : 0;
     for (const u of map.values()) {
-      u.over = u.judged && u.spent - u.planned > TOLERANCE ? u.spent - u.planned : 0;
+      if (taken > 0 && u.judged && u.finished && !u.auto && u.spent < u.planned) u.credit = u.planned - (u.planned - u.spent) * (taken / early);
       // celui (ou ceux) qui porte le dépassement : au moins la moitié du temps, sinon la plus grande part
       const top = Math.max(...u.byUser.values());
       u.main = new Set([...u.byUser].filter(([, h]) => u.spent > 0 && (h / u.spent >= 0.5 || h >= top - 1e-9)).map(([uid]) => uid));
@@ -232,7 +232,7 @@ export function workStats(from, to, now = localDateTime()) {
       if (!h || !inRange(u.lastBy.get(m.id), from, to)) continue;
       if (!u.judged || !(u.finished || u.over)) continue;
       if (u.auto) { toCheck++; continue; }
-      planned += u.planned * (h / u.spent);
+      planned += u.credit * (h / u.spent);
       spent += h;
       interventions++;
       if (u.over && u.main.has(m.id)) overruns++;
@@ -240,14 +240,17 @@ export function workStats(from, to, now = localDateTime()) {
     return { id: m.id, name: m.name, color: m.color, inactive: !m.active, work: round2(work), presence: round2(presence),
       productivity: presence ? Math.round((work / presence) * 100) : null,
       interventions, planned: round2(planned), spent: round2(spent), gap: round2(spent - planned),
-      efficiency: spent > 0 ? Math.round((planned / spent) * 100) : null, overruns, to_check: toCheck, current: currentWork(m.id, now) };
+      efficiency: spent > 0 && planned > 0 ? Math.round((planned / spent) * 100) : null, overruns, to_check: toCheck, current: currentWork(m.id, now) };
   });
   const last = (u) => [...u.lastBy.values()].sort().pop() || '';
   const list = units
     .map((u) => ({ u, last: last(u) }))
     .sort((a, b) => (b.u.over > 0) - (a.u.over > 0) || b.u.over - a.u.over || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0))
     .map(({ u, last: at }) => ({ document_id: u.document_id, number: u.number, plate: u.plate, line_id: u.line_id, whole: u.whole, description: u.description,
-      mechanics: [...u.names.values()].join(', '), shared: u.byUser.size > 1, planned: u.judged ? round2(u.planned) : null,
+      mechanics: [...u.names.values()].join(', '), shared: u.byUser.size > 1,
+      people: [...u.byUser].map(([uid, h]) => ({ id: uid, name: u.names.get(uid), hours: round2(h), last: u.lastBy.get(uid) })), main: [...u.main],
+      // « planned » : le temps prévu de l'intervention ; « credit » : ce qui est retenu dans les statistiques (voir la règle du temps général)
+      planned: u.judged ? round2(u.planned) : null, credit: u.judged ? round2(u.credit) : null,
       spent: round2(u.spent), period_spent: round2(u.period_spent), over: round2(u.over), finished: u.finished, active: u.active, auto: u.auto, last: at }));
   return { from, to, mechanics: stats, interventions: list };
 }

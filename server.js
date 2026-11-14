@@ -438,7 +438,7 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
     run('UPDATE documents SET status=? WHERE id=?', status, id);
     if (status === 'done') stopOrderTimers(id);
     stageFromStatus(id, status);
-  } else if (line_id !== undefined) livePublish(id);
+  } else if (line_id !== undefined || diagnosis !== undefined || mileage || note) livePublish(id);
   return fullKioskState(req.user);
 }));
 // Lien "photos & messages" du mécanicien pour un OR
@@ -930,7 +930,8 @@ api.put('/timesheets/:id', needManager('presences'), wrap((req) => {
   if (end && !validDateTime(end)) throw new BusinessError('Heure de fin invalide');
   if (end && end <= start) throw new BusinessError('La fin doit être après le début');
   // un pointage ne peut pas commencer dans le futur (les heures seraient comptées avant d'être faites)
-  if (start.slice(0, 16) > localDateTime(new Date(Date.now() + 60000)).slice(0, 16)) throw new BusinessError('Un pointage ne peut pas commencer dans le futur');
+  const limit = localDateTime(new Date(Date.now() + 60000)).slice(0, 16);
+  if (start.slice(0, 16) > limit || (end && end.slice(0, 16) > limit)) throw new BusinessError('Un pointage ne peut pas être dans le futur');
   // pointage déplacé sur un autre OR : il n'est plus rattaché à une intervention de l'ancien
   const moved = b.document_id !== undefined && (b.document_id || null) !== (cur.document_id || null);
   // chrono arrêté automatiquement, dont le gérant corrige les heures : il redevient un pointage normal (plus « à vérifier »)
