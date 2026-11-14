@@ -22,5 +22,5 @@ services:
         value: "1"
       - key: TZ
         value: Europe/Luxembourg
-      # Agents IA (facultatif) : après la création, ajoutez votre clé Claude dans l'onglet « Environment » du service
-      # (variable ANTHROPIC_API_KEY). Elle n'est pas demandée ici pour que la mise en ligne ne soit jamais bloquée.
+      # Agents IA (facultatif) : une fois le logiciel en ligne, collez votre clé Claude dans Paramètres → Agents IA.
+      # Elle est gardée sur le disque « garage-data » ; aucune variable n'est à ajouter ici.
