@@ -76,7 +76,7 @@ export const can = (user, app, level = 'read') => rank(effectivePerms(user)[app]
 // ---------- Quelle application protège quelle route ----------
 const PREFIXES = [
   ['/documents', null], ['/appointments', 'atelier'], ['/live', 'atelier'],
-  ['/customers', 'contacts'], ['/suppliers', 'contacts'], ['/vehicles', 'vehicules'],
+  ['/customers', 'contacts'], ['/suppliers', 'contacts'], ['/vehicles', 'vehicules'], ['/brands', 'vehicules'],
   ['/products', 'inventaire'], ['/stock', 'inventaire'],
   ['/purchases', 'achats'], ['/bills', 'achats'],
   ['/bank-accounts', 'banque'], ['/bank', 'banque'], ['/payments', 'banque'],

@@ -94,7 +94,7 @@ export const Dashboard = {
         <div class="card">
           <div class="card-head"><h2>Contrôles techniques (30 j)</h2></div>
           <div v-for="v in d.inspectionsSoon" class="list-item">
-            <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</a>
+            <a :href="'#/vehicle/' + v.id" class="brand-line"><BrandLogo :make="v.make" :size="22"/><span><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</span></a>
             <div class="right small">{{ date(v.next_inspection) }}<div class="muted">{{ v.customer_name }} {{ v.mobile || v.phone }}</div></div>
           </div>
           <Empty v-if="!d.inspectionsSoon.length" icon="calendar-days" text="Aucune échéance proche"/>
@@ -170,7 +170,7 @@ export const Dashboard = {
       <div class="card">
         <div class="card-head"><h2>Contrôles techniques (30 j)</h2></div>
         <div v-for="v in d.inspectionsSoon" class="list-item">
-          <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</a>
+          <a :href="'#/vehicle/' + v.id" class="brand-line"><BrandLogo :make="v.make" :size="22"/><span><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</span></a>
           <div class="right small">{{ date(v.next_inspection) }}<div class="muted">{{ v.customer_name }} {{ v.mobile || v.phone }}</div></div>
         </div>
         <Empty v-if="!d.inspectionsSoon.length" icon="calendar-days" text="Aucune échéance proche"/>

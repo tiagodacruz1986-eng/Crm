@@ -2,6 +2,7 @@
 // L'import est rejouable : chaque enregistrement garde son identifiant Odoo et est mis à jour au lieu d'être dupliqué.
 import { db, all, get, insert, update, getSettings, setSetting, round2 } from './db.js';
 import { addStockMove, BusinessError } from './business.js';
+import { saveBrandLogo, brandSlug } from './brands.js';
 
 // Colonnes de correspondance avec Odoo (ajoutées aux bases existantes si besoin)
 for (const table of ['customers', 'suppliers', 'vehicles', 'products']) {
@@ -71,6 +72,26 @@ class Odoo {
       if (page.length < pageSize) return;
     }
   }
+}
+
+/**
+ * Logos des marques de véhicules, tels qu'ils sont dans Odoo (Parc automobile → Configuration → Marques).
+ * Un logo ajouté à la main dans le logiciel n'est pas remplacé. Renvoie { imported, kept, skipped }.
+ */
+export async function importBrandLogos(o = null) {
+  if (!o) { o = new Odoo(odooConfig()); await o.login(); }
+  const has = await o.call('ir.model', 'search_count', [[['model', '=', 'fleet.vehicle.model.brand']]]);
+  if (!has) throw new BusinessError('Cet Odoo n\'a pas l\'application « Parc automobile » : aucune marque à reprendre.');
+  const res = { imported: 0, kept: 0, skipped: 0 };
+  // par petites pages : chaque marque transporte une image
+  for await (const page of o.readAll('fleet.vehicle.model.brand', [['image_128', '!=', false]], ['name', 'image_128'], 40)) {
+    for (const b of page) {
+      if (typeof b.name !== 'string' || typeof b.image_128 !== 'string') { res.skipped++; continue; }
+      if (get('SELECT 1 FROM vehicle_brands WHERE slug=? AND source=?', brandSlug(b.name), 'upload')) { res.kept++; continue; }
+      try { saveBrandLogo(b.name, Buffer.from(b.image_128, 'base64'), 'odoo'); res.imported++; } catch { res.skipped++; } // image illisible ou format non pris en charge
+    }
+  }
+  return res;
 }
 
 export async function testConnection(cfg = odooConfig()) {
@@ -196,6 +217,11 @@ export async function runImport(options = { customers: true, suppliers: true, ve
           } catch (e) { db.exec('ROLLBACK'); throw e; }
         }
       }
+    }
+
+    if (options.vehicles) {
+      job.step = 'Logos des marques…';
+      try { const r = await importBrandLogos(o); if (r.imported) job.done.brand_logos = { created: r.imported, updated: 0 }; } catch { /* pas de parc automobile dans cet Odoo : rien à reprendre */ }
     }
 
     if (options.products) {

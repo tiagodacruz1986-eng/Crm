@@ -44,7 +44,7 @@ export const DocumentList = {
           <tr v-for="r in rows" class="click" @click="go('/document/' + r.id)">
             <td><b>{{ r.number || 'Brouillon' }}</b> <span v-if="r.type==='credit_note'" class="badge b-purple">Avoir</span></td>
             <td>{{ date(r.date) }}</td><td>{{ r.customer_name }}</td>
-            <td><span class="plate" v-if="r.plate">{{ r.plate }}</span> <span class="muted small">{{ r.make }} {{ r.model }}</span></td>
+            <td><span class="brand-line"><BrandLogo :make="r.make" :size="24"/><span><span class="plate" v-if="r.plate">{{ r.plate }}</span> <span class="muted small">{{ r.make }} {{ r.model }}</span></span></span></td>
             <td v-if="type==='invoice'" :class="{late: r.due_date < today() && ['posted','partial'].includes(r.status)}">{{ date(r.due_date) }}</td>
             <td><Badge :status="r.status"/></td>
             <td class="num">{{ money(r.type === 'credit_note' ? -r.total : r.total) }}</td>
@@ -126,6 +126,8 @@ export const DocumentEditor = {
     const isNew = route.params.id === 'new';
     const doc = ref(null);
     const vehicles = ref([]);
+    // marque du véhicule choisi (pour afficher son logo)
+    const curMake = computed(() => (doc.value?.vehicle_id ? vehicles.value.find((v) => v.id === doc.value.vehicle_id)?.make || doc.value.make || '' : ''));
     const mechanics = ref([]);
     const showCustomer = ref(false);
     const showPay = ref(false);
@@ -342,7 +344,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -387,7 +389,7 @@ export const DocumentEditor = {
                 <a class="btn" v-if="doc.customer_id" :href="'#/customer/' + doc.customer_id" title="Ouvrir la fiche du client" aria-label="Ouvrir la fiche du client"><Icon name="user" class="ti"/></a></div>
             </label>
             <label>Véhicule
-              <select v-model="doc.vehicle_id" :disabled="locked"><option :value="null">—</option><option v-for="v in vehicles" :value="v.id">{{ v.plate }} {{ v.make }} {{ v.model }}</option></select>
+              <div class="brand-field"><BrandLogo :make="curMake" :size="38"/><select v-model="doc.vehicle_id" :disabled="locked"><option :value="null">—</option><option v-for="v in vehicles" :value="v.id">{{ v.plate }} {{ v.make }} {{ v.model }}</option></select></div>
             </label>
             <label>Kilométrage<input v-model.number="doc.mileage" type="number" :disabled="locked"></label>
             <label>Date<input v-model="doc.date" type="date" :disabled="locked"></label>

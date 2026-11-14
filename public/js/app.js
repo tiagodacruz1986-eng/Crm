@@ -1,6 +1,7 @@
 import { createApp, reactive, computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue';
 import { store, GET, POST, money, DOC_TYPES_SHORT } from './api.js';
 import { Badge, Modal, Picker, BarChart, Empty, Icon } from './components.js';
+import { BrandLogo } from './brands.js';
 import { Chatter, ModuleTools, MailComposer, ActivityBell } from './mail.js';
 
 import { route, go } from './router.js';
@@ -373,7 +374,7 @@ app.config.errorHandler = (err) => {
   if (err?.read && (err.status === 403 || err.status === 404)) store.pageError = { status: err.status, message: err.message };
   else console.error(err);
 };
-Object.entries({ Icon, Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
+Object.entries({ Icon, BrandLogo, Badge, Modal, Picker, BarChart, Empty, Chatter, ModuleTools, MailComposer, ActivityBell }).forEach(([n, c]) => app.component(n, c));
 app.config.globalProperties.money = money;
 app.mount('#app');
 

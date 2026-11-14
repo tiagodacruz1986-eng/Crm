@@ -52,7 +52,7 @@ export const Workshop = {
         <div class="kcol-head"><span>{{ label }}</span><span class="badge b-gray">{{ byCol[k].length }}</span></div>
         <div v-for="o in byCol[k]" class="kcard" :style="{'--c': o.mechanic_color || color}" draggable="true" @dragstart="setDrag(o)" @click="go('/document/' + o.id)">
           <div class="row"><b>{{ o.number }}</b><span class="plate" v-if="o.plate">{{ o.plate }}</span></div>
-          <div class="small">{{ o.make }} {{ o.model }} · {{ o.customer_name }}</div>
+          <div class="small brand-line"><BrandLogo :make="o.make" :size="22"/><span>{{ o.make }} {{ o.model }} · {{ o.customer_name }}</span></div>
           <div class="desc">{{ o.customer_complaint || '—' }}</div>
           <div class="row small">
             <span v-if="o.active_workers" class="live">{{ o.mechanic_name || 'en cours' }}</span>

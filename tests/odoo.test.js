@@ -17,6 +17,13 @@ const DATA = {
     { id: 100, license_plate: 'ab 123', vin_sn: 'wvwzzzauzjw000001', model_id: [1, 'Volkswagen/Golf'], brand_id: [1, 'Volkswagen'], driver_id: [10, 'Jean Test'], odometer: 120000.4, model_year: '2018', fuel_type: 'diesel', acquisition_date: '2018-03-01', color: false, gap_next_ct_date: '2026-10-15', gap_next_service_date: false, x_studio_version: '2.0 TDI', x_studio_dimension_pneus_avant_3: '205/55 R16' },
     { id: 101, license_plate: '0000', vin_sn: false, model_id: [2, 'Mercedes/109'], brand_id: [2, 'Mercedes'], driver_id: [12, 'Garage Partenaire'], odometer: 0, model_year: false, fuel_type: false, acquisition_date: false, color: false, gap_next_ct_date: false, gap_next_service_date: false, x_studio_version: false, x_studio_dimension_pneus_avant_3: false },
   ],
+  // marques du parc automobile d'Odoo, avec leur logo (image en base64) — une sans logo, une avec une image illisible
+  'fleet.vehicle.model.brand': [
+    { id: 1, name: 'Volkswagen', image_128: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' },
+    { id: 2, name: 'Mercedes', image_128: false },
+    { id: 3, name: 'Tesla Motors', image_128: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' },
+    { id: 4, name: 'Illisible', image_128: Buffer.from('ceci n\'est pas une image').toString('base64') },
+  ],
   'product.product': [
     { id: 500, default_code: '0 092 S40 050', barcode: false, name: 'Batterie de démarrage', list_price: 134.5, standard_price: 80.14, qty_available: 3, categ_id: [16, '320000 Electrique'], type: 'consu', is_storable: true, uom_id: [1, 'Units'], taxes_id: [258], seller_ids: [900], active: true },
     { id: 501, default_code: 'MO', barcode: false, name: "Main d'oeuvre", list_price: 85, standard_price: 0, qty_available: 0, categ_id: [1, 'Services'], type: 'service', is_storable: false, uom_id: [2, 'Hours'], taxes_id: [258], seller_ids: [], active: true },
@@ -113,4 +120,23 @@ test('import Odoo : clients, fournisseurs, véhicules, articles, sans doublons',
   assert.deepEqual(job2.done.vehicles, { created: 0, updated: 2 });
   assert.equal((await call('GET', '/vehicles')).length, 2);
   assert.equal((await call('GET', '/products')).find((p) => p.ref === '0 092 S40 050').qty_on_hand, 5);
+});
+
+test('logos des marques repris d\'Odoo (avec les véhicules, ou seuls), sans remplacer un logo ajouté à la main', async () => {
+  const ROOT = `http://localhost:${PORT}`;
+  const index = async () => (await (await fetch(`${ROOT}/brands.json`)).json()).logos;
+  // l'import des véhicules (test précédent) a déjà repris les logos
+  let logos = await index();
+  assert.deepEqual(Object.keys(logos).sort(), ['tesla', 'volkswagen'], '« Tesla Motors » est rangé sous Tesla ; sans logo ou illisible : ignoré');
+  assert.equal((await fetch(`${ROOT}/brand/volkswagen`)).headers.get('content-type'), 'image/png');
+  const list = await call('GET', '/brands');
+  assert.equal(list.odoo, true);
+  assert.equal(list.brands.find((b) => b.slug === 'volkswagen').source, 'odoo');
+  // le garage remplace le logo de Volkswagen par le sien : une nouvelle reprise d'Odoo ne l'écrase pas
+  const own = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const up = await fetch(`${BASE}/brands/logo?name=Volkswagen`, { method: 'POST', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${token}` }, body: own });
+  assert.equal(up.status, 200);
+  const again = await call('POST', '/brands/import-odoo', {});
+  assert.deepEqual(again, { imported: 1, kept: 1, skipped: 2 });
+  assert.equal((await call('GET', '/brands')).brands.find((b) => b.slug === 'volkswagen').source, 'upload');
 });

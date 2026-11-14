@@ -1,6 +1,8 @@
 import { ref, reactive, onMounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, DOC_TYPES_SHORT } from '../api.js';
 import { route, go } from '../router.js';
+import { can } from '../apps.js';
+import { BrandManager } from '../brand-manager.js';
 
 const CUSTOMER_FIELDS = ['type', 'name', 'company', 'vat_number', 'email', 'phone', 'mobile', 'address', 'zip', 'city', 'country', 'payment_terms', 'notes', 'marketing_ok'];
 
@@ -131,7 +133,7 @@ export const CustomerDetail = {
         <div class="card">
           <div class="card-head"><h2>Véhicules</h2><button class="btn sm" @click="newVehicle">+ Ajouter</button></div>
           <div v-for="v in c.vehicles" class="list-item">
-            <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate || '—' }}</span> {{ v.make }} {{ v.model }} <span class="muted small">{{ v.year }}</span></a>
+            <a :href="'#/vehicle/' + v.id" class="brand-line"><BrandLogo :make="v.make" :size="26"/><span><span class="plate">{{ v.plate || '—' }}</span> {{ v.make }} {{ v.model }} <span class="muted small">{{ v.year }}</span></span></a>
             <span class="muted small">{{ v.mileage ? v.mileage.toLocaleString() + ' km' : '' }}</span>
           </div>
           <Empty v-if="!c.vehicles.length" icon="car" text="Aucun véhicule"/>
@@ -167,22 +169,26 @@ export const CustomerDetail = {
 };
 
 export const VehicleList = {
+  components: { BrandManager },
   setup() {
     const rows = ref([]);
     const q = ref('');
+    const brands = ref(false);
+    const canBrands = can('vehicules', 'manager');
     const load = async () => { rows.value = await GET('/vehicles?q=' + encodeURIComponent(q.value)); };
     onMounted(load);
-    return { rows, q, load, go, date, today: new Date().toISOString().slice(0, 10) };
+    return { rows, q, load, go, date, brands, canBrands, today: new Date().toISOString().slice(0, 10) };
   },
   template: `
   <div>
-    <div class="page-head"><h1>Véhicules</h1><div class="btns"><ModuleTools module="vehicules"/></div></div>
+    <div class="page-head"><h1>Véhicules</h1><div class="btns"><button v-if="canBrands" class="btn" @click="brands = true"><Icon name="image" class="ti"/> Logos des marques</button><ModuleTools module="vehicules"/></div></div>
+    <BrandManager v-if="brands" @close="brands = false"/>
     <div class="card">
       <div class="toolbar"><input v-model="q" @input="load" placeholder="Plaque, VIN, marque, client…"><span class="muted" style="margin-left:auto">{{ rows.length }} véhicules</span></div>
       <div class="table-wrap"><table>
         <thead><tr><th>Plaque</th><th>Véhicule</th><th>Client</th><th class="num">Km</th><th>Contrôle technique</th><th>Entretien</th></tr></thead>
         <tbody><tr v-for="v in rows" class="click" @click="go('/vehicle/' + v.id)">
-          <td><span class="plate">{{ v.plate || '—' }}</span></td><td>{{ v.make }} {{ v.model }} <span class="muted small">{{ v.year }} {{ v.fuel }}</span></td>
+          <td><span class="plate">{{ v.plate || '—' }}</span></td><td><span class="brand-line"><BrandLogo :make="v.make" :size="30"/><span>{{ v.make }} {{ v.model }} <span class="muted small">{{ v.year }} {{ v.fuel }}</span></span></span></td>
           <td>{{ v.customer_name }}</td><td class="num">{{ v.mileage?.toLocaleString() }}</td>
           <td :class="{late: v.next_inspection && v.next_inspection < today}">{{ date(v.next_inspection) }}</td><td>{{ date(v.next_service_date) }}</td>
         </tr></tbody>
@@ -205,7 +211,7 @@ export const VehicleDetail = {
   template: `
   <div v-if="v">
     <div class="page-head">
-      <div><h1><span class="plate" style="font-size:18px">{{ v.plate || '—' }}</span> {{ v.make }} {{ v.model }}</h1><div class="sub"><a :href="'#/customer/' + v.customer_id">{{ v.customer_name }}</a></div></div>
+      <div class="brand-head"><BrandLogo :make="v.make" :size="54"/><div><h1><span class="plate" style="font-size:18px">{{ v.plate || '—' }}</span> {{ v.make }} {{ v.model }}</h1><div class="sub"><a :href="'#/customer/' + v.customer_id">{{ v.customer_name }}</a></div></div></div>
       <div class="btns">
         <a class="btn" :href="'#/new/quote?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ Devis</a>
         <a class="btn primary" :href="'#/new/order?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ OR</a>

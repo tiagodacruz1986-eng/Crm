@@ -190,6 +190,17 @@ tfoot td { font-weight: 700; background: var(--soft); }
 .b-green { background: var(--b-green); color: var(--b-green-i); border-color: rgba(52, 211, 153, .25); } .b-red { background: var(--b-red); color: var(--b-red-i); border-color: rgba(251, 113, 133, .25); }
 .b-orange { background: var(--b-orange); color: var(--b-orange-i); border-color: rgba(251, 146, 60, .25); } .b-yellow { background: var(--b-yellow); color: var(--b-yellow-i); }
 .b-purple { background: var(--b-purple); color: var(--b-purple-i); border-color: rgba(167, 139, 250, .25); } .b-teal { background: var(--b-teal); color: var(--b-teal-i); }
+/* Logo de la marque d'un véhicule : image sur une pastille blanche, ou initiales quand il n'y a pas de logo */
+.make-logo { display: inline-grid; place-items: center; flex-shrink: 0; border-radius: 24%; background: #fff; border: 1px solid var(--line); overflow: hidden; vertical-align: middle; box-sizing: border-box; }
+.make-logo img { width: 80%; height: 80%; object-fit: contain; display: block; }
+.make-logo.mono { white-space: nowrap; background: var(--seg, var(--panel-2)); border-color: transparent; color: var(--ink-2); font-weight: 700; letter-spacing: -.02em; line-height: 1; }
+.brand-line { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; } .brand-line > span:last-child { min-width: 0; }
+.brand-field { display: flex; gap: 8px; align-items: center; } .brand-field select { flex: 1; min-width: 0; }
+.brand-head { display: flex; gap: 14px; align-items: center; min-width: 0; }
+.brand-list { margin: 14px 0; display: grid; gap: 6px; max-height: 46vh; overflow-y: auto; }
+.brand-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; background: var(--panel-2); }
+.brand-row-txt { flex: 1; min-width: 0; } .brand-row-txt b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand-add { display: flex; gap: 8px; align-items: flex-end; padding-top: 12px; border-top: 1px solid var(--line); } .brand-add label { flex: 1; }
 .plate { display: inline-block; font-family: "Arial Narrow", Arial, sans-serif; font-weight: 700; letter-spacing: .06em; background: #fde047; border: 2px solid #111; border-radius: 4px; padding: 0 6px; font-size: 12px; color: #111; white-space: nowrap; box-shadow: 0 0 12px rgba(253, 224, 71, .25); }
 
 /* ---------- Fenêtres ---------- */

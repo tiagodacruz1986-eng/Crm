@@ -28,7 +28,7 @@ import {
 } from './src/bills.js';
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { kioskLines, isIntervention, stopLineTimers, stopOrderTimers, workStats } from './src/worktime.js';
-import { publicOdooConfig, saveOdooConfig, testConnection, runImport, job as odooJob } from './src/odoo.js';
+import { publicOdooConfig, saveOdooConfig, testConnection, runImport, importBrandLogos, job as odooJob } from './src/odoo.js';
 import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
 import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
 import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, maskDashboard, createInvite, findInvite, clearInvite } from './src/access.js';
@@ -36,6 +36,7 @@ import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, lis
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
 import { monthlyReport, reportPlan, sendMonthlyReports } from './src/reports.js';
 import * as studio from './src/studio.js';
+import { brandIndex, brandFile, saveBrandLogo, deleteBrandLogo, listBrands } from './src/brands.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -55,7 +56,7 @@ app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], expr
 app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
 // Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
 // sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
-const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|studio\/files\/|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
+const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|studio\/files\/|brands\/logo|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
 const jsonBody = express.json({ limit: '20mb' });
 const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
 app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
@@ -117,6 +118,12 @@ function serviceWorker() {
 }
 app.get('/sw.js', (req, res) => res.type('application/javascript').set('Cache-Control', 'no-cache').send(serviceWorker()));
 // Informations publiques pour la page d'installation (aucune donnée sensible)
+app.get('/brands.json', (req, res) => res.set('Cache-Control', 'no-cache').json(brandIndex()));
+app.get('/brand/:slug', (req, res) => {
+  const f = brandFile(req.params.slug);
+  if (!f) return res.status(404).end();
+  res.set({ 'Content-Type': f.type, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' }).sendFile(f.file);
+});
 app.get('/app-info.json', (req, res) => {
   const s = getSettings();
   res.json({ company: s.company.name, logo: s.layout?.logo_version ? `/logo?v=${s.layout.logo_version}` : null, secure_url: secureUrl(req), secure: req.secure });
@@ -838,6 +845,11 @@ api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...re
 
 // ---------- Personnalisation des fiches (façon « Studio ») ----------
 // Concevoir (ajouter, modifier, supprimer des éléments) : administrateur. Remplir : mêmes droits que la fiche (voir access.js).
+// ---------- Logos des marques de véhicules ----------
+api.get('/brands', wrap(() => ({ brands: listBrands(), odoo: publicOdooConfig().has_key })));
+api.post('/brands/logo', needManager('vehicules'), rawBody, wrap((req) => saveBrandLogo(String(req.query.name || ''), Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0))));
+api.delete('/brands/:slug', needManager('vehicules'), wrap((req) => deleteBrandLogo(req.params.slug)));
+api.post('/brands/import-odoo', adminOnly, wrap(() => importBrandLogos()));
 api.get('/studio/meta', (req, res) => res.json(studio.meta()));
 api.get('/studio/fields', adminOnly, wrap((req) => studio.listFields(String(req.query.target || ''), { all: true })));
 api.post('/studio/fields', adminOnly, wrap((req) => ({ id: studio.saveField(req.body) })));

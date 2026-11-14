@@ -172,3 +172,6 @@ body.kiosk { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Int
 .k-avatar { text-shadow: 0 0 2px rgba(0, 0, 0, .45), 0 1px 1px rgba(0, 0, 0, .25); }
 /* téléphone : le bouton « Pause / arrêter » passe sous le texte, sur toute la largeur */
 @media (max-width: 600px) { .k-status { grid-template-columns: 1fr; } .k-status .k-btn { width: 100%; white-space: nowrap; justify-content: center; } }
+
+/* logo de la marque sur les cartes des OR */
+.k-muted.brand-line { display: flex; align-items: center; gap: 10px; margin-top: 6px; }

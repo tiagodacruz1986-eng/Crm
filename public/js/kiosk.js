@@ -3,6 +3,7 @@
 // (temps prévu par le gérant ; le temps passe en rouge dès qu'il est dépassé).
 import { createApp, ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { Icon } from './icon.js';
+import { BrandLogo } from './brands.js';
 
 const IDLE_LOGOUT_MS = 90_000;
 
@@ -243,7 +244,7 @@ const App = {
       <div class="k-orders">
         <div v-for="o in st.orders" class="k-order" :class="{mine: o.mechanic_id === who.id, active: st.work && st.work.document_id === o.id}">
           <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-time" :class="{ over: oOver(o) }"><Icon name="timer" class="ti"/> {{ h(oSpent(o)) }}<template v-if="o.hours_planned"> / {{ h(o.hours_planned) }}</template></span></h3>
-          <div class="k-muted">{{ o.make }} {{ o.model }} · {{ o.customer_name }} <span v-if="o.vin">· VIN {{ o.vin }}</span></div>
+          <div class="k-muted brand-line"><BrandLogo :make="o.make" :size="30"/><span>{{ o.make }} {{ o.model }} · {{ o.customer_name }} <span v-if="o.vin">· VIN {{ o.vin }}</span></span></div>
           <div class="complaint">{{ o.customer_complaint || 'Pas de description' }}</div>
           <!-- Le chrono se lance ici, sur l'OR : un bouton par intervention (main-d'œuvre, forfait) -->
           <div v-if="o.lines.some(l => l.timed)" class="k-work">
@@ -297,6 +298,7 @@ const App = {
 
 const app = createApp(App);
 app.component('Icon', Icon);
+app.component('BrandLogo', BrandLogo);
 app.mount('#app');
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => {});
