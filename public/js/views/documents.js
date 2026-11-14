@@ -151,13 +151,13 @@ export const DocumentEditor = {
     // ---------- Temps atelier : temps prévu / temps passé par intervention ----------
     // Les temps pointés sont gardés À PART du document : les relire ne touche jamais à une saisie en cours.
     const tick = ref(Date.now());
-    const NO_TIME = { spent: 0, active: 0, workers: [], auto: false };
-    const times = ref({ at: Date.now(), lines: {}, spent: 0, general: 0, generalActive: 0, generalWorkers: [], generalAuto: false, entries: [] });
+    const NO_TIME = { spent: 0, active: 0, workers: [], worker_ids: [], auto: false };
+    const times = ref({ at: Date.now(), lines: {}, spent: 0, general: 0, generalActive: 0, generalWorkers: [], generalWorkerIds: [], generalAuto: false, entries: [] });
     const takeTimes = (d) => {
       times.value = { at: Date.now(),
-        lines: Object.fromEntries((d.lines || []).filter((l) => l.id).map((l) => [l.id, { spent: l.spent || 0, active: l.active || 0, workers: l.workers || [], auto: !!l.auto }])),
+        lines: Object.fromEntries((d.lines || []).filter((l) => l.id).map((l) => [l.id, { spent: l.spent || 0, active: l.active || 0, workers: l.workers || [], worker_ids: l.worker_ids || [], auto: !!l.auto }])),
         spent: d.hours_spent || 0, active: d.active_workers || 0, general: d.hours_general || 0, generalActive: d.general_active || 0,
-        generalWorkers: d.general_workers || [], generalAuto: !!d.general_auto, entries: d.time_entries || [] };
+        generalWorkers: d.general_workers || [], generalWorkerIds: d.general_worker_ids || [], generalAuto: !!d.general_auto, entries: d.time_entries || [] };
       tick.value = Date.now();
     };
     // Les chronos en cours avancent à l'écran ; les temps d'un OR ouvert sont relus chaque minute (seulement les temps)
@@ -209,8 +209,28 @@ export const DocumentEditor = {
       return { lines, planned, spent, unplanned, over: isOver(spent - unplanned, planned), overBy: spent - unplanned - planned,
         general: liveHours(times.value.general, times.value.generalActive) };
     });
+    // Chrono lancé d'ici, pour le mécanicien choisi (comme à la tablette : démarrer ailleurs arrête son chrono précédent)
+    const canClock = can('atelier', 'user') && can('presences', 'manager');
+    const clockUser = ref(null);
+    const pickClockUser = () => {
+      const ids = mechanics.value.map((m) => m.id);
+      if (ids.includes(clockUser.value)) return;
+      let last = null;
+      try { last = Number(localStorage.getItem('garage_clock_user')) || null; } catch { /* stockage indisponible */ }
+      clockUser.value = [doc.value?.mechanic_id, last, ids[0]].find((id) => ids.includes(id)) || null;
+    };
+    const runningOn = (ids) => !!clockUser.value && (ids || []).includes(clockUser.value);
+    const clock = async (action, lineId) => {
+      if (!clockUser.value) { toast('Choisissez le mécanicien pour qui lancer le chrono', 'error'); return; }
+      try { localStorage.setItem('garage_clock_user', String(clockUser.value)); } catch { /* stockage indisponible */ }
+      if (dirty.value) await save(true);
+      const who = mechanics.value.find((m) => m.id === clockUser.value)?.name || '';
+      const r = await act(() => POST('/documents/' + doc.value.id + '/clock', { action, user_id: clockUser.value, line_id: lineId || null }));
+      if (r.switched && !r.switched.same_order) toast('Chrono de ' + who + ' arrêté sur ' + (r.switched.number || 'l’autre OR') + ' : il est maintenant sur cet OR');
+      await load();
+    };
     const pct = (spent, planned) => (planned > 0 ? Math.min(100, Math.round((100 * spent) / planned)) : spent > 0 ? 100 : 0);
-    onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); await load(); });
+    onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); await load(); pickClockUser(); });
     watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage,
       doc.value.date, doc.value.due_date, doc.value.reference, doc.value.mechanic_id, doc.value.promised_at, doc.value.internal_notes], () => { dirty.value = true; }, { deep: true });
 
@@ -319,7 +339,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { canClock, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -449,11 +469,19 @@ export const DocumentEditor = {
             <template v-if="work.over"><span class="neg">Dépassement</span><b class="neg">+ {{ hours(work.overBy) }}</b></template>
             <template v-if="doc.hours_sold && Math.abs(doc.hours_sold - work.planned) > 0.005"><span class="muted">Heures vendues</span><span>{{ hours(doc.hours_sold) }}</span></template>
           </div>
+          <div v-if="canClock && !locked && mechanics.length" class="wt-clock">
+            <span class="muted small">Chrono pour</span>
+            <select v-model.number="clockUser"><option v-for="m in mechanics" :key="m.id" :value="m.id">{{ m.name }}</option></select>
+          </div>
           <div v-if="work.lines.length" class="wt-list">
             <div v-for="x in work.lines" class="wt-row" :class="{ over: x.over, done: x.l.done }">
               <div class="wt-head">
                 <span class="wt-name" :title="x.l.description">{{ x.l.done ? '✓ ' : '' }}{{ x.l.description || 'Intervention' }}</span>
                 <span class="wt-num">{{ hours(x.spent) }}<span class="muted"> / {{ x.planned ? hours(x.planned) : '—' }}</span></span>
+                <template v-if="canClock && !locked && x.l.id && clockUser">
+                  <button v-if="runningOn(x.t.worker_ids)" class="wt-go on" title="Mettre en pause le chrono du mécanicien choisi" @click="clock('stop', x.l.id)">⏸</button>
+                  <button v-else class="wt-go" title="Démarrer le chrono du mécanicien choisi sur cette intervention" @click="clock('start', x.l.id)">▶</button>
+                </template>
               </div>
               <div class="wt-bar"><i :style="{ width: pct(x.spent, x.planned) + '%' }"></i></div>
               <div v-if="x.t.active || x.over" class="wt-sub">
@@ -462,13 +490,27 @@ export const DocumentEditor = {
               </div>
               <div v-if="x.t.auto" class="wt-sub warn">⚠ Chrono oublié, arrêté automatiquement : durée à vérifier dans « Feuilles de temps ».</div>
             </div>
-            <div v-if="work.general > 0" class="wt-row">
-              <div class="wt-head"><span class="wt-name muted">Autre travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span></div>
+            <div v-if="work.general > 0 || (canClock && !locked && clockUser)" class="wt-row">
+              <div class="wt-head"><span class="wt-name muted">Autre travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span>
+                <template v-if="canClock && !locked && clockUser">
+                  <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)">⏸</button>
+                  <button v-else class="wt-go" title="Démarrer le chrono sans intervention précise" @click="clock('start', null)">▶</button>
+                </template>
+              </div>
               <div v-if="times.generalActive" class="wt-sub"><span class="live">{{ times.generalWorkers.join(', ') }}</span></div>
               <div v-if="times.generalAuto" class="wt-sub warn">⚠ Chrono oublié, arrêté automatiquement : durée à vérifier.</div>
             </div>
           </div>
-          <p v-else class="muted small" style="margin:10px 0 0">Ajoutez une ligne de main-d'œuvre ou un forfait et indiquez son temps prévu : le mécanicien démarre le chrono dessus à la tablette, et le temps passe en rouge s'il est dépassé.</p>
+          <template v-else>
+            <div v-if="canClock && !locked && clockUser" class="wt-list"><div class="wt-row">
+              <div class="wt-head"><span class="wt-name muted">Travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span>
+                <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)">⏸</button>
+                <button v-else class="wt-go" title="Démarrer le chrono sur cet OR" @click="clock('start', null)">▶</button>
+              </div>
+              <div v-if="times.generalActive" class="wt-sub"><span class="live">{{ times.generalWorkers.join(', ') }}</span></div>
+            </div></div>
+            <p class="muted small" style="margin:10px 0 0">Ajoutez une ligne de main-d'œuvre ou un forfait et indiquez son temps prévu : le chrono se lance dessus (ici ou à la tablette), et le temps passe en rouge s'il est dépassé.</p>
+          </template>
           <details v-if="times.entries.length" class="wt-details">
             <summary>Détail des pointages ({{ times.entries.length }})</summary>
             <div v-for="t in times.entries" class="list-item small">

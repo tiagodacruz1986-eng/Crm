@@ -6,6 +6,13 @@ import { db, all, get, run, round2, localDateTime } from './db.js';
 if (!all('PRAGMA table_info(document_lines)').some((c) => c.name === 'planned_hours')) db.exec('ALTER TABLE document_lines ADD COLUMN planned_hours REAL');
 db.exec('CREATE INDEX IF NOT EXISTS idx_time_document ON time_entries(document_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_lines_document ON document_lines(document_id)');
+// Une personne ne peut être pointée que sur UN travail à la fois : garanti aussi par la base.
+// (d'éventuels doublons laissés par une ancienne version sont d'abord fermés : l'ancien s'arrête au début du suivant)
+try {
+  db.exec(`UPDATE time_entries SET end = COALESCE((SELECT MIN(n.start) FROM time_entries n WHERE n.user_id=time_entries.user_id AND n.kind='work' AND n.start > time_entries.start), start)
+    WHERE kind='work' AND end IS NULL AND id NOT IN (SELECT MAX(id) FROM time_entries WHERE kind='work' AND end IS NULL GROUP BY user_id)`);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_work ON time_entries(user_id) WHERE kind='work' AND end IS NULL");
+} catch (e) { console.error('Index « un seul chrono par personne »', e.message); }
 
 /** Une intervention = une ligne de main-d'œuvre ou un forfait (ni une pièce, ni un commentaire). */
 export const isIntervention = (l) => !!l && (l.kind === 'labor' || l.kind === 'fee');
@@ -57,8 +64,8 @@ export function orderTimes(docId, lines = null, now = localDateTime()) {
   const rows = lines || all(LINES_SQL, docId);
   const entries = all(`SELECT t.id, t.user_id, t.line_id, t.start, t.end, t.note, t.source, u.name AS user_name FROM time_entries t JOIN users u ON u.id=t.user_id
     WHERE t.document_id=? AND t.kind='work' ORDER BY t.start, t.id`, docId);
-  const byLine = new Map(rows.filter(isIntervention).map((l) => [l.id, { planned: plannedOf(l), spent: 0, active: 0, workers: [], auto: false }]));
-  const general = { spent: 0, active: 0, workers: [], auto: false };
+  const byLine = new Map(rows.filter(isIntervention).map((l) => [l.id, { planned: plannedOf(l), spent: 0, active: 0, workers: [], worker_ids: [], auto: false }]));
+  const general = { spent: 0, active: 0, workers: [], worker_ids: [], auto: false };
   let spent = 0, active = 0, unplanned = 0;
   for (const e of entries) {
     const h = hoursOf(e, now);
@@ -69,7 +76,7 @@ export function orderTimes(docId, lines = null, now = localDateTime()) {
     slot.spent += h; spent += h;
     if (e.auto) slot.auto = true;
     if (slot !== general && !slot.planned) unplanned += h;
-    if (!e.end) { slot.active++; active++; if (!slot.workers.includes(e.user_name)) slot.workers.push(e.user_name); }
+    if (!e.end) { slot.active++; active++; if (!slot.worker_ids.includes(e.user_id)) { slot.worker_ids.push(e.user_id); slot.workers.push(e.user_name); } }
   }
   let planned = 0;
   for (const s of byLine.values()) planned += s.planned || 0;
@@ -83,7 +90,7 @@ export function attachTimes(d, now = localDateTime()) {
   const names = new Map(d.lines.map((l) => [l.id, l.description]));
   for (const l of d.lines) {
     const s = wt.byLine.get(l.id);
-    if (s) Object.assign(l, { planned: s.planned, spent: r4(s.spent), active: s.active, workers: s.workers, auto: s.auto });
+    if (s) Object.assign(l, { planned: s.planned, spent: r4(s.spent), active: s.active, workers: s.workers, worker_ids: s.worker_ids, auto: s.auto });
   }
   d.time_entries = wt.entries.map((e) => ({ ...e, line_description: e.on_line ? names.get(e.line_id) || null : null }));
   d.hours_spent = r4(wt.spent);
@@ -92,6 +99,7 @@ export function attachTimes(d, now = localDateTime()) {
   d.hours_general = r4(wt.general.spent);
   d.general_active = wt.general.active;
   d.general_workers = wt.general.workers;
+  d.general_worker_ids = wt.general.worker_ids;
   d.general_auto = wt.general.auto;
   d.active_workers = wt.active;
   d.hours_sold = round2(d.lines.filter((l) => l.kind === 'labor').reduce((s, l) => s + Number(l.quantity || 0), 0));

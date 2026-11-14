@@ -51,7 +51,10 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-work-line { font-size: 17px; color: #cbd5e1; margin-top: 2px; }
 .k-budget { font-size: 16px; font-weight: 600; color: #94a3b8; margin-top: 4px; }
 .k-status.working.over { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.3); }
-.k-hint { background: rgba(37,99,235,.18); border: 1px solid #2563eb; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-weight: 600; }
+.k-info { background: rgba(37,99,235,.18); border: 1px solid #2563eb; border-radius: 14px; padding: 14px 16px; margin: 0 0 16px; font-weight: 600; font-size: 17px; text-align: center; }
+.k-work { margin-top: 8px; }
+.k-work .k-line:first-child { border-top: 0; }
+[data-theme="light"] .k-info { background: #dbeafe; color: #1e3a8a; }
 [data-theme="light"] .k-time { color: #475569; }
 [data-theme="light"] .k-time.over, [data-theme="light"] .k-timer.over, [data-theme="light"] .k-budget.over { color: #dc2626; }
 [data-theme="light"] .k-work-line { color: #334155; }

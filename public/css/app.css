@@ -256,7 +256,7 @@ table.lines { min-width: 780px; }
 .wt-list { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .wt-row { padding-top: 10px; border-top: 1px solid var(--line); min-width: 0; }
 .wt-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 13px; }
-.wt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-row.done .wt-name { color: var(--muted); }
 .wt-num { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
 .wt-bar { height: 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin-top: 6px; }
@@ -264,6 +264,12 @@ table.lines { min-width: 780px; }
 .wt-row.over .wt-bar i { background: var(--bad); } .wt-row.over .wt-num { color: var(--bad); }
 .wt-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin-top: 4px; }
 .wt-sub.warn { display: block; }
+.wt-clock { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.wt-clock select { flex: 1; min-width: 0; padding: 6px 9px; }
+.wt-head { align-items: center; }
+.wt-go { flex-shrink: 0; width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--b-green); color: var(--ok); cursor: pointer; font-size: 12px; line-height: 1; display: grid; place-items: center; padding: 0; }
+.wt-go:hover { filter: brightness(1.15); }
+.wt-go.on { background: var(--b-orange); color: var(--b-orange-i); }
 .wt-details { margin-top: 12px; } .wt-details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .wt-over { color: var(--bad); font-weight: 650; }
 .live.over { color: var(--bad); } .live.over::before { background: var(--bad); box-shadow: 0 0 10px var(--bad); }

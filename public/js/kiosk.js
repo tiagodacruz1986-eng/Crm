@@ -18,7 +18,8 @@ const App = {
     const q = ref('');
     const greet = ref(null);
     const drafts = reactive({});
-    const hint = ref(null);
+    const notice = ref('');
+    let noticeT;
     // Heure de réception de l'état : les chronos en cours continuent d'avancer à l'écran depuis cet instant
     let fetchedAt = Date.now();
     const setState = (s) => { st.value = s; fetchedAt = Date.now(); };
@@ -38,7 +39,7 @@ const App = {
     const logout = () => {
       // la session est aussi fermée sur le serveur (elle ne reste pas valable après « Terminer »)
       if (token.value) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token.value } }).catch(() => {});
-      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; hint.value = null; err.value = ''; q.value = ''; loadUsers();
+      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; notice.value = ''; err.value = ''; q.value = ''; loadUsers();
     };
     const offline = ref(false);
     const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); offline.value = false; } catch { offline.value = true; } };
@@ -116,14 +117,16 @@ const App = {
       } catch (e) { err.value = e.message; }
     };
     const act = async (fn) => { try { const r = await fn(); setState({ ...st.value, ...r }); err.value = ''; } catch (e) { err.value = e.message; } };
-    const clockAction = (action, document_id, line_id) => { hint.value = null; return act(() => call('POST', '/kiosk/clock', { action, document_id, line_id })); };
-    // « Démarrer » sur un OR : une seule intervention à faire → le chrono part dessus ; plusieurs → le mécanicien choisit laquelle
-    const todo = (o) => o.lines.filter((l) => l.timed && !l.done);
-    const startOrder = (o) => {
-      const list = todo(o);
-      if (list.length === 1) return clockAction('start', o.id, list[0].id);
-      if (list.length > 1) { open.value = o.id; hint.value = o.id; return null; }
-      return clockAction('start', o.id);
+    // Un mécanicien n'est pointé que sur un travail à la fois : démarrer ailleurs arrête le chrono précédent, et on le lui dit
+    const clockAction = async (action, document_id, line_id) => {
+      await act(() => call('POST', '/kiosk/clock', { action, document_id, line_id }));
+      const s = st.value?.switched;
+      if (action === 'start' && s && !err.value) {
+        notice.value = s.same_order ? 'Chrono arrêté sur « ' + (s.line || 'autre travail') + ' »'
+          : 'Chrono arrêté sur ' + (s.number || 'l’autre OR') + (s.line ? ' (' + s.line + ')' : '') + ' — vous êtes maintenant sur ' + s.to;
+        clearTimeout(noticeT);
+        noticeT = setTimeout(() => { notice.value = ''; }, 9000);
+      }
     };
     const startLine = (o, l) => clockAction('start', o.id, l.id);
     const updateOrder = (o, body) => act(() => call('POST', `/kiosk/orders/${o.id}`, body));
@@ -167,7 +170,7 @@ const App = {
     const h = hm;
     const since = (s) => (s ? s.slice(11, 16) : '');
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
-    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startOrder, startLine, hint, lSpent, oSpent, lOver, oOver, isMine, cur, others,
+    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startLine, notice, lSpent, oSpent, lOver, oOver, isMine, cur, others,
       updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
   },
   template: `
@@ -214,6 +217,7 @@ const App = {
         <div class="k-stats"><div><b>{{ h(st.attendance.today_hours) }}</b>aujourd'hui</div><div><b>{{ h(st.attendance.week_hours) }}</b>cette semaine</div><div><b>{{ h(st.todayHours) }}</b>sur des OR</div></div>
       </div>
       <div class="k-err">{{ err }}</div>
+      <div v-if="notice" class="k-info" @click="notice = ''">⏹ {{ notice }}</div>
 
       <template v-if="st.show_orders && st.attendance.present">
         <div v-if="st.work" class="k-status working" :class="{ over: cur && cur.over }">
@@ -235,28 +239,32 @@ const App = {
           <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-time" :class="{ over: oOver(o) }">⏱ {{ h(oSpent(o)) }}<template v-if="o.hours_planned"> / {{ h(o.hours_planned) }}</template></span></h3>
           <div class="k-muted">{{ o.make }} {{ o.model }} · {{ o.customer_name }} <span v-if="o.vin">· VIN {{ o.vin }}</span></div>
           <div class="complaint">{{ o.customer_complaint || 'Pas de description' }}</div>
+          <!-- Le chrono se lance ici, sur l'OR : un bouton par intervention (main-d'œuvre, forfait) -->
+          <div v-if="o.lines.some(l => l.timed)" class="k-work">
+            <div v-for="l in o.lines.filter(x => x.timed)" :key="l.id" class="k-line" :class="{ done: l.done, running: isMine(o, l) }">
+              <span class="box" @click="toggleLine(o, l)">{{ l.done ? '✓' : '' }}</span>
+              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="others(l.workers).length"> · 👤 {{ others(l.workers).join(', ') }}</span>
+                <span v-if="l.planned || lSpent(l) > 0" class="k-time" :class="{ over: lOver(l) }">⏱ {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
+              </span>
+              <button v-if="isMine(o, l)" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
+              <button v-else class="k-btn green sm k-go" title="Démarrer le chrono sur cette intervention" @click="startLine(o, l)">▶</button>
+            </div>
+            <div class="k-line k-general">
+              <span class="k-line-txt k-muted">Autre travail sur cet OR (diagnostic, essai…)<span v-if="o.hours_general > 0" class="k-time">⏱ {{ h(o.hours_general) }}</span></span>
+              <button v-if="st.work && st.work.document_id === o.id && !st.work.line_id" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
+              <button v-else class="k-btn sm k-go" title="Démarrer le chrono sans intervention précise" @click="clockAction('start', o.id)">▶</button>
+            </div>
+          </div>
           <div class="k-actions">
-            <button v-if="!(st.work && st.work.document_id === o.id)" class="k-btn green sm" @click="startOrder(o)">▶ Démarrer</button>
-            <button v-else class="k-btn orange sm" @click="clockAction('stop')">⏸ Pause</button>
+            <button v-if="st.work && st.work.document_id === o.id" class="k-btn orange sm" @click="clockAction('stop')">⏸ Pause</button>
+            <button v-else-if="!o.lines.some(l => l.timed)" class="k-btn green sm" @click="clockAction('start', o.id)">▶ Démarrer le chrono</button>
             <button class="k-btn blue sm" @click="openLive(o)">📷 Photos & messages</button>
             <button class="k-btn sm" @click="open = open === o.id ? null : o.id">{{ open === o.id ? '▲ Fermer' : '▼ Détails' }}</button>
           </div>
           <template v-if="open === o.id">
-            <div v-if="hint === o.id" class="k-hint">👉 Touchez ▶ en face de l'intervention que vous commencez.</div>
-            <div v-for="l in o.lines" class="k-line" :class="{ done: l.done, running: isMine(o, l) }">
+            <div v-for="l in o.lines.filter(x => !x.timed)" :key="l.id" class="k-line" :class="{ done: l.done }">
               <span class="box" @click="toggleLine(o, l)">{{ l.done ? '✓' : '' }}</span>
-              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="others(l.workers).length"> · 👤 {{ others(l.workers).join(', ') }}</span>
-                <span v-if="l.timed && (l.planned || lSpent(l) > 0)" class="k-time" :class="{ over: lOver(l) }">⏱ {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
-              </span>
-              <template v-if="l.timed">
-                <button v-if="isMine(o, l)" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
-                <button v-else class="k-btn green sm k-go" title="Démarrer cette intervention" @click="startLine(o, l)">▶</button>
-              </template>
-            </div>
-            <div v-if="o.lines.some(l => l.timed)" class="k-line k-general">
-              <span class="k-line-txt k-muted">Autre travail sur cet OR (diagnostic, essai…)<span v-if="o.hours_general > 0" class="k-time">⏱ {{ h(o.hours_general) }}</span></span>
-              <button v-if="st.work && st.work.document_id === o.id && !st.work.line_id" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
-              <button v-else class="k-btn sm k-go" title="Démarrer sans intervention précise" @click="clockAction('start', o.id)">▶</button>
+              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}</span>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
               <textarea v-model="draft(o).diagnosis" placeholder="Diagnostic / constat…"></textarea>

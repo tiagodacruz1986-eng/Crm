@@ -481,3 +481,55 @@ test('statistiques : chrono oublié « à vérifier », mécanicien désactivé,
     assert.ok(list && near(list.spent, 3) && near(list.period_spent, 1), JSON.stringify(list));
   }
 });
+
+test('un seul OR à la fois : démarrer sur un nouvel OR arrête le chrono de l\'ancien (tablette, bureau, base)', async () => {
+  const m = await mechanic('Nuno');
+  const a = await order(), b = await order();
+  // tablette : en cours sur l'OR A, il démarre sur l'OR B → A s'arrête tout seul, et on le lui dit
+  await K(m.tok, { action: 'start', document_id: a.id, line_id: a.lines[0].id });
+  const st = (await K(m.tok, { action: 'start', document_id: b.id, line_id: b.lines[1].id })).data;
+  assert.equal(st.switched.number, a.number, 'la tablette annonce l\'OR quitté');
+  assert.equal(st.switched.same_order, false);
+  assert.equal(st.work.document_id, b.id);
+  assert.equal((await A('GET', `/documents/${a.id}`)).data.active_workers, 0, 'plus de chrono sur l\'ancien OR');
+  assert.equal((await A('GET', `/documents/${b.id}`)).data.active_workers, 1);
+  const open = (await A('GET', `/timesheets?${RANGE()}`)).data.entries.filter((e) => e.user_id === m.id && e.kind === 'work' && !e.end);
+  assert.equal(open.length, 1, 'un seul chrono ouvert');
+  // même OR, autre intervention : pas d'annonce d'un autre OR
+  assert.equal((await K(m.tok, { action: 'start', document_id: b.id, line_id: b.lines[0].id })).data.switched.same_order, true);
+  assert.equal((await K(m.tok, { action: 'stop' })).data.switched, null);
+
+  // la base elle-même refuse un second chrono ouvert pour la même personne
+  await K(m.tok, { action: 'start', document_id: a.id });
+  assert.throws(() => sql("INSERT INTO time_entries(user_id, kind, document_id, start) VALUES(?, 'work', ?, ?)", m.id, b.id, local(new Date())), /UNIQUE|constraint/i);
+  // le gérant ne peut pas rouvrir un ancien pointage pendant qu'un chrono tourne
+  const closed = (await A('GET', `/timesheets?${RANGE()}`)).data.entries.find((e) => e.user_id === m.id && e.kind === 'work' && e.end);
+  assert.equal((await A('PUT', `/timesheets/${closed.id}`, { end: null })).status, 400);
+
+  // bureau : le gérant lance le chrono du mécanicien depuis la fiche de l'OR B → celui de l'OR A s'arrête
+  const r = await A('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id, line_id: b.lines[2].id });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.switched.number, a.number);
+  let doc = (await A('GET', `/documents/${b.id}`)).data;
+  assert.deepEqual(doc.lines[2].worker_ids, [m.id]);
+  assert.equal((await A('GET', `/documents/${a.id}`)).data.active_workers, 0);
+  // arrêt depuis la fiche d'un AUTRE OR : sans effet (on n'arrête que le chrono de cet OR)
+  await A('POST', `/documents/${a.id}/clock`, { action: 'stop', user_id: m.id });
+  assert.equal((await A('GET', `/documents/${b.id}`)).data.active_workers, 1);
+  await A('POST', `/documents/${b.id}/clock`, { action: 'stop', user_id: m.id });
+  doc = (await A('GET', `/documents/${b.id}`)).data;
+  assert.equal(doc.active_workers, 0);
+  assert.ok(doc.time_entries.every((e) => e.end));
+
+  // contrôles : pas sur un devis, pas pour une personne inconnue, pièce refusée, droits
+  const quote = (await A('POST', '/documents', { type: 'quote', customer_id: customer, lines: [] })).data.id;
+  assert.equal((await A('POST', `/documents/${quote}/clock`, { action: 'start', user_id: m.id })).status, 400);
+  assert.equal((await A('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: 999999 })).status, 400);
+  assert.equal((await A('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id, line_id: b.lines[3].id })).status, 400, 'une pièce ne se chronomètre pas');
+  assert.equal((await A('POST', `/documents/${b.id}/clock`, { action: 'pause', user_id: m.id })).status, 400);
+  await A('POST', '/users', { name: 'Atelier seul', email: 'as@t.lu', role: 'office', password: 'secret123', permissions: { atelier: 'user' } });
+  const as = (await call('POST', '/auth/login', { email: 'as@t.lu', password: 'secret123' })).data.token;
+  assert.equal((await call('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id }, as)).status, 403, 'le chrono d\'un autre : administrateur des Présences');
+  const sans = await (async () => { await A('POST', '/users', { name: 'Ventes seul', email: 'vs@t.lu', role: 'office', password: 'secret123', permissions: { ventes: 'user' } }); return (await call('POST', '/auth/login', { email: 'vs@t.lu', password: 'secret123' })).data.token; })();
+  assert.equal((await call('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id }, sans)).status, 403, 'sans le droit Atelier');
+});

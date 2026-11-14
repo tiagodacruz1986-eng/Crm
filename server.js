@@ -367,49 +367,65 @@ api.post('/kiosk/attendance', mech, wrap((req) => checkInOut(req.user.id, { acti
 function stopWork(userId, now) {
   run("UPDATE time_entries SET end=? WHERE user_id=? AND kind='work' AND end IS NULL", now, userId);
 }
+/**
+ * Démarre le chrono d'une personne sur un OR, ou sur une de ses interventions (ligne de main-d'œuvre ou forfait).
+ * Une personne n'est pointée que sur UN travail à la fois : le chrono qui tournait ailleurs est arrêté d'office
+ * (« switched » dit lequel, pour le lui afficher). Utilisé par la tablette de l'atelier et par la fiche de l'OR au bureau.
+ */
+function startWork(uid, documentId, lineRef, note) {
+  const now = localDateTime();
+  let resumed = null, reopened = null, switched = null;
+  tx(() => {
+    const d = get("SELECT id, number, status, mechanic_id FROM documents WHERE id=? AND type='order'", Number(documentId) || 0);
+    if (!d) throw new BusinessError('OR introuvable');
+    if (['invoiced', 'cancelled'].includes(d.status)) throw new BusinessError('Cet OR est clôturé');
+    // Chrono sur une intervention précise ; sans ligne : sur l'OR entier
+    let lineId = null;
+    if (lineRef !== undefined && lineRef !== null && lineRef !== '') {
+      const l = Number.isInteger(Number(lineRef)) ? get('SELECT id, kind, done FROM document_lines WHERE id=? AND document_id=?', Number(lineRef), d.id) : null;
+      if (!isIntervention(l)) throw new BusinessError('Intervention introuvable sur cet OR');
+      lineId = l.id;
+      // Reprise d'une intervention déjà cochée « fait » : elle redevient « à faire » (sinon elle resterait cochée, chrono en marche)
+      if (l.done) { run('UPDATE document_lines SET done=0 WHERE id=?', l.id); touchDocument(d.id); reopened = d.id; }
+    }
+    if (!get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid)) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
+    const running = get(`SELECT t.document_id, t.line_id, r.number, l.description AS line FROM time_entries t LEFT JOIN documents r ON r.id=t.document_id
+      LEFT JOIN document_lines l ON l.id=t.line_id AND l.document_id=t.document_id WHERE t.user_id=? AND t.kind='work' AND t.end IS NULL ORDER BY t.start DESC LIMIT 1`, uid);
+    // Déjà en cours sur ce même travail : le chrono continue (un second appui ne le découpe pas)
+    if (!(running && running.document_id === d.id && (running.line_id || null) === lineId)) {
+      if (running) switched = { document_id: running.document_id, number: running.number, line: running.line, same_order: running.document_id === d.id, to: d.number };
+      stopWork(uid, now);
+      insert('time_entries', { user_id: uid, kind: 'work', document_id: d.id, line_id: lineId, start: now, note: typeof note === 'string' ? note.slice(0, 500) : undefined }, ['user_id', 'kind', 'document_id', 'line_id', 'start', 'note']);
+    }
+    // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
+    if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
+  });
+  if (resumed) stageFromStatus(resumed, 'in_progress');
+  else if (reopened) livePublish(reopened);
+  return { switched };
+}
 api.post('/kiosk/clock', mech, wrap((req) => {
   const now = localDateTime();
   const uid = req.user.id;
   const { action, document_id, note } = req.body;
-  const lineRef = req.body.line_id;
-  let resumed = null, reopened = null;
-  tx(() => {
-    const presence = get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid);
-    if (action === 'in') {
-      if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
-    } else if (action === 'out') {
-      stopWork(uid, now);
-      run("UPDATE time_entries SET end=? WHERE user_id=? AND kind='presence' AND end IS NULL", now, uid);
-    } else if (action === 'start') {
-      if (req.user.role !== 'mechanic' && !can(req.user, 'atelier', 'user')) throw new BusinessError('Il faut le droit « Utilisateur » sur Atelier pour travailler sur un OR', 403);
-      const d = get("SELECT id, status, mechanic_id FROM documents WHERE id=? AND type='order'", document_id);
-      if (!d) throw new BusinessError('OR introuvable');
-      if (['invoiced', 'cancelled'].includes(d.status)) throw new BusinessError('Cet OR est clôturé');
-      // Chrono sur une intervention précise (ligne de main-d'œuvre ou forfait de cet OR) ; sans ligne : sur l'OR entier
-      let lineId = null;
-      if (lineRef !== undefined && lineRef !== null && lineRef !== '') {
-        const l = Number.isInteger(Number(lineRef)) ? get('SELECT id, kind, done FROM document_lines WHERE id=? AND document_id=?', Number(lineRef), d.id) : null;
-        if (!isIntervention(l)) throw new BusinessError('Intervention introuvable sur cet OR');
-        lineId = l.id;
-        // Reprise d'une intervention déjà cochée « fait » : elle redevient « à faire » (sinon elle resterait cochée, chrono en marche)
-        if (l.done) { run('UPDATE document_lines SET done=0 WHERE id=?', l.id); touchDocument(d.id); reopened = d.id; }
-      }
-      if (!presence) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
-      // Déjà en cours sur ce même travail : le chrono continue (un second appui ne le découpe pas)
-      const running = get("SELECT document_id, line_id FROM time_entries WHERE user_id=? AND kind='work' AND end IS NULL", uid);
-      if (!(running && running.document_id === d.id && (running.line_id || null) === lineId)) {
+  let switched = null;
+  if (action === 'start') {
+    if (req.user.role !== 'mechanic' && !can(req.user, 'atelier', 'user')) throw new BusinessError('Il faut le droit « Utilisateur » sur Atelier pour travailler sur un OR', 403);
+    ({ switched } = startWork(uid, document_id, req.body.line_id, note));
+  } else {
+    tx(() => {
+      if (action === 'in') {
+        if (!get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid)) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
+      } else if (action === 'out') {
         stopWork(uid, now);
-        insert('time_entries', { user_id: uid, kind: 'work', document_id: d.id, line_id: lineId, start: now, note: typeof note === 'string' ? note.slice(0, 500) : undefined }, ['user_id', 'kind', 'document_id', 'line_id', 'start', 'note']);
-      }
-      // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
-      if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
-    } else if (action === 'stop') {
-      stopWork(uid, now);
-    } else throw new BusinessError('Action inconnue');
-  });
-  if (resumed) stageFromStatus(resumed, 'in_progress');
-  else if (reopened) livePublish(reopened);
-  return fullKioskState(req.user);
+        run("UPDATE time_entries SET end=? WHERE user_id=? AND kind='presence' AND end IS NULL", now, uid);
+      } else if (action === 'stop') {
+        stopWork(uid, now);
+      } else throw new BusinessError('Action inconnue');
+    });
+  }
+  // « switched » : le chrono qui tournait sur un autre travail vient d'être arrêté (affiché au mécanicien)
+  return { ...fullKioskState(req.user), switched };
 }));
 api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
   const id = Number(req.params.id);
@@ -709,6 +725,23 @@ api.post('/documents/:id/status', wrap((req) => {
   }
   return { ok: true };
 }));
+// Chrono lancé depuis la fiche de l'OR, pour le mécanicien choisi (même règle qu'à la tablette : un seul travail à la fois).
+// Pour soi-même : le droit « Utilisateur » sur Atelier suffit ; pour quelqu'un d'autre : administrateur des Présences.
+api.post('/documents/:id/clock', wrap((req) => {
+  const id = Number(req.params.id);
+  const d = get('SELECT id, type FROM documents WHERE id=?', id);
+  if (!d) throw new BusinessError('Introuvable', 404);
+  if (d.type !== 'order') throw new BusinessError('Le chrono se lance sur un ordre de réparation');
+  const target = get('SELECT id, name, role, active, permissions FROM users WHERE id=?', Number(req.body.user_id) || 0);
+  if (!target || !target.active) throw new BusinessError('Choisissez le mécanicien pour qui lancer le chrono');
+  if (target.id !== req.user.id && !can(req.user, 'presences', 'manager')) throw new BusinessError('Lancer ou arrêter le chrono de quelqu\'un d\'autre est réservé aux administrateurs des Présences', 403);
+  if (target.role !== 'mechanic' && !can(target, 'atelier', 'user')) throw new BusinessError(`${target.name} n'a pas le droit de travailler sur un OR`);
+  let switched = null;
+  if (req.body.action === 'start') ({ switched } = startWork(target.id, id, req.body.line_id));
+  else if (req.body.action === 'stop') run("UPDATE time_entries SET end=? WHERE user_id=? AND document_id=? AND kind='work' AND end IS NULL", localDateTime(), target.id, id);
+  else throw new BusinessError('Action inconnue');
+  return { ok: true, switched };
+}));
 api.post('/documents/:id/convert', wrap((req) => {
   const id = convertDocument(Number(req.params.id), req.body.type);
   const n = get('SELECT type, number FROM documents WHERE id=?', id);
@@ -932,6 +965,10 @@ api.put('/timesheets/:id', needManager('presences'), wrap((req) => {
   // un pointage ne peut pas commencer dans le futur (les heures seraient comptées avant d'être faites)
   const limit = localDateTime(new Date(Date.now() + 60000)).slice(0, 16);
   if (start.slice(0, 16) > limit || (end && end.slice(0, 16) > limit)) throw new BusinessError('Un pointage ne peut pas être dans le futur');
+  // une personne n'a qu'un seul chrono de travail ouvert à la fois
+  if (cur.kind === 'work' && !end && get("SELECT 1 FROM time_entries WHERE user_id=? AND kind='work' AND end IS NULL AND id!=?", cur.user_id, cur.id)) {
+    throw new BusinessError('Cette personne a déjà un chrono en cours : indiquez une heure de fin.');
+  }
   // pointage déplacé sur un autre OR : il n'est plus rattaché à une intervention de l'ancien
   const moved = b.document_id !== undefined && (b.document_id || null) !== (cur.document_id || null);
   // chrono arrêté automatiquement, dont le gérant corrige les heures : il redevient un pointage normal (plus « à vérifier »)
