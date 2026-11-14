@@ -4,12 +4,13 @@ import { route } from '../router.js';
 import { LayoutEditor } from './layout-editor.js';
 import { UsersAdmin } from './users-admin.js';
 import { ConfigPanel } from './config.js';
+import { StudioPanel } from '../studio.js';
 import { loadMeta } from '../mail.js';
 
 const ROLE = { admin: 'Gérant (admin)', office: 'Bureau / accueil', mechanic: 'Mécanicien' };
 
 export const Settings = {
-  components: { LayoutEditor, UsersAdmin, ConfigPanel },
+  components: { LayoutEditor, UsersAdmin, ConfigPanel, StudioPanel },
   setup() {
     const s = ref(null);
     const users = ref([]);
@@ -68,8 +69,9 @@ export const Settings = {
   <div v-if="s">
     <div class="page-head"><h1>Paramètres</h1><button class="btn primary" v-if="['company','config','workshop','layout','ai'].includes(tab)" @click="save">Enregistrer</button></div>
     <div class="tabs">
-      <button v-for="[k, l] in [['company','Société'],['config','Configuration'],['users','Utilisateurs & accès'],['layout','Mise en page des documents'],['workshop','Atelier & factures'],['accounts','Plan comptable'],['mail','E-mails'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
+      <button v-for="[k, l] in [['company','Société'],['config','Configuration'],['users','Utilisateurs & accès'],['layout','Mise en page des documents'],['workshop','Atelier & factures'],['accounts','Plan comptable'],['mail','E-mails'],['studio','Personnalisation'],['odoo','Import Odoo'],['ai','Agents IA']]" :class="{active: tab===k}" @click="tab = k">{{ l }}</button>
     </div>
+    <StudioPanel v-if="tab==='studio'"/>
     <div class="card" v-if="tab==='company'">
       <div class="form-grid">
         <label>Nom commercial<input v-model="s.company.name"></label><label>Forme juridique<input v-model="s.company.legal_form"></label>

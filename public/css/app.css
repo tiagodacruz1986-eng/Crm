@@ -247,6 +247,34 @@ tfoot td { font-weight: 700; background: var(--soft); }
 table.lines { min-width: 780px; }
 .lines .kind { width: 118px; } .lines .q { width: 80px; } .lines .p { width: 100px; } .lines .d { width: 70px; } .lines .t { width: 80px; }
 .lines tr.text-line input.descr { font-style: italic; background: var(--soft); }
+/* Personnalisation des fiches (« Studio ») : zone affichée sur les fiches et concepteur */
+.studio-zone { margin-top: 16px; }
+.studio-zone.empty { border-style: dashed; box-shadow: none; padding-top: 12px; padding-bottom: 12px; }
+.studio-zone.empty .card-head { margin-bottom: 0; }
+.st-buttons { margin-bottom: 14px; }
+.st-fields label small { display: block; margin-top: 3px; }
+.st-saved { color: var(--ok); font-size: 11px; margin-left: 8px; font-weight: 600; }
+label.st-check { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; }
+label.st-check input { width: auto; margin: 0; }
+label.st-check small { flex-basis: 100%; }
+.st-zone { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 14px; background: var(--panel-2); }
+.st-zone-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+.st-file { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.st-file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-file .muted { white-space: nowrap; }
+.st-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 6px; background: var(--panel-2); }
+.st-item.off { opacity: .55; } .st-item.cur { border-color: var(--brand); }
+.st-ico { width: 30px; text-align: center; font-size: 17px; flex-shrink: 0; }
+.st-item-txt { flex: 1; min-width: 0; } .st-item-txt b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-add { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.st-edit { margin-top: 14px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel-2); }
+.st-edit h3 { margin: 0 0 10px; }
+.st-ph { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st-chip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 99px; padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; font-family: ui-monospace, monospace; }
+.st-chip:hover { border-color: var(--brand); }
+.st-targets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
+.st-targets button { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 99px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.st-targets button.on { background: var(--brand-soft); color: var(--ink); border-color: var(--line-strong); font-weight: 650; }
 /* Temps atelier : temps prévu / temps passé par intervention (rouge = temps prévu dépassé) */
 .lines th.pl { width: 112px; } table.lines.with-time { min-width: 900px; }
 .wt-cell input { width: 100%; }

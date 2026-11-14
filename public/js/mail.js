@@ -1,5 +1,6 @@
 // E-mails, historique ("chatter") et activités planifiées — utilisables sur chaque page et chaque fiche.
 import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { StudioZone } from './studio.js';
 import { GET, POST, PUT, DEL, act, toast, store, date, datetime, today } from './api.js';
 import { go } from './router.js';
 
@@ -17,7 +18,7 @@ export const bus = reactive({ tick: 0 }); // incrémenté à chaque changement p
 
 // ---------- Rédaction d'un e-mail ----------
 export const MailComposer = {
-  props: { model: String, recordId: [Number, String], template: String, module: String },
+  props: { model: String, recordId: [Number, String], template: String, module: String, preset: Object },
   emits: ['close', 'sent'],
   setup(props, { emit }) {
     const f = reactive({ to: '', cc: '', subject: '', intro: '', include_document: false, template: props.template || '', templates: [] });
@@ -33,7 +34,11 @@ export const MailComposer = {
       Object.assign(f, { ...r, to: f.to || r.to });
       preview.value = '';
     };
-    onMounted(async () => { await loadMeta(); await load(props.template); });
+    onMounted(async () => {
+      await loadMeta(); await load(props.template);
+      // objet et message préparés par un bouton personnalisé de la fiche
+      if (props.preset) { if (props.preset.subject) f.subject = props.preset.subject; if (props.preset.body) f.intro = props.preset.body; f.include_document = false; }
+    });
     const showPreview = async () => {
       preview.value = (await act(() => POST('/mail/preview', { model: props.model, record_id: props.recordId, intro: f.intro, include_document: f.include_document }))).html;
     };
@@ -151,10 +156,13 @@ export const ActivityItem = {
 // ---------- Historique + activités d'une fiche (comme le "chatter" d'Odoo) ----------
 export const Chatter = {
   props: { model: String, recordId: [Number, String] },
-  components: { MailComposer, ActivityModal, ActivityItem },
+  components: { MailComposer, ActivityModal, ActivityItem, StudioZone },
+  inheritAttrs: false, // (deux blocs : la zone personnalisée puis l'historique, qui reçoit les attributs)
   setup(props) {
     const data = ref(null);
     const mode = ref(null); // 'mail' | 'note' | 'activity'
+    const preset = ref(null); // e-mail préparé par un bouton personnalisé de la fiche
+    const STUDIO = ['customer', 'vehicle', 'document', 'product', 'purchase', 'lead'];
     const note = ref('');
     const editing = ref(null);
     const load = async () => { if (props.recordId && props.recordId !== 'new') data.value = await GET(`/chatter/${props.model}/${props.recordId}`); };
@@ -162,10 +170,11 @@ export const Chatter = {
     watch(() => [props.recordId, bus.tick], load);
     const addNote = async () => { await act(() => POST(`/chatter/${props.model}/${props.recordId}/note`, { body: note.value })); note.value = ''; mode.value = null; load(); };
     const cancelMail = async (e) => { await act(() => DEL('/mail/' + e.id), 'Envoi annulé'); load(); };
-    return { data, mode, note, editing, load, addNote, cancelMail, datetime };
+    return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO };
   },
   template: `
-  <div class="card chatter no-print" v-if="data">
+  <StudioZone v-if="STUDIO.includes(model) && recordId && recordId !== 'new'" :model="model" :record-id="recordId" @mail="preset = $event; mode = 'mail'" @changed="load"/>
+  <div class="card chatter no-print" v-if="data" v-bind="$attrs">
     <div class="btns">
       <button class="btn sm" :class="{primary: mode==='mail'}" @click="mode = 'mail'">✉️ Envoyer un e-mail</button>
       <button class="btn sm" :class="{primary: mode==='note'}" @click="mode = mode === 'note' ? null : 'note'">📝 Note</button>
@@ -186,7 +195,7 @@ export const Chatter = {
       <div style="flex:1;min-width:0"><div class="small muted">{{ m.user_name || 'Système' }} · {{ datetime(m.created_at.replace(' ', 'T') + 'Z') }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div><div style="white-space:pre-wrap">{{ m.body }}</div></div>
     </div>
     <div v-if="!data.messages.length" class="muted small">Aucun échange pour l'instant.</div>
-    <MailComposer v-if="mode==='mail'" :model="model" :record-id="recordId" @close="mode = null" @sent="load"/>
+    <MailComposer v-if="mode==='mail'" :model="model" :record-id="recordId" :preset="preset" @close="mode = null; preset = null" @sent="load"/>
     <ActivityModal v-if="mode==='activity' || editing" :activity="editing" :model="model" :record-id="recordId" @close="mode = null; editing = null" @saved="load"/>
   </div>`,
 };

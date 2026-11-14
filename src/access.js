@@ -140,6 +140,11 @@ export function requiredAccess(req) {
     const app = recordApp(m[2], m[3]);
     return app ? [[app, read ? 'read' : 'user']] : null;
   }
+  // Champs, fichiers et boutons personnalisés d'une fiche : mêmes droits que la fiche elle-même
+  if ((m = /^\/studio\/(record|files|buttons)\/([a-z_]+)\/(\d+)/.exec(path))) {
+    const app = recordApp(m[2], m[3]);
+    return app ? [[app, read ? 'read' : 'user']] : null;
+  }
   if ((m = /^\/attachment\/(\d+)$/.exec(path))) {
     const a = get('SELECT model, record_id FROM attachments WHERE id=?', Number(m[1]));
     const app = a && recordApp(a.model, a.record_id);

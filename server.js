@@ -35,6 +35,7 @@ import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, 
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
 import { monthlyReport, reportPlan, sendMonthlyReports } from './src/reports.js';
+import * as studio from './src/studio.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -54,7 +55,7 @@ app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], expr
 app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
 // Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
 // sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
-const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
+const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|studio\/files\/|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
 const jsonBody = express.json({ limit: '20mb' });
 const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
 app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
@@ -521,6 +522,7 @@ function cleanBody(body, { required = [], numbers = [], dates = [], datetimes = 
 /** Efface ce qui était attaché à une fiche supprimée (sinon la fiche suivante, qui reprend son numéro, en hériterait). */
 function forgetRecord(model, id) {
   for (const a of listAttachments(model, id)) deleteAttachment(a.id);
+  studio.forgetValues(model, id); // champs personnalisés de la fiche
   run('DELETE FROM messages WHERE model=? AND record_id=?', model, id);
   run('DELETE FROM activities WHERE model=? AND record_id=?', model, id);
   run("UPDATE emails SET status='cancelled' WHERE model=? AND record_id=? AND status='scheduled'", model, id);
@@ -829,6 +831,22 @@ api.get('/attachment/:id', (req, res) => {
 });
 api.delete('/attachment/:id', wrap((req) => { deleteAttachment(Number(req.params.id)); return { ok: true }; }));
 api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...req.body, purchase_id: Number(req.params.id) }) })));
+
+// ---------- Personnalisation des fiches (façon « Studio ») ----------
+// Concevoir (ajouter, modifier, supprimer des éléments) : administrateur. Remplir : mêmes droits que la fiche (voir access.js).
+api.get('/studio/meta', (req, res) => res.json(studio.meta()));
+api.get('/studio/fields', adminOnly, wrap((req) => studio.listFields(String(req.query.target || ''), { all: true })));
+api.post('/studio/fields', adminOnly, wrap((req) => ({ id: studio.saveField(req.body) })));
+api.put('/studio/fields/:id', adminOnly, wrap((req) => ({ id: studio.saveField(req.body, Number(req.params.id)) })));
+api.delete('/studio/fields/:id', adminOnly, wrap((req) => studio.deleteField(Number(req.params.id))));
+api.post('/studio/order', adminOnly, wrap((req) => studio.orderFields(String(req.body.target || ''), req.body.ids)));
+const studioField = (req) => { const f = Number(req.params.field); if (!Number.isInteger(f)) throw new BusinessError('Élément inconnu'); return f; };
+// (« can_write » : l'utilisateur peut-il remplir les champs de cette fiche ?)
+const studioOut = (req, d) => ({ ...d, can_write: can(req.user, recordApp(d.model, d.id), 'user') });
+api.get('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.recordData(req.params.model, Number(req.params.id)))));
+api.put('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.saveValues(req.params.model, Number(req.params.id), req.body?.values, req.user.id))));
+api.post('/studio/files/:model/:id/:field', rawBody, wrap((req) => studio.addFile(req.params.model, Number(req.params.id), studioField(req), fileMeta(req))));
+api.post('/studio/buttons/:model/:id/:field', wrap((req) => studio.pressButton(req.params.model, Number(req.params.id), studioField(req), req.user)));
 
 // ---------- Comptabilité ----------
 const period = (req) => [req.query.from || `${today().slice(0, 4)}-01-01`, req.query.to || today()];

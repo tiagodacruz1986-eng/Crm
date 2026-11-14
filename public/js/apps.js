@@ -32,7 +32,7 @@ export const APPS = [
   { key: 'accounting', name: 'Comptabilité', icon: 'book-open', c: ['#be185d', '#34d399'], to: '/accounting', routes: ['accounting'], perm: 'comptabilite' },
   { key: 'users', name: 'Employés & accès', icon: 'shield-check', c: ['#f59e0b', '#8b5cf6'], to: '/settings?tab=users', routes: ['settings:users'], admin: true },
   { key: 'settings', name: 'Paramètres', icon: 'settings', c: ['#b45309', '#8b5cf6'], to: '/settings', routes: ['settings'], admin: true,
-    menus: [{ label: 'Société', to: '/settings?tab=company' }, { label: 'Configuration', to: '/settings?tab=config' }, { label: 'Utilisateurs & accès', to: '/settings?tab=users' }, { label: 'Mise en page', to: '/settings?tab=layout' }] },
+    menus: [{ label: 'Société', to: '/settings?tab=company' }, { label: 'Configuration', to: '/settings?tab=config' }, { label: 'Utilisateurs & accès', to: '/settings?tab=users' }, { label: 'Mise en page', to: '/settings?tab=layout' }, { label: 'Personnalisation', to: '/settings?tab=studio' }] },
   { key: 'kiosk', name: 'Kiosque pointage', icon: 'tablet', c: ['#16a34a', '#22d3ee'], href: '/kiosk.html' },
 ];
 
