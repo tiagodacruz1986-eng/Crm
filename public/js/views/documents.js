@@ -141,8 +141,9 @@ export const DocumentEditor = {
       showVoice.value = false;
       toast('Demande du client mise à jour — pensez à enregistrer');
     };
-    // La zone grandit avec le texte (jamais plus petite) : une demande sur plusieurs lignes se lit sans défiler, aussi à la réouverture
-    const fitComplaint = () => { const el = complaintBox.value; if (el && el.scrollHeight > el.clientHeight + 2) el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px'; };
+    // La zone grandit avec le texte, jusqu'à 320 px : une demande sur plusieurs lignes se lit sans défiler, aussi à la réouverture.
+    // Elle ne rétrécit jamais, et une zone agrandie à la main au-delà de cette hauteur est laissée telle quelle.
+    const fitComplaint = () => { const el = complaintBox.value; if (el && el.offsetHeight < 320 && el.scrollHeight > el.clientHeight + 2) el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px'; };
     watch(() => doc.value?.customer_complaint, () => nextTick(fitComplaint));
     const showPay = ref(false);
     const dirty = ref(false);
@@ -557,7 +558,7 @@ export const DocumentEditor = {
     <div class="print-only"><DocPrint :doc="doc"/></div>
 
     <QuickCustomer v-if="showCustomer" @close="showCustomer = false" @saved="onQuickCustomer"/>
-    <VoiceRequest v-if="showVoice" :type="doc.type" :vehicle-id="doc.vehicle_id" :mileage="doc.mileage" :current="doc.customer_complaint" @close="showVoice = false" @apply="onVoice"/>
+    <VoiceRequest v-if="showVoice" :type="doc.type" :vehicle-id="doc.vehicle_id" :mileage="doc.mileage" :current="doc.customer_complaint" :host-dirty="dirty" @close="showVoice = false" @apply="onVoice"/>
     <PaymentModal v-if="showPay" :residual="Math.round((doc.total - doc.amount_paid) * 100) / 100" :title="doc.type === 'credit_note' ? 'Remboursement au client' : 'Encaissement'" @close="showPay = false" @save="pay"/>
   </div>`,
 };

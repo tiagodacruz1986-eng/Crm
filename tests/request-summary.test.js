@@ -24,6 +24,7 @@ const claude = http.createServer((req, res) => {
     seen.push(JSON.parse(b));
     const next = queue.shift() || { stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] };
     if (next.hang) return; // le service accepte la demande et ne répond jamais
+    if (next.stall) { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"id":"m","type":"mess'); return; } // réponse commencée, jamais terminée
     if (next.http) { res.writeHead(next.http, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: { type: ERRORS[next.http] || 'api_error', message: 'Detail in English' }, request_id: 'req_test' })); return; }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'test', usage: { input_tokens: 1, output_tokens: 1 }, ...next }));
@@ -211,6 +212,13 @@ test('l\'IA ne répond pas : attente bornée, une seule demande, message juste',
   });
   assert.ok(Date.now() - t0 < 3000, `attente de ${Date.now() - t0} ms`);
   assert.equal(seen.length, n + 1, 'la demande n\'est pas renvoyée une seconde fois');
+
+  // réponse commencée puis interrompue : même limite, même message (et non une attente de plusieurs minutes)
+  queue.push({ stall: true });
+  const t1 = Date.now();
+  await assert.rejects(summarizeRequest({ transcript: 'bruit au freinage' }, { timeout: 400 }), /trop de temps/);
+  assert.ok(Date.now() - t1 < 4000, `attente de ${Date.now() - t1} ms`);
+  assert.equal(seen.length, n + 2);
 });
 
 test('droits : ceux du document (OR → Atelier, devis → Ventes)', async () => {

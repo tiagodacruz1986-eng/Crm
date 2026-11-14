@@ -57,9 +57,12 @@ function vehicleLine(vehicleId, mileage) {
 // Message quand l'IA n'a rien rendu d'utilisable : la fenêtre garde le texte dicté, qui peut être mis tel quel
 const FAILED = 'L\'IA n\'a pas pu résumer ce texte. Réessayez, ou mettez le texte dicté tel quel dans le document.';
 
+const TOO_SLOW = 'L\'IA met trop de temps à répondre. Réessayez, ou mettez le texte dicté tel quel dans le document.';
+// Attente dépassée : pas de réponse du tout, ou une réponse commencée puis interrompue (coupée par le délai global)
+const timedOut = (e) => e instanceof Anthropic.APIConnectionTimeoutError || e instanceof Anthropic.APIUserAbortError || e?.name === 'AbortError' || e?.name === 'TimeoutError';
+
 /** Panne du service d'IA → message en français pour l'accueil (le détail technique va dans le journal du serveur). */
 function serviceError(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return 'L\'IA met trop de temps à répondre. Réessayez, ou mettez le texte dicté tel quel dans le document.';
   if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.RateLimitError || e instanceof Anthropic.APIConnectionError) return friendlyError(e);
   console.error('Résumé de la demande du client :', e.status, e.message);
   if (e.status >= 500) return 'Le service IA est momentanément indisponible. Réessayez dans un instant, ou mettez le texte dicté tel quel dans le document.';
@@ -80,14 +83,15 @@ export async function summarizeRequest({ transcript, vehicle_id = null, mileage 
   if (!aiConfigured()) throw new BusinessError('Résumé par l\'IA indisponible : aucune clé Claude n\'est configurée (voir README → Activer les agents IA). Vous pouvez mettre le texte dicté tel quel dans le document.');
 
   const spoken = LANGS[typeof lang === 'string' ? lang.slice(0, 2).toLowerCase() : 'fr'] || LANGS.fr;
-  // Une seule tentative, avec une attente bornée : si le service ne répond pas, l'accueil réessaie d'un clic
+  // Une seule tentative, avec une attente bornée : si le service ne répond pas, l'accueil réessaie d'un clic.
+  // `timeout` ne couvre que le début de la réponse ; le signal borne aussi une réponse commencée qui n'arrive jamais au bout.
   const ask = (effort) => claudeClient().messages.parse({
     model: CLAUDE_MODEL,
     max_tokens: 8000,
     system: SYSTEM,
     messages: [{ role: 'user', content: `Véhicule : ${vehicleLine(vehicle_id, mileage)}\nLangue parlée à l'accueil : ${spoken}\n\n<transcription>\n${text}\n</transcription>` }],
     output_config: { ...(effort ? { effort } : {}), format: jsonSchemaOutputFormat(SCHEMA) },
-  }, { timeout, maxRetries: 0 });
+  }, { timeout, maxRetries: 0, signal: AbortSignal.timeout(timeout + 1000) });
   let resp;
   try {
     // Tâche simple : peu de réflexion, pour répondre vite. Un modèle plus ancien qui ne connaît pas ce réglage
@@ -97,6 +101,7 @@ export async function summarizeRequest({ transcript, vehicle_id = null, mileage 
       resp = await ask(null);
     }
   } catch (e) {
+    if (timedOut(e)) throw new BusinessError(TOO_SLOW);
     if (e instanceof Anthropic.APIError) throw new BusinessError(serviceError(e));
     // réponse illisible (pas une panne du service)
     console.error('Résumé de la demande du client :', e.message);

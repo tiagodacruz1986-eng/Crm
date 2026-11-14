@@ -20,7 +20,8 @@ const FATAL = {
 };
 
 export const VoiceRequest = {
-  props: { type: String, vehicleId: [Number, String], mileage: [Number, String], current: String },
+  // hostDirty : le document a déjà des modifications non enregistrées (sa propre question couvre alors la sortie de page)
+  props: { type: String, vehicleId: [Number, String], mileage: [Number, String], current: String, hostDirty: Boolean },
   emits: ['close', 'apply'],
   setup(props, { emit }) {
     const text = ref(''); // ce qui a été dicté ou écrit (toujours modifiable)
@@ -28,7 +29,8 @@ export const VoiceRequest = {
     const listening = ref(false);
     const seconds = ref(0);
     const problem = ref(''); // pourquoi l'écoute s'est arrêtée
-    const busy = ref(false);
+    const busy = ref(false); // une action est en cours (attente de la dernière phrase, résumé)
+    const summarizing = ref(false); // l'IA rédige
     const summary = ref(null); // null tant qu'aucun résumé n'a été demandé
     const questions = ref([]);
     const box = ref(null);
@@ -51,11 +53,14 @@ export const VoiceRequest = {
     let rec = null, timer = null, restart = null, last = '', startedAt = 0, quick = 0, waiters = [], active = false;
     const scrollDown = () => { if (box.value) box.value.scrollTop = box.value.scrollHeight; };
     // Une phrase arrive pendant que l'accueil corrige un mot : le curseur reste où il est (sinon il sauterait à la fin à chaque phrase)
-    const setText = (v) => {
+    // `keep` : longueur du début du texte qui n'a pas bougé (le curseur n'est jamais replacé au-delà).
+    const setText = (v, keep) => {
       const el = box.value;
-      const sel = el && document.activeElement === el ? [el.selectionStart, el.selectionEnd] : null;
+      const sel = el && document.activeElement === el ? [Math.min(el.selectionStart, keep), Math.min(el.selectionEnd, keep)] : null;
+      // l'affichage suit la dictée tant qu'on était déjà en bas du texte (même avec le curseur dans la zone)
+      const stick = !el || el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
       text.value = v;
-      nextTick(() => { if (sel && box.value) box.value.setSelectionRange(sel[0], sel[1]); else scrollDown(); });
+      nextTick(() => { if (sel && box.value) box.value.setSelectionRange(sel[0], sel[1]); if (!sel || stick) scrollDown(); });
     };
     const append = (t) => {
       if (!t) return;
@@ -63,9 +68,9 @@ export const VoiceRequest = {
       // certains téléphones renvoient deux fois la même phrase, ou la même phrase qui s'allonge : on ne la garde qu'une fois
       if (last && cur.endsWith(last)) {
         if (t === last) return;
-        if (t.startsWith(last)) { setText(cur.slice(0, cur.length - last.length) + t); last = t; return; }
+        if (t.startsWith(last)) { setText(cur.slice(0, cur.length - last.length) + t, cur.length); last = t; return; }
       }
-      setText(cur ? cur + ' ' + t : t);
+      setText(cur ? cur + ' ' + t : t, cur.length);
       last = t;
       if (text.value.length > MAX_CHARS - 600) { problem.value = 'Le texte est très long : l’écoute est arrêtée. Résumez cette partie, puis recommencez pour la suite.'; stop(); }
     };
@@ -125,7 +130,7 @@ export const VoiceRequest = {
     });
     // Quitter la page (bouton Retour, rechargement) avec du texte dicté : même question qu'à la fermeture de la fenêtre
     const unsaved = () => !!(text.value.trim() || interim.value.trim());
-    const leaveOk = () => !unsaved() || confirm('Quitter sans rien mettre dans le document ? Le texte dicté sera perdu.');
+    const leaveOk = () => !unsaved() || props.hostDirty || confirm('Quitter sans rien mettre dans le document ? Le texte dicté sera perdu.');
     const onUnload = (e) => { if (unsaved()) { e.preventDefault(); e.returnValue = ''; } };
     onMounted(() => {
       leaveGuards.add(leaveOk);
@@ -155,10 +160,11 @@ export const VoiceRequest = {
         await stopAndWait();
         const t = text.value.trim();
         if (!t) { toast('Dictez ou écrivez d’abord ce que demande le client', 'error'); return; }
+        summarizing.value = true;
         const r = await POST('/documents/request-summary', { type: props.type, transcript: t, vehicle_id: props.vehicleId || null, mileage: props.mileage || null, lang: lang.value.slice(0, 2) });
         summary.value = r.summary;
         questions.value = r.questions || [];
-      } catch (e) { toast(e.message, 'error'); } finally { busy.value = false; }
+      } catch (e) { toast(e.message, 'error'); } finally { busy.value = false; summarizing.value = false; }
     };
     const apply = async (raw) => {
       if (busy.value) return;
@@ -172,7 +178,7 @@ export const VoiceRequest = {
       stop();
       emit('close');
     };
-    return { text, interim, listening, problem, busy, summary, questions, box, lang, LANGS, hasCurrent, mode, docName, micOk, micNote, state, clock, store, start, stop, summarize, apply, close };
+    return { text, interim, listening, problem, busy, summarizing, summary, questions, box, lang, LANGS, hasCurrent, mode, docName, micOk, micNote, state, clock, store, start, stop, summarize, apply, close };
   },
   template: `
   <Modal title="Écouter le client" wide @close="close">
@@ -208,7 +214,7 @@ export const VoiceRequest = {
     <template #foot>
       <template v-if="summary === null">
         <button class="btn" :disabled="busy || !text.trim()" @click="apply(true)">Mettre le texte tel quel</button>
-        <button class="btn primary" :disabled="busy || !text.trim() || !store.ai" @click="summarize"><Icon name="sparkles" class="ti"/> {{ busy ? 'L’IA rédige le résumé…' : 'Résumer pour le mécanicien' }}</button>
+        <button class="btn primary" :disabled="busy || !text.trim() || !store.ai" @click="summarize"><Icon name="sparkles" class="ti"/> {{ summarizing ? 'L’IA rédige le résumé…' : 'Résumer pour le mécanicien' }}</button>
       </template>
       <template v-else>
         <button class="btn" :disabled="busy" @click="summary = null"><Icon name="undo-2" class="ti"/> Revenir au texte dicté</button>
