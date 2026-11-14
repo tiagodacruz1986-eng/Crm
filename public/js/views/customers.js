@@ -56,7 +56,7 @@ export const CustomerList = {
           <td class="num" :class="{neg: c.balance > 0}">{{ c.balance ? money(c.balance) : '' }}</td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="👥" text="Aucun client"/>
+      <Empty v-if="!rows.length" icon="users" text="Aucun client"/>
     </div>
   </div>`,
 };
@@ -97,7 +97,7 @@ export const CustomerDetail = {
         <a class="btn" :href="'#/new/quote?customer_id=' + c.id">+ Devis</a>
         <a class="btn primary" :href="'#/new/order?customer_id=' + c.id">+ OR</a>
         <a class="btn" :href="'#/new/invoice?customer_id=' + c.id">+ Facture</a>
-        <button class="btn danger" @click="remove">🗑</button>
+        <button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div class="grid g4" v-if="!isNew" style="margin-bottom:16px">
@@ -129,15 +129,15 @@ export const CustomerDetail = {
       </div>
       <div v-if="!isNew">
         <div class="card">
-          <div class="card-head"><h2>🚗 Véhicules</h2><button class="btn sm" @click="newVehicle">+ Ajouter</button></div>
+          <div class="card-head"><h2>Véhicules</h2><button class="btn sm" @click="newVehicle">+ Ajouter</button></div>
           <div v-for="v in c.vehicles" class="list-item">
             <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate || '—' }}</span> {{ v.make }} {{ v.model }} <span class="muted small">{{ v.year }}</span></a>
             <span class="muted small">{{ v.mileage ? v.mileage.toLocaleString() + ' km' : '' }}</span>
           </div>
-          <Empty v-if="!c.vehicles.length" icon="🚗" text="Aucun véhicule"/>
+          <Empty v-if="!c.vehicles.length" icon="car" text="Aucun véhicule"/>
         </div>
         <div class="card">
-          <h2>📄 Historique</h2>
+          <h2>Historique</h2>
           <div v-for="d in c.documents" class="list-item">
             <a :href="'#/document/' + d.id">{{ DOC_TYPES_SHORT[d.type] }} <b>{{ d.number || 'brouillon' }}</b> <span class="muted small">{{ date(d.date) }} {{ d.plate }}</span></a>
             <span><Badge :status="d.status"/> {{ money(d.type === 'credit_note' ? -d.total : d.total) }}</span>
@@ -150,7 +150,7 @@ export const CustomerDetail = {
     <Modal v-if="vehicle" title="Véhicule" @close="vehicle = null" wide>
       <div class="form-grid">
         <label>Plaque<input v-model="vehicle.plate"></label>
-        <label class="full" style="grid-column: span 2">VIN (n° de châssis)<div style="display:flex;gap:6px"><input v-model="vehicle.vin" maxlength="17"><button class="btn" @click="vin">🔎 Décoder</button></div></label>
+        <label class="full" style="grid-column: span 2">VIN (n° de châssis)<div style="display:flex;gap:6px"><input v-model="vehicle.vin" maxlength="17"><button class="btn" @click="vin"><Icon name="search" class="ti"/> Décoder</button></div></label>
         <label>Marque<input v-model="vehicle.make"></label><label>Modèle<input v-model="vehicle.model"></label><label>Version<input v-model="vehicle.version"></label>
         <label>Carburant<select v-model="vehicle.fuel"><option></option><option>Essence</option><option>Diesel</option><option>Hybride</option><option>Hybride rechargeable</option><option>Électrique</option><option>GPL</option></select></label>
         <label>Année<input v-model.number="vehicle.year" type="number"></label>
@@ -187,7 +187,7 @@ export const VehicleList = {
           <td :class="{late: v.next_inspection && v.next_inspection < today}">{{ date(v.next_inspection) }}</td><td>{{ date(v.next_service_date) }}</td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="🚗" text="Aucun véhicule — ajoutez-les depuis la fiche client"/>
+      <Empty v-if="!rows.length" icon="car" text="Aucun véhicule — ajoutez-les depuis la fiche client"/>
     </div>
   </div>`,
 };
@@ -209,7 +209,7 @@ export const VehicleDetail = {
       <div class="btns">
         <a class="btn" :href="'#/new/quote?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ Devis</a>
         <a class="btn primary" :href="'#/new/order?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ OR</a>
-        <button class="btn danger" @click="remove">🗑</button>
+        <button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div class="grid g2">
@@ -217,7 +217,7 @@ export const VehicleDetail = {
         <h2>Fiche technique</h2>
         <div class="form-grid">
           <label>Plaque<input v-model="v.plate"></label>
-          <label class="full" style="grid-column: span 2">VIN<div style="display:flex;gap:6px"><input v-model="v.vin" maxlength="17"><button class="btn" @click="vin">🔎 Décoder</button></div></label>
+          <label class="full" style="grid-column: span 2">VIN<div style="display:flex;gap:6px"><input v-model="v.vin" maxlength="17"><button class="btn" @click="vin"><Icon name="search" class="ti"/> Décoder</button></div></label>
           <label>Marque<input v-model="v.make"></label><label>Modèle<input v-model="v.model"></label><label>Version<input v-model="v.version"></label>
           <label>Carburant<input v-model="v.fuel"></label><label>Année<input v-model.number="v.year" type="number"></label>
           <label>1ère immat.<input v-model="v.first_registration" type="date"></label><label>Kilométrage<input v-model.number="v.mileage" type="number"></label>
@@ -229,7 +229,7 @@ export const VehicleDetail = {
         <button class="btn primary" style="margin-top:12px" @click="save">Enregistrer</button>
       </div>
       <div class="card">
-        <h2>🕓 Historique d'entretien</h2>
+        <h2>Historique d'entretien</h2>
         <div class="timeline">
           <div v-for="h in v.history" class="tl-item">
             <div><a :href="'#/document/' + h.id"><b>{{ DOC_TYPES_SHORT[h.type] }} {{ h.number || '' }}</b></a> <span class="muted small">{{ date(h.date) }} <span v-if="h.mileage">· {{ h.mileage.toLocaleString() }} km</span></span> <Badge :status="h.status"/></div>
@@ -237,7 +237,7 @@ export const VehicleDetail = {
             <div class="muted small">{{ h.summary }}</div>
           </div>
         </div>
-        <Empty v-if="!v.history.length" icon="🛠️" text="Aucune intervention enregistrée"/>
+        <Empty v-if="!v.history.length" icon="hammer" text="Aucune intervention enregistrée"/>
       </div>
     </div>
     <Chatter model="vehicle" :record-id="v.id" style="margin-top:16px"/>

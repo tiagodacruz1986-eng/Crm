@@ -55,7 +55,7 @@ export const Home = {
       <div class="home-search"><Icon name="search"/><input ref="input" v-model="q" placeholder="Rechercher une application…" @keydown.enter="enter" @keydown.esc="q = ''"></div>
     </div>
     <div v-if="installHint" class="install-hint">
-      <span class="ih-ico">📲</span>
+      <span class="ih-ico"><Icon name="smartphone" class="ti"/></span>
       <div><b>Installez l'application sur ce téléphone</b><small>Icône sur l'écran d'accueil, plein écran, plus rapide.</small></div>
       <a class="btn sm primary" href="/installer.html">Installer</a>
       <button class="icon-btn" title="Plus tard" @click="hideHint"><Icon name="x"/></button>

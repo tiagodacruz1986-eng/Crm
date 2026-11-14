@@ -5,8 +5,8 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, date, store } from './api.js';
 
-const ICON = { text: '🔤', textarea: '📝', number: '🔢', date: '📅', checkbox: '☑️', select: '📋', file: '📎', button: '🔘' };
-const ACTION_ICON = { link: '🔗', email: '✉️', activity: '⏰', stamp: '✅' };
+const ICON = { text: 'type', textarea: 'notebook-pen', number: 'hash', date: 'calendar-days', checkbox: 'square-check', select: 'clipboard-list', file: 'paperclip', button: 'circle-dot' };
+const ACTION_ICON = { link: 'link', email: 'mail', activity: 'alarm-clock', stamp: 'circle-check' };
 const VALUE_KINDS = ['text', 'textarea', 'number', 'date', 'checkbox', 'select'];
 const fileSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' Mo' : Math.max(1, Math.round((n || 0) / 1024)) + ' ko');
 const safeLink = (u) => /^(https?:\/\/|mailto:|tel:)/i.test(u || '');
@@ -76,26 +76,26 @@ export const StudioDesigner = {
   template: `
   <div class="studio-designer" v-if="meta">
     <div v-for="(f, i) in fields" :key="f.id" class="st-item" :class="{ off: !f.active, cur: edit && edit.id === f.id }">
-      <span class="st-ico">{{ f.kind === 'button' ? ACTION_ICON[f.options.action] : ICON[f.kind] }}</span>
+      <span class="st-ico"><Icon :name="f.kind === 'button' ? ACTION_ICON[f.options.action] : ICON[f.kind]" class="ti"/></span>
       <div class="st-item-txt"><b>{{ f.label }}</b><div class="muted small">{{ describe(f) }}<span v-if="!f.active"> · masqué</span></div></div>
       <button class="icon-btn" title="Monter" :disabled="i === 0" @click="move(i, -1)">↑</button>
       <button class="icon-btn" title="Descendre" :disabled="i === fields.length - 1" @click="move(i, 1)">↓</button>
       <button class="btn sm" @click="open(f)">Modifier</button>
-      <button class="icon-btn" title="Supprimer" @click="remove(f)">🗑</button>
+      <button class="icon-btn" title="Supprimer" @click="remove(f)"><Icon name="trash-2" class="ti"/></button>
     </div>
     <p v-if="!fields.length" class="muted small">Aucun élément personnalisé sur la fiche « {{ info.label }} ». Ajoutez-en un ci-dessous.</p>
 
     <div v-if="!edit" class="st-add">
       <div class="muted small" style="margin-bottom:6px">Ajouter sur la fiche « {{ info.label }} » :</div>
       <div class="btns">
-        <button class="btn sm" @click="add('text')">🔤 Zone de texte</button>
-        <button class="btn sm" @click="add('textarea')">📝 Grande zone de texte</button>
-        <button class="btn sm" @click="add('file')">📎 Zone PDF</button>
-        <button class="btn sm" @click="add('button')">🔘 Bouton</button>
-        <button class="btn sm" @click="add('date')">📅 Date</button>
-        <button class="btn sm" @click="add('number')">🔢 Nombre</button>
-        <button class="btn sm" @click="add('checkbox')">☑️ Case à cocher</button>
-        <button class="btn sm" @click="add('select')">📋 Liste de choix</button>
+        <button class="btn sm" @click="add('text')"><Icon name="type" class="ti"/> Zone de texte</button>
+        <button class="btn sm" @click="add('textarea')"><Icon name="notebook-pen" class="ti"/> Grande zone de texte</button>
+        <button class="btn sm" @click="add('file')"><Icon name="paperclip" class="ti"/> Zone PDF</button>
+        <button class="btn sm" @click="add('button')"><Icon name="circle-dot" class="ti"/> Bouton</button>
+        <button class="btn sm" @click="add('date')"><Icon name="calendar-days" class="ti"/> Date</button>
+        <button class="btn sm" @click="add('number')"><Icon name="hash" class="ti"/> Nombre</button>
+        <button class="btn sm" @click="add('checkbox')"><Icon name="square-check" class="ti"/> Case à cocher</button>
+        <button class="btn sm" @click="add('select')"><Icon name="clipboard-list" class="ti"/> Liste de choix</button>
       </div>
     </div>
 
@@ -207,13 +207,13 @@ export const StudioZone = {
   <div v-if="data && (data.fields.length || admin)" class="card studio-zone no-print" :class="{ empty: !data.fields.length }">
     <div class="card-head" v-if="data.fields.length || admin">
       <h2 v-if="data.fields.length">Informations complémentaires</h2>
-      <span v-else class="muted small">✨ Ajoutez vos propres zones de texte, boutons et zones PDF sur la fiche « {{ data.target_label }} ».</span>
-      <button v-if="admin" class="btn sm" @click="design = true">⚙ Personnaliser</button>
+      <span v-else class="muted small"><Icon name="sparkles" class="ti"/> Ajoutez vos propres zones de texte, boutons et zones PDF sur la fiche « {{ data.target_label }} ».</span>
+      <button v-if="admin" class="btn sm" @click="design = true"><Icon name="settings" class="ti"/> Personnaliser</button>
     </div>
     <div v-if="buttons.length" class="btns st-buttons">
       <template v-for="b in buttons" :key="b.id">
-        <a v-if="b.options.action === 'link' && safeLink(b.href)" class="btn" :href="b.href" target="_blank" rel="noopener noreferrer" :title="b.help">{{ ACTION_ICON.link }} {{ b.label }}</a>
-        <button v-else-if="b.options.action !== 'link'" class="btn" :title="b.help" :disabled="b.options.action !== 'email' && !canWrite" @click="press(b)">{{ ACTION_ICON[b.options.action] }} {{ b.label }}</button>
+        <a v-if="b.options.action === 'link' && safeLink(b.href)" class="btn" :href="b.href" target="_blank" rel="noopener noreferrer" :title="b.help"><Icon :name="ACTION_ICON.link" class="ti"/> {{ b.label }}</a>
+        <button v-else-if="b.options.action !== 'link'" class="btn" :title="b.help" :disabled="b.options.action !== 'email' && !canWrite" @click="press(b)"><Icon :name="ACTION_ICON[b.options.action]" class="ti"/> {{ b.label }}</button>
       </template>
     </div>
     <div v-if="inputs.length" class="form-grid st-fields">
@@ -235,11 +235,11 @@ export const StudioZone = {
     </div>
     <div v-for="f in zones" :key="f.id" class="st-zone" @dragover.prevent @drop.prevent="drop(f, $event)">
       <div class="st-zone-head">
-        <div><b>📎 {{ f.label }}</b><div v-if="f.help" class="muted small">{{ f.help }}</div></div>
+        <div><b><Icon name="paperclip" class="ti"/> {{ f.label }}</b><div v-if="f.help" class="muted small">{{ f.help }}</div></div>
         <button v-if="canWrite" class="btn sm" :disabled="busy === f.id" @click="pick(f)">{{ busy === f.id ? 'Envoi…' : f.options.accept === 'any' ? '+ Ajouter un fichier' : '+ Ajouter un PDF' }}</button>
       </div>
       <div v-for="a in f.files" :key="a.id" class="st-file">
-        <a :href="'/api/attachment/' + a.id" target="_blank" rel="noopener">{{ a.mime === 'application/pdf' ? '📄' : '🖼️' }} {{ a.filename }}</a>
+        <a :href="'/api/attachment/' + a.id" target="_blank" rel="noopener"><Icon :name="a.mime === 'application/pdf' ? 'file-text' : 'image'" class="ti"/> {{ a.filename }}</a>
         <span class="muted small">{{ fileSize(a.size) }} · {{ date(a.created_at.slice(0, 10)) }}</span>
         <button v-if="canWrite" class="icon-btn" title="Retirer ce fichier" @click="removeFile(a)">✕</button>
       </div>
@@ -267,7 +267,7 @@ export const StudioPanel = {
   template: `
   <div class="card" v-if="meta">
     <div class="card-head"><h2>Personnalisation des fiches</h2><span class="small muted">comme « Studio » dans Odoo</span></div>
-    <p class="muted" style="margin-top:0">Ajoutez vos propres zones de texte, zones de dépôt de PDF et boutons sur les fiches. Ils apparaissent dans le bloc « Informations complémentaires » de chaque fiche, où vous trouvez aussi le bouton « ⚙ Personnaliser ».</p>
+    <p class="muted" style="margin-top:0">Ajoutez vos propres zones de texte, zones de dépôt de PDF et boutons sur les fiches. Ils apparaissent dans le bloc « Informations complémentaires » de chaque fiche, où vous trouvez aussi le bouton « <Icon name="settings" class="ti"/> Personnaliser ».</p>
     <div class="st-targets">
       <button v-for="t in meta.targets" :key="t.key" :class="{ on: target === t.key }" @click="target = t.key">{{ t.label }}<span v-if="t.count" class="badge b-blue">{{ t.count }}</span></button>
     </div>

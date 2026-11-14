@@ -91,6 +91,9 @@ label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--i
 .error { background: var(--b-red); color: var(--b-red-i); padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid rgba(251, 113, 133, .3); }
 kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 11px; color: var(--muted); font-family: inherit; }
 .icon { width: 18px; height: 18px; flex-shrink: 0; stroke-width: 1.8; }
+/* icône posée dans une phrase ou un bouton : à la taille du texte */
+.icon.ti { width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
+.empty-icon .icon.ti { width: 1em; height: 1em; stroke-width: 1.4; }
 
 /* ---------- Boutons ---------- */
 .btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); padding: 9px 15px; border-radius: var(--radius-sm); cursor: pointer; font: inherit; font-weight: 550; white-space: nowrap; transition: transform .12s, background .15s, border-color .15s, box-shadow .2s; backdrop-filter: blur(8px); }
@@ -1313,6 +1316,8 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
 :root:not([data-skin]) .tl-item::before { background: var(--brand); box-shadow: none; }
 :root:not([data-skin]) .live::before, :root:not([data-skin]) .live.over::before { box-shadow: none; }
 :root:not([data-skin]) .typing span { box-shadow: none; }
+:root:not([data-skin]) .live-steps .cur span { background: var(--accent); box-shadow: none; }
+:root:not([data-skin]) .empty-icon { filter: none; color: var(--line-strong); }
 
 /* Fenêtres, listes, messages */
 :root:not([data-skin]) .modal-bg { backdrop-filter: none; }

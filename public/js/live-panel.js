@@ -2,6 +2,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { GET, POST, DEL, act, toast } from './api.js';
 import { MailComposer } from './mail.js';
+// icône de chaque étape du suivi (le texte de l'étape vient du serveur)
+const STEP_ICON = { received: 'car', diagnosis: 'search', approval: 'pen-line', parts: 'package', repair: 'wrench', quality: 'circle-check', ready: 'flag' };
 
 export const LivePanel = {
   props: { docId: [Number, String] },
@@ -58,21 +60,21 @@ export const LivePanel = {
     };
     const when = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('fr-LU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const openMail = async () => { if (!link('customer')) await create('customer'); mail.value = true; };
-    return { d, text, isPublic, approval, upload, qr, mail, link, create, revoke, copy, localOnly, message, pct, setStage, send, sendFile, when, openMail, encodeURIComponent };
+    return { STEP_ICON, d, text, isPublic, approval, upload, qr, mail, link, create, revoke, copy, localOnly, message, pct, setStage, send, sendFile, when, openMail, encodeURIComponent };
   },
   template: `
   <div class="card live-panel no-print" v-if="d">
-    <div class="card-head"><h2 style="margin:0">📡 Suivi en direct</h2><span class="small"><b>{{ d.stages[d.stage_index].label }}</b> · {{ pct }}%</span></div>
+    <div class="card-head"><h2 style="margin:0">Suivi en direct</h2><span class="small"><b>{{ d.stages[d.stage_index].label }}</b> · {{ pct }}%</span></div>
     <div class="live-steps">
       <button v-for="(s, i) in d.stages" :class="{done: i < d.stage_index, cur: i === d.stage_index}" @click="setStage(s)" :title="s.label">
-        <span>{{ i < d.stage_index ? '✓' : s.icon }}</span><small>{{ s.label }}</small>
+        <span><Icon :name="i < d.stage_index ? 'check' : STEP_ICON[s.key] || 'circle-dot'" class="ti"/></span><small>{{ s.label }}</small>
       </button>
     </div>
     <div class="live-bar"><div :style="{width: pct + '%'}"></div></div>
 
     <div class="live-links">
-      <div v-for="[role, label, icon] in [['customer', 'Lien client', '👤'], ['mechanic', 'Lien mécanicien', '🔧']]" class="live-link">
-        <b>{{ icon }} {{ label }}</b>
+      <div v-for="[role, label, icon] in [['customer', 'Lien client', 'user'], ['mechanic', 'Lien mécanicien', 'wrench']]" class="live-link">
+        <b><Icon :name="icon" class="ti"/> {{ label }}</b>
         <template v-if="link(role)">
           <input :value="link(role).url" readonly style="margin-top:6px" @focus="$event.target.select()">
           <div class="btns" style="margin-top:6px">
@@ -82,7 +84,7 @@ export const LivePanel = {
             <button class="btn sm danger" @click="revoke(role)" title="Désactiver">✕</button>
           </div>
           <div v-if="role === 'customer'" class="btns" style="margin-top:6px">
-            <button class="btn sm" @click="openMail">✉️ E-mail</button>
+            <button class="btn sm" @click="openMail"><Icon name="mail" class="ti"/> E-mail</button>
             <a class="btn sm" :href="'https://wa.me/?text=' + encodeURIComponent(message)" target="_blank">WhatsApp</a>
             <a class="btn sm" :href="'sms:?&body=' + encodeURIComponent(message)">SMS</a>
           </div>
@@ -91,15 +93,15 @@ export const LivePanel = {
         <button v-else class="btn sm" style="margin-top:6px" @click="create(role)">Créer le lien</button>
       </div>
     </div>
-    <div v-if="localOnly" class="stock-warn" style="margin:8px 0">⚠ Ces liens ne fonctionnent que sur le réseau du garage. Pour que le client les ouvre depuis chez lui, renseignez l'adresse publique du logiciel (Paramètres → Atelier & factures).</div>
+    <div v-if="localOnly" class="stock-warn" style="margin:8px 0"><Icon name="triangle-alert" class="ti"/> Ces liens ne fonctionnent que sur le réseau du garage. Pour que le client les ouvre depuis chez lui, renseignez l'adresse publique du logiciel (Paramètres → Atelier & factures).</div>
 
     <div class="live-feed">
       <template v-for="p in d.posts" :key="p.id">
         <div v-if="p.kind === 'stage'" class="muted small" style="text-align:center;margin:6px 0">{{ p.body }} · {{ when(p.created_at) }}</div>
         <div v-else class="live-post" :class="[p.author_role, {private: !p.public, approval: p.kind === 'approval'}]">
-          <div class="small muted">{{ p.author_role === 'customer' ? '👤 Client' : p.author_name }} · {{ when(p.created_at) }}<span v-if="!p.public"> · 🔒 interne</span></div>
+          <div class="small muted">{{ p.author_role === 'customer' ? 'Client' : p.author_name }} · {{ when(p.created_at) }}<span v-if="!p.public"> · <Icon name="lock" class="ti"/> interne</span></div>
           <div v-if="p.kind === 'approval'"><b>Accord demandé :</b> {{ p.body }} — <b>{{ p.amount.toFixed(2) }} € TTC</b>
-            <span v-if="p.answer" :class="p.answer === 'accepted' ? 'pos' : 'neg'"> · {{ p.answer === 'accepted' ? '✅ accepté' : '❌ refusé' }}</span><span v-else class="muted"> · en attente</span></div>
+            <span v-if="p.answer" :class="p.answer === 'accepted' ? 'pos' : 'neg'"> · {{ p.answer === 'accepted' ? 'accepté' : 'refusé' }}</span><span v-else class="muted"> · en attente</span></div>
           <div v-else-if="p.body" style="white-space:pre-wrap">{{ p.body }}</div>
           <a v-if="p.media_type === 'image'" :href="'/api/live/' + docId + '/media/' + p.id" target="_blank"><img :src="'/api/live/' + docId + '/media/' + p.id" loading="lazy"></a>
           <video v-if="p.media_type === 'video'" :src="'/api/live/' + docId + '/media/' + p.id" controls preload="metadata"></video>
@@ -114,7 +116,7 @@ export const LivePanel = {
       <input v-if="approval.open" v-model.number="approval.amount" type="number" step="0.01" placeholder="Montant TTC" style="width:120px">
     </div>
     <div class="btns" style="margin-top:6px">
-      <label class="btn" title="Photo / vidéo">📷<input type="file" accept="image/*,video/*" multiple hidden @change="sendFile"></label>
+      <label class="btn" title="Photo / vidéo"><Icon name="camera" class="ti"/><input type="file" accept="image/*,video/*" multiple hidden @change="sendFile"></label>
       <input v-model="text" style="flex:1" :placeholder="approval.open ? 'Travaux proposés…' : 'Message au client / à l\\'atelier…'" @keydown.enter="text.trim() && send()">
       <button class="btn primary" :disabled="!text.trim() || (approval.open && !approval.amount)" @click="send">➤</button>
     </div>

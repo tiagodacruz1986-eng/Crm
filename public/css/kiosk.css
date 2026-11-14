@@ -90,7 +90,7 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-greet.out { background: #1e3a8a; }
 .k-greet h1 { font-size: 46px; margin: 10px 0 6px; color: #fff; }
 .k-greet p { font-size: 22px; margin: 4px 0; color: #fff; } .k-greet .k-muted { color: rgba(255, 255, 255, .8); font-size: 18px; }
-.k-greet-ico { font-size: 80px; animation: k-wave 1s ease-in-out 2; }
+.k-greet-ico { color: #fff; font-size: 80px; animation: k-wave 1s ease-in-out 2; }
 @keyframes k-wave { 50% { transform: rotate(18deg) scale(1.1); } }
 .k-fade-enter-active, .k-fade-leave-active { transition: opacity .3s; } .k-fade-enter-from, .k-fade-leave-to { opacity: 0; }
 @media (max-width: 600px) { .k-top { grid-template-columns: 1fr auto; } .k-when { display: none; } .k-hero h1 { font-size: 32px; } .k-big { width: 160px; height: 160px; } }

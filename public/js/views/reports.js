@@ -61,11 +61,11 @@ export const Reports = {
         <input type="month" v-model="month" @change="load" style="max-width:170px">
         <button class="btn sm" @click="thisMonth">Ce mois-ci</button><button class="btn sm" @click="lastMonth">Mois dernier</button>
         <select v-model.number="who" style="width:auto"><option :value="0">Toute l'équipe</option><option v-for="m in (rep ? rep.mechanics : [])" :key="m.id" :value="m.id">{{ m.name }}</option></select>
-        <button class="btn" @click="print">🖨️ Imprimer</button>
-        <button v-if="canSend" class="btn primary" @click="openSend">✉️ Envoyer par e-mail</button>
+        <button class="btn" @click="print"><Icon name="printer" class="ti"/> Imprimer</button>
+        <button v-if="canSend" class="btn primary" @click="openSend"><Icon name="mail" class="ti"/> Envoyer par e-mail</button>
       </div>
     </div>
-    <div v-if="error" class="card"><Empty icon="🗓️" :text="error"/></div>
+    <div v-if="error" class="card"><Empty icon="calendar-days" :text="error"/></div>
     <template v-else-if="rep">
       <div class="card">
         <div class="card-head"><h2 style="text-transform:capitalize">{{ one ? one.name + ' — ' : 'Atelier — ' }}{{ rep.label }}</h2>
@@ -94,7 +94,7 @@ export const Reports = {
               <td class="num"><b :class="{ 'wt-over': rep.totals.overruns }">{{ rep.totals.overruns }}</b></td>
             </tr></tfoot>
           </table></div>
-          <Empty v-if="!rep.mechanics.length" icon="🔧" text="Aucun mécanicien sur ce mois"/>
+          <Empty v-if="!rep.mechanics.length" icon="wrench" text="Aucun mécanicien sur ce mois"/>
         </template>
 
         <!-- Un mécanicien -->
@@ -118,7 +118,7 @@ export const Reports = {
               <td><span class="badge" :class="{ 'b-red': r.state === 'over', 'b-green': r.state === 'ok', 'b-gray': r.state === 'open' || r.state === 'unplanned', 'b-orange': r.state === 'check' }">{{ STATE[r.state] }}</span></td>
             </tr></tbody>
           </table></div>
-          <Empty v-else icon="⏱️" text="Aucune intervention chronométrée ce mois-ci"/>
+          <Empty v-else icon="timer" text="Aucune intervention chronométrée ce mois-ci"/>
         </template>
       </div>
 
@@ -151,7 +151,7 @@ export const Reports = {
         <div class="right small"><span :class="m.last && m.last.status !== 'sent' ? 'neg' : 'muted'">{{ lastLabel(m.last) }}</span>
           <div><button class="btn sm" :disabled="sending || !m.email || !m.active || !plan.mail_configured" @click="send({ mechanic: m.id })">Envoyer</button></div></div>
       </div>
-      <Empty v-if="!plan.mechanics.length" icon="🔧" text="Aucun mécanicien sur ce mois"/>
+      <Empty v-if="!plan.mechanics.length" icon="wrench" text="Aucun mécanicien sur ce mois"/>
       <h3 style="margin-top:16px">Le rapport de toute l'équipe</h3>
       <div v-for="r in plan.team" :key="r.email" class="list-item">
         <div><b>{{ r.name }}</b><div class="small muted">{{ r.email }}</div></div>

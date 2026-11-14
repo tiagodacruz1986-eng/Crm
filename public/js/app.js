@@ -80,7 +80,7 @@ const Login = {
       <label v-if="setup && store.setupCode">Code d'installation<input v-model="f.setup_code" required autocomplete="off" autocapitalize="characters" placeholder="XXXXX-XXXXX"><small class="muted">Sécurité : affiché dans le journal du serveur (<code>docker compose logs garage</code>).</small></label>
       <div class="error" v-if="err">{{ err }}</div>
       <button class="btn primary big">{{ setup ? 'Créer mon garage' : 'Se connecter' }}</button>
-      <a class="kiosk-link" href="/kiosk.html">🔧 Pointage mécaniciens (tablette atelier)</a>
+      <a class="kiosk-link" href="/kiosk.html"><Icon name="wrench" class="ti"/> Pointage mécaniciens (tablette atelier)</a>
     </form>
   </div>`,
 };
@@ -145,13 +145,13 @@ const GlobalSearch = {
       </div>
       <div class="search-results" v-if="r">
         <div v-if="r.vehicles.length" class="sr-group">Véhicules</div>
-        <div v-for="v in r.vehicles" class="sr" @click="open('/vehicle/' + v.id)">🚗 <b>{{ v.plate }}</b> {{ v.make }} {{ v.model }} <span class="muted">{{ v.customer_name }}</span></div>
+        <div v-for="v in r.vehicles" class="sr" @click="open('/vehicle/' + v.id)"><Icon name="car" class="ti"/> <b>{{ v.plate }}</b> {{ v.make }} {{ v.model }} <span class="muted">{{ v.customer_name }}</span></div>
         <div v-if="r.customers.length" class="sr-group">Clients</div>
-        <div v-for="c in r.customers" class="sr" @click="open('/customer/' + c.id)">👤 <b>{{ c.name }}</b> {{ c.company }} <span class="muted">{{ c.phone }} {{ c.city }}</span></div>
+        <div v-for="c in r.customers" class="sr" @click="open('/customer/' + c.id)"><Icon name="user" class="ti"/> <b>{{ c.name }}</b> {{ c.company }} <span class="muted">{{ c.phone }} {{ c.city }}</span></div>
         <div v-if="r.documents.length" class="sr-group">Documents</div>
-        <div v-for="d in r.documents" class="sr" @click="open('/document/' + d.id)">📄 {{ DOC_TYPES_SHORT[d.type] }} <b>{{ d.number || 'brouillon' }}</b> {{ d.customer_name }} <span class="muted">{{ money(d.total) }}</span></div>
+        <div v-for="d in r.documents" class="sr" @click="open('/document/' + d.id)"><Icon name="file-text" class="ti"/> {{ DOC_TYPES_SHORT[d.type] }} <b>{{ d.number || 'brouillon' }}</b> {{ d.customer_name }} <span class="muted">{{ money(d.total) }}</span></div>
         <div v-if="r.products.length" class="sr-group">Articles</div>
-        <div v-for="p in r.products" class="sr" @click="open('/product/' + p.id)">📦 <b>{{ p.ref }}</b> {{ p.name }} <span class="muted">stock {{ p.qty_on_hand }}</span></div>
+        <div v-for="p in r.products" class="sr" @click="open('/product/' + p.id)"><Icon name="package" class="ti"/> <b>{{ p.ref }}</b> {{ p.name }} <span class="muted">stock {{ p.qty_on_hand }}</span></div>
         <div v-if="!r.vehicles.length && !r.customers.length && !r.documents.length && !r.products.length" class="muted pad">Aucun résultat</div>
       </div>
     </div>
@@ -180,8 +180,8 @@ const Root = {
     onUnmounted(() => window.removeEventListener('unhandledrejection', onRejected));
     watch(() => route.path, () => { store.pageError = null; });
     const pageErr = computed(() => (store.pageError?.status === 404
-      ? { icon: '🔎', title: 'Fiche introuvable', text: "Cette fiche n'existe pas ou a été supprimée." }
-      : { icon: '⛔', title: 'Accès refusé', text: store.pageError?.message || '' }));
+      ? { icon: 'search', title: 'Fiche introuvable', text: "Cette fiche n'existe pas ou a été supprimée." }
+      : { icon: 'ban', title: 'Accès refusé', text: store.pageError?.message || '' }));
     const isActive = (n) => n.match === route.name && (!n.type || n.type === route.params.type);
     const logout = async () => { await POST('/auth/logout'); store.user = null; };
     const plusOpen = ref(false);
@@ -234,7 +234,7 @@ const Root = {
       navMode, setNav, app, appMenus, menuActive, userOpen, attOpen, att, checking, quickCheck, openAtt, canQuote, canOrder, ROLE_LABEL, retry };
   },
   template: `
-  <div v-if="store.loading" class="boot">🔧</div>
+  <div v-if="store.loading" class="boot"><Icon name="wrench" class="ti"/></div>
   <div v-else-if="store.offline" class="login-bg">
     <div class="login-card offline-card">
       <div class="login-logo"><Icon name="monitor-smartphone" size="34"/></div>
@@ -303,9 +303,9 @@ const Root = {
         </div>
       </header>
       <div class="content">
-        <div v-if="denied" class="card page-error"><div class="empty"><div class="empty-icon">⛔</div><div><b>Accès refusé</b><br>Vous n'avez pas le droit d'ouvrir cette page. Demandez l'accès au gérant (Paramètres → Utilisateurs).</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
+        <div v-if="denied" class="card page-error"><div class="empty"><div class="empty-icon"><Icon name="ban" class="ti"/></div><div><b>Accès refusé</b><br>Vous n'avez pas le droit d'ouvrir cette page. Demandez l'accès au gérant (Paramètres → Utilisateurs).</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
         <template v-else>
-          <div v-if="store.pageError" class="card page-error"><div class="empty"><div class="empty-icon">{{ pageErr.icon }}</div><div><b>{{ pageErr.title }}</b><br>{{ pageErr.text }}</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
+          <div v-if="store.pageError" class="card page-error"><div class="empty"><div class="empty-icon"><Icon :name="pageErr.icon" class="ti"/></div><div><b>{{ pageErr.title }}</b><br>{{ pageErr.text }}</div><a class="btn" href="#/apps" style="margin-top:12px">Retour aux applications</a></div></div>
           <component :is="view" :key="route.path"/>
         </template>
       </div>
@@ -322,8 +322,8 @@ const Root = {
     </nav>
     <div v-if="plusOpen" class="plus-menu" @click="plusOpen = false">
       <div>
-        <a v-if="canOrder" href="#/new/order">🔧 Ordre de réparation</a><a v-if="canQuote" href="#/new/quote">📝 Devis</a><a v-if="canQuote" href="#/new/invoice">🧾 Facture</a>
-        <a v-if="can('contacts', 'user')" href="#/customer/new">👤 Client</a><a v-if="can('achats')" href="#/purchases">📥 Facture fournisseur</a><a href="#/activities">⏰ Activité</a>
+        <a v-if="canOrder" href="#/new/order"><Icon name="wrench" class="ti"/> Ordre de réparation</a><a v-if="canQuote" href="#/new/quote"><Icon name="notebook-pen" class="ti"/> Devis</a><a v-if="canQuote" href="#/new/invoice"><Icon name="receipt" class="ti"/> Facture</a>
+        <a v-if="can('contacts', 'user')" href="#/customer/new"><Icon name="user" class="ti"/> Client</a><a v-if="can('achats')" href="#/purchases"><Icon name="inbox" class="ti"/> Facture fournisseur</a><a href="#/activities"><Icon name="alarm-clock" class="ti"/> Activité</a>
       </div>
     </div>
     <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false"></div>

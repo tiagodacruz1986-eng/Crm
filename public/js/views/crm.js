@@ -48,7 +48,7 @@ export const Crm = {
       over.value = null; dragging.value = null;
       if (!l || l.stage_id === stage.id) return;
       l.stage_id = stage.id;
-      await act(() => POST(`/crm/leads/${l.id}/move`, { stage_id: stage.id }), stage.is_won ? '🏆 Opportunité gagnée !' : null);
+      await act(() => POST(`/crm/leads/${l.id}/move`, { stage_id: stage.id }), stage.is_won ? 'Opportunité gagnée !' : null);
       load();
     };
     const moveTo = async (l, dir) => {
@@ -82,7 +82,7 @@ export const Crm = {
       if (close) edit.value = null; else edit.value = await GET('/crm/leads/' + e.id);
       load();
     };
-    const won = async () => { await save(false, true); edit.value = await act(() => POST(`/crm/leads/${edit.value.id}/won`), '🏆 Bravo, opportunité gagnée !'); load(); };
+    const won = async () => { await save(false, true); edit.value = await act(() => POST(`/crm/leads/${edit.value.id}/won`), 'Bravo, opportunité gagnée !'); load(); };
     const askLost = () => { lost.value = { reason: meta.value.lost_reasons[0], other: '' }; };
     const confirmLost = async () => {
       const reason = lost.value.reason === 'Autre' && lost.value.other ? lost.value.other : lost.value.reason;
@@ -156,12 +156,12 @@ export const Crm = {
         <tbody><tr v-for="l in leads" :key="l.id" class="click" @click="open(l.id)">
           <td><div><b>{{ l.name }}</b><div class="muted small">{{ date(l.created_at) }}</div></div></td><td><div>{{ l.contact_name || l.customer_name }}<div class="muted small">{{ l.phone }} {{ l.email }}</div></div></td>
           <td><Badge :label="meta.sources[l.source]" :color="SOURCE_COLORS[l.source] || 'gray'"/></td>
-          <td>{{ l.status === 'won' ? '🏆 Gagnée' : l.status === 'lost' ? 'Perdue' : (meta.stages.find(s => s.id === l.stage_id) || {}).name }}</td>
+          <td>{{ l.status === 'won' ? 'Gagnée' : l.status === 'lost' ? 'Perdue' : (meta.stages.find(s => s.id === l.stage_id) || {}).name }}</td>
           <td class="num">{{ money(l.expected_revenue) }}</td><td class="num">{{ l.probability }} %</td><td>{{ l.user_name }}</td>
           <td v-if="view === 'lost'">{{ l.lost_reason }}</td><td v-if="view === 'lost'"><button class="btn sm" @click.stop="restore(l)"><Icon name="undo-2"/> Restaurer</button></td>
         </tr></tbody>
       </table>
-      <Empty v-if="!leads.length" icon="🤝" :text="view === 'lost' ? 'Aucune opportunité perdue.' : 'Aucune opportunité.'"/>
+      <Empty v-if="!leads.length" icon="handshake" :text="view === 'lost' ? 'Aucune opportunité perdue.' : 'Aucune opportunité.'"/>
     </div>
 
     <div v-else-if="view === 'stats' && stats" class="grid g3">
@@ -172,7 +172,7 @@ export const Crm = {
         <div class="card-head"><h2>Taux de réussite : {{ stats.win_rate === null ? '—' : stats.win_rate + ' %' }}</h2></div>
         <h3 class="sec-title">Par source</h3>
         <div v-for="s in stats.by_source" :key="s.source" class="src-row"><span>{{ s.label }}</span><div class="bar"><i :style="{ width: (s.n / Math.max(...stats.by_source.map(x => x.n)) * 100) + '%' }"></i></div><b>{{ s.n }}</b><span class="muted small">{{ s.won || 0 }} gagnée(s)</span></div>
-        <Empty v-if="!stats.by_source.length" icon="📊" text="Pas encore de données."/>
+        <Empty v-if="!stats.by_source.length" icon="chart-column" text="Pas encore de données."/>
       </div>
     </div>
 
@@ -180,7 +180,7 @@ export const Crm = {
       <div v-if="edit.id" class="crm-stagebar">
         <button v-for="s in meta.stages" :key="s.id" :class="{ on: s.id === edit.stage_id && edit.status !== 'lost' }" @click="edit.stage_id = s.id; edit.probability = s.probability">{{ s.name }}</button>
       </div>
-      <div v-if="edit.status === 'won'" class="ribbon won">🏆 GAGNÉE</div>
+      <div v-if="edit.status === 'won'" class="ribbon won"><Icon name="trophy" class="ti"/> GAGNÉE</div>
       <div v-if="edit.status === 'lost'" class="ribbon lost">PERDUE · {{ edit.lost_reason }}</div>
       <div class="form-grid">
         <label class="full">Opportunité<input v-model="edit.name" placeholder="Ex. : Distribution + pompe à eau Golf 7"></label>
@@ -197,8 +197,8 @@ export const Crm = {
         <label class="full">Notes<textarea v-model="edit.description" rows="3"></textarea></label>
       </div>
       <p v-if="edit.customer_name || edit.quote_number" class="small">
-        <span v-if="edit.customer_name">👤 Client : <a :href="'#/customer/' + edit.customer_id">{{ edit.customer_name }}</a></span>
-        <span v-if="edit.quote_number"> · 📝 Devis : <a :href="'#/document/' + edit.quote_id">{{ edit.quote_number }}</a> ({{ money(edit.quote_total) }})</span>
+        <span v-if="edit.customer_name"><Icon name="user" class="ti"/> Client : <a :href="'#/customer/' + edit.customer_id">{{ edit.customer_name }}</a></span>
+        <span v-if="edit.quote_number"> · <Icon name="notebook-pen" class="ti"/> Devis : <a :href="'#/document/' + edit.quote_id">{{ edit.quote_number }}</a> ({{ money(edit.quote_total) }})</span>
       </p>
       <Chatter v-if="edit.id" model="lead" :record-id="edit.id" style="margin-top:12px"/>
       <template #foot>

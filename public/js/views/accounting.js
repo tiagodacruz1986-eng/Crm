@@ -57,7 +57,7 @@ export const Accounting = {
   <div>
     <div class="page-head">
       <div><h1>Comptabilité</h1><div class="sub">Les écritures sont générées automatiquement à chaque facture, achat et paiement.</div></div>
-      <div class="btns"><ModuleTools module="comptabilite"/><button class="btn" @click="newOd">+ Écriture manuelle (OD)</button><a class="btn" :href="exportUrl">⬇ Export pour la fiduciaire (CSV)</a></div>
+      <div class="btns"><ModuleTools module="comptabilite"/><button class="btn" @click="newOd">+ Écriture manuelle (OD)</button><a class="btn" :href="exportUrl"><Icon name="download" class="ti"/> Export pour la fiduciaire (CSV)</a></div>
     </div>
     <div class="toolbar">
       <input type="date" v-model="p.from" @change="load"> → <input type="date" v-model="p.to" @change="load">
@@ -79,7 +79,7 @@ export const Accounting = {
             <td class="small">{{ l.label }}</td><td class="num">{{ l.debit ? money(l.debit) : '' }}</td><td class="num">{{ l.credit ? money(l.credit) : '' }}</td>
           </tr></template></tbody>
         </table></div>
-        <Empty v-if="!data.length" icon="📚" text="Aucune écriture sur la période"/>
+        <Empty v-if="!data.length" icon="book-open" text="Aucune écriture sur la période"/>
       </template>
 
       <template v-if="tab==='balance'">
@@ -133,7 +133,7 @@ export const Accounting = {
           <thead><tr><th>Facture</th><th>Client</th><th>Date</th><th>Échéance</th><th class="num">Retard</th><th class="num">Reste dû</th><th></th></tr></thead>
           <tbody><tr v-for="r in data"><td><a :href="'#/document/' + r.id"><b>{{ r.number }}</b></a></td><td>{{ r.customer_name }}<div class="muted small">{{ r.phone }} {{ r.email }}</div></td><td>{{ date(r.date) }}</td><td>{{ date(r.due_date) }}</td>
             <td class="num" :class="{late: r.days_late > 0}">{{ r.days_late > 0 ? r.days_late + ' j' : '' }}</td><td class="num strong">{{ money(r.residual) }}</td>
-            <td><a class="btn sm" :href="'#/office?agent=secretariat&ask=' + encodeURIComponent('Rédige une relance de paiement ' + (r.days_late > 30 ? 'ferme' : 'courtoise') + ' pour la facture ' + r.number + ' de ' + r.customer_name + ' (reste dû ' + money(r.residual) + ', ' + r.days_late + ' jours de retard).')">✉️ Relance IA</a></td></tr></tbody>
+            <td><a class="btn sm" :href="'#/office?agent=secretariat&ask=' + encodeURIComponent('Rédige une relance de paiement ' + (r.days_late > 30 ? 'ferme' : 'courtoise') + ' pour la facture ' + r.number + ' de ' + r.customer_name + ' (reste dû ' + money(r.residual) + ', ' + r.days_late + ' jours de retard).')"><Icon name="mail" class="ti"/> Relance IA</a></td></tr></tbody>
           <tfoot><tr><td colspan="5">Total</td><td class="num">{{ money(data.reduce((s, r) => s + r.residual, 0)) }}</td><td></td></tr></tfoot>
         </table></div>
       </template>

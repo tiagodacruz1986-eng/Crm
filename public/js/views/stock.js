@@ -44,7 +44,7 @@ export const ProductList = {
   <div>
     <div class="page-head">
       <div><h1>Articles & stock</h1><div class="sub">Valeur du stock : {{ money(valuation.purchase_value) }} (prix d'achat) · {{ valuation.items || 0 }} références en stock</div></div>
-      <div class="btns"><ModuleTools module="stock"/><button class="btn" @click="reorder">🔄 Commander le stock bas</button><button class="btn primary" @click="go('/product/new')">+ Nouvel article</button></div>
+      <div class="btns"><ModuleTools module="stock"/><button class="btn" @click="reorder"><Icon name="refresh-cw" class="ti"/> Commander le stock bas</button><button class="btn primary" @click="go('/product/new')">+ Nouvel article</button></div>
     </div>
     <div class="tabs"><button :class="{active: tab==='items'}" @click="tab='items'">Articles</button><button :class="{active: tab==='moves'}" @click="tab='moves'; loadMoves()">Mouvements de stock</button></div>
     <div class="card" v-if="tab==='items'">
@@ -58,7 +58,7 @@ export const ProductList = {
           <td class="num">{{ p.sale_price ? Math.round(100 * (p.sale_price - p.purchase_price) / p.sale_price) + ' %' : '' }}</td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="📦" text="Aucun article"/>
+      <Empty v-if="!rows.length" icon="package" text="Aucun article"/>
     </div>
     <div class="card" v-else>
       <div class="table-wrap"><table>
@@ -91,7 +91,7 @@ export const ProductDetail = {
   <div v-if="p">
     <div class="page-head">
       <h1>{{ isNew ? 'Nouvel article' : (p.ref ? p.ref + ' — ' : '') + p.name }}</h1>
-      <div class="btns" v-if="!isNew"><button class="btn" v-if="!p.is_service" @click="adj = {qty: p.qty_on_hand, note: 'Inventaire'}">📋 Inventaire</button><button class="btn danger" @click="remove">🗑</button></div>
+      <div class="btns" v-if="!isNew"><button class="btn" v-if="!p.is_service" @click="adj = {qty: p.qty_on_hand, note: 'Inventaire'}"><Icon name="clipboard-list" class="ti"/> Inventaire</button><button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button></div>
     </div>
     <div class="grid g2">
       <div class="card">
@@ -149,7 +149,7 @@ export const PurchaseList = {
       let last;
       try {
         for (const [i, f] of files.entries()) {
-          busy.text = `🤖 L'IA encode ${f.name} (${i + 1}/${files.length})…`;
+          busy.text = `L'IA encode ${f.name} (${i + 1}/${files.length})…`;
           last = await act(() => uploadFile('/bills/upload', f));
           if (last.warnings?.length) toast(last.warnings[0], last.warnings[0].startsWith('⚠') ? 'error' : 'ok');
         }
@@ -158,7 +158,7 @@ export const PurchaseList = {
     };
     const drop = (e) => { drag.value = false; send(e.dataTransfer.files); };
     const checkMail = async () => {
-      busy.on = true; busy.text = '📬 Lecture de la boîte e-mail des factures…';
+      busy.on = true; busy.text = 'Lecture de la boîte e-mail des factures…';
       try { const r = await act(() => POST('/bills/inbox/check')); toast(`${r.emails} e-mail(s) lu(s), ${r.bills} facture(s) encodée(s)`); filter.value = 'review'; load(); }
       finally { busy.on = false; }
     };
@@ -170,27 +170,27 @@ export const PurchaseList = {
     <div class="dropzone" :class="{drag}" @dragover.prevent="drag = true" @dragleave="drag = false" @drop.prevent="drop">
       <div v-if="busy.on" class="dz-busy"><span class="typing"><span></span><span></span><span></span></span> {{ busy.text }}</div>
       <template v-else>
-        <div style="font-size:30px">📥</div>
+        <div style="font-size:30px"><Icon name="inbox" class="ti"/></div>
         <div><b>Déposez ici vos factures fournisseurs</b> (PDF ou photo) — l'IA les encode et garde l'original en pièce jointe.</div>
         <div class="btns" style="justify-content:center;margin-top:10px">
-          <label class="btn primary">📎 Choisir des fichiers<input type="file" accept="application/pdf,image/*" multiple hidden @change="send($event.target.files); $event.target.value = ''"></label>
-          <button v-if="inbox && inbox.host" class="btn" @click="checkMail">📬 Vérifier la boîte « factures »</button>
-          <a v-else class="btn" href="#/settings?tab=mail">📬 Configurer la réception par e-mail</a>
+          <label class="btn primary"><Icon name="paperclip" class="ti"/> Choisir des fichiers<input type="file" accept="application/pdf,image/*" multiple hidden @change="send($event.target.files); $event.target.value = ''"></label>
+          <button v-if="inbox && inbox.host" class="btn" @click="checkMail"><Icon name="inbox" class="ti"/> Vérifier la boîte « factures »</button>
+          <a v-else class="btn" href="#/settings?tab=mail"><Icon name="inbox" class="ti"/> Configurer la réception par e-mail</a>
         </div>
         <div class="muted small" v-if="inbox && inbox.user">Transférez vos factures à <b>{{ inbox.user }}</b>{{ inbox.enabled ? ' — vérification automatique toutes les ' + inbox.interval + ' min' : '' }}<span v-if="inbox.status"> · dernière vérification {{ datetime(inbox.status.at) }}<span v-if="inbox.status.error" class="neg"> ({{ inbox.status.error }})</span></span></div>
       </template>
     </div>
-    <div class="tabs"><button :class="{active: filter==='all'}" @click="filter='all'; load()">Tous les achats</button><button :class="{active: filter==='review'}" @click="filter='review'; load()">🤖 À vérifier <span v-if="toReview || filter==='review'" class="badge b-orange">{{ filter==='review' ? rows.length : toReview }}</span></button></div>
+    <div class="tabs"><button :class="{active: filter==='all'}" @click="filter='all'; load()">Tous les achats</button><button :class="{active: filter==='review'}" @click="filter='review'; load()"><Icon name="bot" class="ti"/> À vérifier <span v-if="toReview || filter==='review'" class="badge b-orange">{{ filter==='review' ? rows.length : toReview }}</span></button></div>
     <div class="card">
       <div class="table-wrap"><table>
         <thead><tr><th>N°</th><th>Date</th><th>Fournisseur</th><th>Réf. facture</th><th>Statut</th><th class="num">Total TTC</th><th class="num">Reste à payer</th></tr></thead>
         <tbody><tr v-for="p in rows" class="click" @click="go('/purchase/' + p.id)">
-          <td><b>{{ p.number }}</b> <span v-if="p.attachment_count" title="Document joint">📎</span></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name || '—' }}</td><td>{{ p.supplier_ref }}</td>
-          <td><Badge :status="p.status"/> <span v-if="p.review === 'to_review' && !p.posted" class="badge b-orange">🤖 à vérifier</span></td>
+          <td><b>{{ p.number }}</b> <span v-if="p.attachment_count" title="Document joint"><Icon name="paperclip" class="ti"/></span></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name || '—' }}</td><td>{{ p.supplier_ref }}</td>
+          <td><Badge :status="p.status"/> <span v-if="p.review === 'to_review' && !p.posted" class="badge b-orange"><Icon name="bot" class="ti"/> à vérifier</span></td>
           <td class="num">{{ money(p.total) }}</td><td class="num">{{ p.posted && p.status !== 'paid' ? money(p.total - p.amount_paid) : '' }}</td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="🛒" :text="filter === 'review' ? 'Aucune facture à vérifier 👍' : 'Aucun achat'"/>
+      <Empty v-if="!rows.length" icon="shopping-cart" :text="filter === 'review' ? 'Aucune facture à vérifier' : 'Aucun achat'"/>
     </div>
   </div>`,
 };
@@ -247,8 +247,8 @@ export const PurchaseEditor = {
     const canCancelPay = can('banque', 'manager');
     // Bandeau d'une facture déposée : encodée par l'IA, ou à encoder à la main quand l'IA n'a rien pu lire (pas de clé)
     const banner = computed(() => (p.value?.lines?.length
-      ? { title: "🤖 Encodée automatiquement par l'IA", hint: 'Vérifiez' }
-      : { title: '📥 Facture déposée — à encoder', hint: 'Saisissez le fournisseur et les lignes' }));
+      ? { title: "Encodée automatiquement par l'IA", hint: 'Vérifiez' }
+      : { title: 'Facture déposée — à encoder', hint: 'Saisissez le fournisseur et les lignes' }));
     const cancelPay = async (x) => {
       if (!confirm(`Annuler le paiement de ${money(x.amount)} du ${date(x.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
       await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); load();
@@ -261,12 +261,12 @@ export const PurchaseEditor = {
     <div class="page-head">
       <h1>Achat {{ p.number || '(nouveau)' }} <Badge v-if="!isNew" :status="p.status"/></h1>
       <div class="btns">
-        <button class="btn" v-if="!p.posted" @click="save">💾 Enregistrer</button>
-        <button class="btn" v-if="!isNew && p.status==='draft'" @click="action('order', 'Marqué commandé')">📤 Commandé</button>
-        <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="action('receive', 'Marchandise réceptionnée — stock mis à jour')">📥 Réceptionner</button>
-        <button class="btn success" v-if="!isNew && !p.posted" @click="action('post', 'Facture fournisseur comptabilisée')">✔ Comptabiliser la facture</button>
-        <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true">💶 Payer</button>
-        <button class="btn danger" v-if="!isNew && !p.posted" @click="remove">🗑</button>
+        <button class="btn" v-if="!p.posted" @click="save"><Icon name="save" class="ti"/> Enregistrer</button>
+        <button class="btn" v-if="!isNew && p.status==='draft'" @click="action('order', 'Marqué commandé')"><Icon name="send" class="ti"/> Commandé</button>
+        <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="action('receive', 'Marchandise réceptionnée — stock mis à jour')"><Icon name="inbox" class="ti"/> Réceptionner</button>
+        <button class="btn success" v-if="!isNew && !p.posted" @click="action('post', 'Facture fournisseur comptabilisée')"><Icon name="check" class="ti"/> Comptabiliser la facture</button>
+        <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true"><Icon name="banknote" class="ti"/> Payer</button>
+        <button class="btn danger" v-if="!isNew && !p.posted" @click="remove"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div :class="{'bill-layout': viewer}">
@@ -275,7 +275,7 @@ export const PurchaseEditor = {
       <div><b>{{ banner.title }}</b>{{ p.email_from ? ' — reçue de ' + p.email_from : '' }}. {{ banner.hint }} avec le document original{{ viewer ? ' à droite' : '' }}, puis comptabilisez.</div>
       <div v-for="w in (p.ai_notes || '').split('\\n').filter(Boolean)" class="small" :class="{neg: w.startsWith('⚠')}">{{ w }}</div>
       <div v-if="p.ai_total != null" class="small">Total TTC lu sur la facture : <b>{{ money(p.ai_total) }}</b> <span :class="Math.abs(p.ai_total - totals.total) < 0.05 ? 'pos' : 'neg'">{{ Math.abs(p.ai_total - totals.total) < 0.05 ? '✓ identique' : '≠ total calculé ' + money(totals.total) }}</span></div>
-      <div class="btns" style="margin-top:8px"><button class="btn sm success" @click="reviewed">✔ Vérifiée</button><button class="btn sm" :disabled="aiBusy" @click="reanalyze">{{ aiBusy ? '🤖 Analyse…' : '🔄 Relancer l\\'IA' }}</button></div>
+      <div class="btns" style="margin-top:8px"><button class="btn sm success" @click="reviewed"><Icon name="check" class="ti"/> Vérifiée</button><button class="btn sm" :disabled="aiBusy" @click="reanalyze">{{ aiBusy ? 'Analyse…' : 'Relancer l\\'IA' }}</button></div>
     </div>
     <div class="card">
       <div class="form-grid">
@@ -310,10 +310,10 @@ export const PurchaseEditor = {
       </div>
     </div>
     <div class="card" v-if="!isNew">
-      <div class="card-head"><h2 style="margin:0">📎 Pièces jointes</h2><label class="btn sm">+ Ajouter<input type="file" multiple hidden @change="addFiles"></label></div>
+      <div class="card-head"><h2 style="margin:0">Pièces jointes</h2><label class="btn sm">+ Ajouter<input type="file" multiple hidden @change="addFiles"></label></div>
       <div v-for="f in files" class="list-item small">
-        <a href="#" @click.prevent="viewer = f" :class="{strong: viewer && viewer.id === f.id}">{{ /pdf/.test(f.mime) ? '📄' : /image/.test(f.mime) ? '🖼️' : '📎' }} {{ f.filename }}</a>
-        <span class="btns"><a class="btn sm" :href="'/api/attachment/' + f.id + '?download=1'">⬇</a><button class="btn sm danger" @click="removeFile(f)">✕</button></span>
+        <a href="#" @click.prevent="viewer = f" :class="{strong: viewer && viewer.id === f.id}"><Icon :name="/pdf/.test(f.mime) ? 'file-text' : /image/.test(f.mime) ? 'image' : 'paperclip'" class="ti"/> {{ f.filename }}</a>
+        <span class="btns"><a class="btn sm" :href="'/api/attachment/' + f.id + '?download=1'"><Icon name="download" class="ti"/></a><button class="btn sm danger" @click="removeFile(f)">✕</button></span>
       </div>
       <div v-if="!files.length" class="muted small">Aucun document. Ajoutez la facture originale (PDF ou photo).</div>
     </div>
@@ -352,7 +352,7 @@ export const SupplierList = {
         <thead><tr><th>Nom</th><th>Contact</th><th>IBAN</th><th>Compte</th><th class="num">À payer</th></tr></thead>
         <tbody><tr v-for="s in rows" class="click" @click="edit = {...s}"><td><b>{{ s.name }}</b></td><td>{{ s.phone }} <span class="muted small">{{ s.email }}</span></td><td class="small">{{ s.iban }}</td><td>{{ s.default_account }}</td><td class="num">{{ s.balance ? money(s.balance) : '' }}</td></tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="🏭" text="Aucun fournisseur"/>
+      <Empty v-if="!rows.length" icon="factory" text="Aucun fournisseur"/>
     </div>
     <Modal v-if="edit" :title="edit.id ? edit.name : 'Nouveau fournisseur'" @close="edit = null" wide>
       <div class="form-grid">
@@ -363,7 +363,7 @@ export const SupplierList = {
         <label>Compte de charge par défaut<select v-model="edit.default_account"><option v-for="a in accounts" :value="a.code">{{ a.code }} {{ a.name }}</option></select></label>
         <label class="full">Notes<textarea v-model="edit.notes"></textarea></label>
       </div>
-      <template #foot><button v-if="edit.id" class="btn danger" style="margin-right:auto" @click="remove">Supprimer</button><button v-if="edit.id" class="btn" @click="mailTo = edit.id">✉️ E-mail</button><button class="btn primary" :disabled="!edit.name" @click="save">Enregistrer</button></template>
+      <template #foot><button v-if="edit.id" class="btn danger" style="margin-right:auto" @click="remove">Supprimer</button><button v-if="edit.id" class="btn" @click="mailTo = edit.id"><Icon name="mail" class="ti"/> E-mail</button><button class="btn primary" :disabled="!edit.name" @click="save">Enregistrer</button></template>
     </Modal>
     <MailComposer v-if="mailTo" model="supplier" :record-id="mailTo" @close="mailTo = null"/>
   </div>`,

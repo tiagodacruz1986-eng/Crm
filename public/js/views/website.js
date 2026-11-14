@@ -3,7 +3,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { GET, PUT, POST, act, toast, store } from '../api.js';
 import { can } from '../apps.js';
 
-const ICON = { hero: '🏁', services: '🛠️', promo: '🎯', about: '🏡', reviews: '⭐', gallery: '🖼️', faq: '❓', hours: '🕘', contact: '✉️' };
+const ICON = { hero: 'flag', services: 'wrench', promo: 'target', about: 'house', reviews: 'star', gallery: 'image', faq: 'circle-help', hours: 'clock', contact: 'mail' };
 const NEW = {
   hero: () => ({ title: 'Titre accrocheur', subtitle: 'Sous-titre', cta_label: 'Prendre rendez-vous', image: '' }),
   services: () => ({ title: 'Nos services', items: [{ icon: '🛠️', name: 'Service', text: 'Description', price: '' }] }),
@@ -72,7 +72,7 @@ export const Website = {
     const togglePublish = async () => {
       const next = !cfg.value.published;
       if (next && !confirm('Publier le site ? Il sera visible par tout le monde à l\'adresse indiquée.')) return;
-      const r = await act(() => PUT('/website', { published: next }), next ? '🚀 Site publié !' : 'Site dépublié');
+      const r = await act(() => PUT('/website', { published: next }), next ? 'Site publié !' : 'Site dépublié');
       ready = false; cfg.value = { ...cfg.value, published: r.published }; nextTick(() => { ready = true; });
       preview();
     };
@@ -92,7 +92,7 @@ export const Website = {
         ready = false; cfg.value = r.config; nextTick(() => { ready = true; });
         await preview();
         gen.open = false;
-        toast('✨ Textes rédigés par l\'IA — relisez-les avant de publier');
+        toast('Textes rédigés par l\'IA — relisez-les avant de publier');
       } catch (e) { toast(e.message, 'error'); } finally { gen.busy = false; }
     };
     const copy = () => { navigator.clipboard?.writeText(url.value); toast('Adresse copiée'); };
@@ -115,7 +115,7 @@ export const Website = {
       <h3 class="sec-title">Blocs de la page</h3>
       <div class="block-list">
         <div v-for="(b, i) in cfg.blocks" :key="b.id" class="block-item" :class="{ on: sel === b.id, off: b.hidden }" @click="sel = b.id">
-          <span class="bi-ico">{{ ICON[b.type] }}</span>
+          <span class="bi-ico"><Icon :name="ICON[b.type]" class="ti"/></span>
           <span class="bi-name"><b>{{ types[b.type] }}</b><small>{{ b.title }}</small></span>
           <span class="bi-acts" @click.stop>
             <button class="icon-btn" title="Monter" @click="move(i, -1)"><Icon name="arrow-up"/></button>
@@ -128,7 +128,7 @@ export const Website = {
       <div class="btns" style="margin-top:8px"><select v-model="addType" style="flex:1"><option value="">+ Ajouter un bloc…</option><option v-for="(l, k) in types" :value="k">{{ ICON[k] }} {{ l }}</option></select><button class="btn sm" :disabled="!addType" @click="add">Ajouter</button></div>
 
       <template v-if="block">
-        <h3 class="sec-title block-editor-title">{{ ICON[block.type] }} {{ types[block.type] }}</h3>
+        <h3 class="sec-title block-editor-title">{{ types[block.type] }}</h3>
         <label>Titre<input v-model="block.title"></label>
         <label v-if="block.type === 'promo'">Étiquette<input v-model="block.badge"></label>
         <label v-if="block.type === 'hero'">Sous-titre<textarea v-model="block.subtitle" rows="3"></textarea></label>
@@ -187,7 +187,7 @@ export const Website = {
       <div class="site-frame" :class="device"><iframe :srcdoc="html" sandbox="allow-same-origin" title="Aperçu du site"></iframe></div>
     </section>
 
-    <Modal v-if="gen.open" title="✨ Rédiger le site avec l'IA" @close="gen.open = false">
+    <Modal v-if="gen.open" title="Rédiger le site avec l'IA" @close="gen.open = false">
       <p class="muted" style="margin-top:0">L'IA écrit les textes (accroche, services, offre de saison, à propos, FAQ, référencement Google) à partir de vos informations. Vos photos et vos avis ne sont pas touchés.</p>
       <label>Vos consignes<textarea v-model="gen.notes" rows="4" placeholder="Ex. : spécialiste Volkswagen et Audi, véhicule de courtoisie gratuit, on parle français, portugais et luxembourgeois…"></textarea></label>
       <label>Ton<select v-model="gen.tone"><option>chaleureux et professionnel</option><option>premium et haut de gamme</option><option>dynamique et moderne</option><option>simple et familial</option></select></label>

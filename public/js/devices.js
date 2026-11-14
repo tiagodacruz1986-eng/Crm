@@ -28,11 +28,11 @@ export const DevicesModal = {
     return { net, target, secure, qr, suffix, editing, draft, saveUrl, store, GUIDE };
   },
   template: `
-  <Modal title="📱 Installer sur téléphone et tablette" wide @close="$emit('close')">
-    <div class="seg" style="margin-bottom:14px"><button :class="{ on: target === 'app' }" @click="target = 'app'">💼 Logiciel</button><button :class="{ on: target === 'kiosk' }" @click="target = 'kiosk'">⏱️ Pointage atelier (tablette)</button></div>
+  <Modal title="Installer sur téléphone et tablette" wide @close="$emit('close')">
+    <div class="seg" style="margin-bottom:14px"><button :class="{ on: target === 'app' }" @click="target = 'app'"><Icon name="briefcase" class="ti"/> Logiciel</button><button :class="{ on: target === 'kiosk' }" @click="target = 'kiosk'"><Icon name="timer" class="ti"/> Pointage atelier (tablette)</button></div>
     <div v-if="net" class="dev-grid">
       <section class="dev-card" :class="{ best: secure }">
-        <h3>🔒 Adresse sécurisée <span class="badge b-green" v-if="secure">recommandé</span></h3>
+        <h3>Adresse sécurisée <span class="badge b-green" v-if="secure">recommandé</span></h3>
         <template v-if="secure">
           <img :src="qr(secure)" alt="QR code" class="dev-qr">
           <div class="dev-url">{{ secure }}{{ suffix }}</div>
@@ -52,7 +52,7 @@ export const DevicesModal = {
         </div>
       </section>
       <section v-if="!net.internet_server" class="dev-card">
-        <h3>📶 Sur le Wi-Fi du garage</h3>
+        <h3>Sur le Wi-Fi du garage</h3>
         <template v-if="net.lan.length">
           <div v-for="u in net.lan" :key="u" class="dev-lan"><img :src="qr(u)" alt="QR code" class="dev-qr"><div class="dev-url">{{ u }}{{ suffix }}</div></div>
           <p class="small">Le téléphone doit être <b>sur le même Wi-Fi</b> que ce PC. Sans https : <b>iPhone</b> → icône sur l'écran d'accueil ; <b>Android</b> → simple raccourci, pas de mode hors-ligne.</p>

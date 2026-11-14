@@ -355,24 +355,24 @@ export const DocumentEditor = {
         <h1 style="margin-top:6px">{{ DOC_TYPES[doc.type] }} {{ doc.number || (isNew ? '(nouveau)' : '(brouillon)') }} <Badge v-if="!isNew" :status="doc.status"/></h1>
       </div>
       <div class="btns">
-        <button class="btn" v-if="!locked" @click="save()">💾 Enregistrer</button>
+        <button class="btn" v-if="!locked" @click="save()"><Icon name="save" class="ti"/> Enregistrer</button>
         <template v-if="doc.type==='quote' && !isNew">
-          <button class="btn" v-if="doc.status==='draft'" @click="setStatus('sent')">📤 Marquer envoyé</button>
+          <button class="btn" v-if="doc.status==='draft'" @click="setStatus('sent')"><Icon name="send" class="ti"/> Marquer envoyé</button>
           <button class="btn" v-if="['draft','sent'].includes(doc.status)" @click="setStatus('refused')">Refusé</button>
-          <button class="btn primary" @click="convert('order')">🔧 Créer l'OR</button>
-          <button class="btn" @click="convert('invoice')">🧾 Facturer</button>
+          <button class="btn primary" @click="convert('order')"><Icon name="wrench" class="ti"/> Créer l'OR</button>
+          <button class="btn" @click="convert('invoice')"><Icon name="receipt" class="ti"/> Facturer</button>
         </template>
         <template v-if="doc.type==='order' && !isNew && !locked">
           <select style="width:auto" :value="doc.status" @change="setStatus($event.target.value)">
             <option v-for="s in ['open','in_progress','waiting_parts','done']" :value="s">{{ STATUS[s][0] }}</option>
           </select>
-          <button class="btn primary" @click="convert('invoice')">🧾 Facturer</button>
+          <button class="btn primary" @click="convert('invoice')"><Icon name="receipt" class="ti"/> Facturer</button>
         </template>
-        <button class="btn success" v-if="['invoice','credit_note'].includes(doc.type) && doc.status==='draft' && !isNew" @click="post">✔ Valider</button>
-        <button class="btn primary" v-if="['invoice','credit_note'].includes(doc.type) && ['posted','partial'].includes(doc.status)" @click="showPay = true">💶 {{ doc.type === 'credit_note' ? 'Rembourser' : 'Paiement' }}</button>
+        <button class="btn success" v-if="['invoice','credit_note'].includes(doc.type) && doc.status==='draft' && !isNew" @click="post"><Icon name="check" class="ti"/> Valider</button>
+        <button class="btn primary" v-if="['invoice','credit_note'].includes(doc.type) && ['posted','partial'].includes(doc.status)" @click="showPay = true"><Icon name="banknote" class="ti"/> {{ doc.type === 'credit_note' ? 'Rembourser' : 'Paiement' }}</button>
         <button class="btn" v-if="doc.type==='invoice' && doc.status!=='draft'" @click="convert('credit_note')">↩ Note de crédit</button>
-        <button class="btn" v-if="!isNew" @click="print">🖨️ Imprimer / PDF</button>
-        <button class="btn danger" v-if="!isNew && !locked" @click="remove">🗑</button>
+        <button class="btn" v-if="!isNew" @click="print"><Icon name="printer" class="ti"/> Imprimer / PDF</button>
+        <button class="btn danger" v-if="!isNew && !locked" @click="remove"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
 
@@ -384,7 +384,7 @@ export const DocumentEditor = {
               <div style="display:flex;gap:6px"><div style="flex:1"><Picker v-if="!locked" v-model="doc.customer_id" endpoint="/customers" :initial="doc.customer_name" :label="c => c.name + (c.company ? ' — ' + c.company : '') + (c.city ? ' (' + c.city + ')' : '')" placeholder="Rechercher un client…" @pick="onCustomer"/>
                 <input v-else :value="doc.customer_name" disabled></div>
                 <button class="btn" v-if="!locked" @click="showCustomer = true" title="Nouveau client">+</button>
-                <a class="btn" v-if="doc.customer_id" :href="'#/customer/' + doc.customer_id">👤</a></div>
+                <a class="btn" v-if="doc.customer_id" :href="'#/customer/' + doc.customer_id"><Icon name="user" class="ti"/></a></div>
             </label>
             <label>Véhicule
               <select v-model="doc.vehicle_id" :disabled="locked"><option :value="null">—</option><option v-for="v in vehicles" :value="v.id">{{ v.plate }} {{ v.make }} {{ v.model }}</option></select>
@@ -406,11 +406,11 @@ export const DocumentEditor = {
             <thead><tr><th class="kind">Type</th><th>Désignation</th><th class="q num">Qté</th><th class="p num">P.U. HT</th><th class="d num dcol">Rem. %</th><th class="t">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'" class="pl num" title="Temps prévu pour l'intervention, en heures (1,5 = 1 h 30). Vide = heures vendues de la main-d'œuvre.">Temps prévu (h)</th><th v-if="doc.type==='order'">Fait</th><th></th></tr></thead>
             <tbody>
               <tr v-for="(l, i) in doc.lines" :class="{'text-line': l.kind === 'text'}">
-                <td><select v-model="l.kind" :disabled="locked"><option value="labor">🔧 M.O.</option><option value="part">📦 Pièce</option><option value="fee">🏷️ Forfait</option><option value="text">📝 Texte</option></select></td>
+                <td><select v-model="l.kind" :disabled="locked"><option value="labor">M.O.</option><option value="part">Pièce</option><option value="fee">Forfait</option><option value="text">Texte</option></select></td>
                 <td>
                   <div v-if="!locked && l.kind === 'part' && !l.description && !l._free" style="display:flex;gap:4px"><div style="flex:1"><Picker endpoint="/products" :label="productLabel" placeholder="Réf. ou nom de la pièce / forfait…" @pick="p => pickProduct(l, p)"/></div><button class="btn sm" title="Saisie libre (pièce hors stock)" @click="l._free = true; l.description = 'Pièce'">✎</button></div>
                   <input v-else class="descr" v-model="l.description" :disabled="locked">
-                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && !locked">⚠ stock : {{ l.qty_on_hand }}</div>
+                  <div class="stock-warn" v-if="l.kind==='part' && l.product_id && l.qty_on_hand !== undefined && l.qty_on_hand !== null && l.qty_on_hand < l.quantity && !locked"><Icon name="triangle-alert" class="ti"/> stock : {{ l.qty_on_hand }}</div>
                 </td>
                 <template v-if="l.kind !== 'text'">
                   <td><input v-model.number="l.quantity" type="number" step="0.1" class="right" :disabled="locked"></td>
@@ -425,7 +425,7 @@ export const DocumentEditor = {
                     <input v-model="l.planned_hours" type="text" inputmode="decimal" autocomplete="off" class="right" :placeholder="l.kind === 'labor' && l.quantity > 0 ? l.quantity : '—'" :disabled="locked"
                       :title="l.kind === 'labor' ? 'Temps prévu, en heures (1,5 = 1 h 30). Vide = heures vendues.' : 'Temps prévu, en heures (1,5 = 1 h 30). Vide = pas de temps prévu.'">
                     <div v-if="plannedBad(l)" class="wt-under neg">nombre invalide</div>
-                    <div v-else-if="lineSpent(l) > 0" class="wt-under" :class="{ neg: lineOver(l) }" :title="lineOver(l) ? 'Temps prévu dépassé' : 'Temps pointé / temps prévu'">⏱ {{ hours(lineSpent(l)) }}<template v-if="linePlanned(l)"> / {{ hours(linePlanned(l)) }}</template><span v-if="tOf(l).active" class="wt-dot"></span></div>
+                    <div v-else-if="lineSpent(l) > 0" class="wt-under" :class="{ neg: lineOver(l) }" :title="lineOver(l) ? 'Temps prévu dépassé' : 'Temps pointé / temps prévu'"><Icon name="timer" class="ti"/> {{ hours(lineSpent(l)) }}<template v-if="linePlanned(l)"> / {{ hours(linePlanned(l)) }}</template><span v-if="tOf(l).active" class="wt-dot"></span></div>
                     <div v-else-if="linePlanned(l)" class="wt-under" title="Temps prévu">= {{ hours(linePlanned(l)) }}</div>
                   </div>
                 </td>
@@ -464,7 +464,7 @@ export const DocumentEditor = {
         </div>
         <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id" @changed="onLive"/>
         <div class="card" v-if="doc.type==='order' && !isNew && work">
-          <h2>⏱️ Temps atelier</h2>
+          <h2>Temps atelier</h2>
           <div class="totals">
             <span class="muted">Temps prévu</span><b>{{ work.planned ? hours(work.planned) : '—' }}</b>
             <span class="muted">Temps pointé</span><b :class="work.over ? 'neg' : work.spent ? 'pos' : ''">{{ hours(work.spent) }}</b>
@@ -482,8 +482,8 @@ export const DocumentEditor = {
                 <span class="wt-name" :title="x.l.description">{{ x.l.done ? '✓ ' : '' }}{{ x.l.description || 'Intervention' }}</span>
                 <span class="wt-num">{{ hours(x.spent) }}<span class="muted"> / {{ x.planned ? hours(x.planned) : '—' }}</span></span>
                 <template v-if="canClockHere && x.l.id && clockUser">
-                  <button v-if="runningOn(x.t.worker_ids)" class="wt-go on" title="Mettre en pause le chrono du mécanicien choisi" @click="clock('stop', x.l.id)">⏸</button>
-                  <button v-else class="wt-go" title="Démarrer le chrono du mécanicien choisi sur cette intervention" @click="clock('start', x.l.id)">▶</button>
+                  <button v-if="runningOn(x.t.worker_ids)" class="wt-go on" title="Mettre en pause le chrono du mécanicien choisi" @click="clock('stop', x.l.id)"><Icon name="pause" class="ti"/></button>
+                  <button v-else class="wt-go" title="Démarrer le chrono du mécanicien choisi sur cette intervention" @click="clock('start', x.l.id)"><Icon name="play" class="ti"/></button>
                 </template>
               </div>
               <div class="wt-bar"><i :style="{ width: pct(x.spent, x.planned) + '%' }"></i></div>
@@ -491,24 +491,24 @@ export const DocumentEditor = {
                 <span v-if="x.t.active" class="live">{{ x.t.workers.join(', ') || 'en cours' }}</span><span v-else></span>
                 <span v-if="x.over" class="neg">dépassé de {{ hours(x.spent - x.planned) }}</span>
               </div>
-              <div v-if="x.t.auto" class="wt-sub warn">⚠ Chrono oublié, arrêté automatiquement : durée à vérifier dans « Feuilles de temps ».</div>
+              <div v-if="x.t.auto" class="wt-sub warn"><Icon name="triangle-alert" class="ti"/> Chrono oublié, arrêté automatiquement : durée à vérifier dans « Feuilles de temps ».</div>
             </div>
             <div v-if="work.general > 0 || (canClockHere && clockUser)" class="wt-row">
               <div class="wt-head"><span class="wt-name muted">Autre travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span>
                 <template v-if="canClockHere && clockUser">
-                  <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)">⏸</button>
-                  <button v-else class="wt-go" title="Démarrer le chrono sans intervention précise" @click="clock('start', null)">▶</button>
+                  <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)"><Icon name="pause" class="ti"/></button>
+                  <button v-else class="wt-go" title="Démarrer le chrono sans intervention précise" @click="clock('start', null)"><Icon name="play" class="ti"/></button>
                 </template>
               </div>
               <div v-if="times.generalActive" class="wt-sub"><span class="live">{{ times.generalWorkers.join(', ') }}</span></div>
-              <div v-if="times.generalAuto" class="wt-sub warn">⚠ Chrono oublié, arrêté automatiquement : durée à vérifier.</div>
+              <div v-if="times.generalAuto" class="wt-sub warn"><Icon name="triangle-alert" class="ti"/> Chrono oublié, arrêté automatiquement : durée à vérifier.</div>
             </div>
           </div>
           <template v-else>
             <div v-if="canClockHere && clockUser" class="wt-list"><div class="wt-row">
               <div class="wt-head"><span class="wt-name muted">Travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span>
-                <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)">⏸</button>
-                <button v-else class="wt-go" title="Démarrer le chrono sur cet OR" @click="clock('start', null)">▶</button>
+                <button v-if="runningOn(times.generalWorkerIds)" class="wt-go on" title="Mettre en pause" @click="clock('stop', null)"><Icon name="pause" class="ti"/></button>
+                <button v-else class="wt-go" title="Démarrer le chrono sur cet OR" @click="clock('start', null)"><Icon name="play" class="ti"/></button>
               </div>
               <div v-if="times.generalActive" class="wt-sub"><span class="live">{{ times.generalWorkers.join(', ') }}</span></div>
             </div></div>
@@ -524,11 +524,11 @@ export const DocumentEditor = {
           </details>
         </div>
         <div class="card" v-if="doc.payments && doc.payments.length">
-          <h2>💶 Paiements</h2>
+          <h2>Paiements</h2>
           <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><span><b>{{ money(p.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(p)">↩</button></span></div>
         </div>
         <div class="card" v-if="doc.vehicle_id">
-          <a :href="'#/vehicle/' + doc.vehicle_id">🚗 Historique du véhicule →</a>
+          <a :href="'#/vehicle/' + doc.vehicle_id"><Icon name="car" class="ti"/> Historique du véhicule →</a>
         </div>
       </div>
     </div>

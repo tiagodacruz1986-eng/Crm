@@ -73,7 +73,7 @@ export const Dashboard = {
             <a v-if="p.work" class="live" :class="{ over: p.work.over }" :href="'#/document/' + p.work.document_id" :title="p.work.over ? 'Temps prévu dépassé' : ''">{{ p.work.number }} · {{ hours(p.work.spent) }}<template v-if="p.work.planned"> / {{ hours(p.work.planned) }}</template></a>
             <span v-else class="muted small">présent</span>
           </div>
-          <Empty v-if="!d.present.length" icon="😴" text="Aucun mécanicien pointé"/>
+          <Empty v-if="!d.present.length" icon="moon" text="Aucun mécanicien pointé"/>
         </div>
         <div class="card">
           <div class="card-head"><h2>Rendez-vous du jour</h2><a href="#/planning" class="small">Planning →</a></div>
@@ -81,7 +81,7 @@ export const Dashboard = {
             <div><b>{{ time(a.start) }}</b> <span class="plate" v-if="a.plate">{{ a.plate }}</span> {{ a.customer_name }}<div class="muted small">{{ a.title }}</div></div>
             <Badge :status="a.status"/>
           </div>
-          <Empty v-if="!d.appointmentsToday.length" icon="☕" text="Pas de rendez-vous aujourd'hui"/>
+          <Empty v-if="!d.appointmentsToday.length" icon="coffee" text="Pas de rendez-vous aujourd'hui"/>
         </div>
       </div>
       <MechanicStats v-if="showMech" style="margin-top:14px"/>
@@ -89,7 +89,7 @@ export const Dashboard = {
         <div class="card">
           <div class="card-head"><h2>Stock bas</h2><a href="#/stock?low=1" class="small">Voir →</a></div>
           <div v-for="p in d.lowStock" class="list-item"><a :href="'#/product/' + p.id">{{ p.ref }} {{ p.name }}</a><span class="neg">{{ p.qty_on_hand }} / {{ p.qty_min }}</span></div>
-          <Empty v-if="!d.lowStock.length" icon="✅" text="Stock OK"/>
+          <Empty v-if="!d.lowStock.length" icon="circle-check" text="Stock OK"/>
         </div>
         <div class="card">
           <div class="card-head"><h2>Contrôles techniques (30 j)</h2></div>
@@ -97,7 +97,7 @@ export const Dashboard = {
             <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</a>
             <div class="right small">{{ date(v.next_inspection) }}<div class="muted">{{ v.customer_name }} {{ v.mobile || v.phone }}</div></div>
           </div>
-          <Empty v-if="!d.inspectionsSoon.length" icon="🗓️" text="Aucune échéance proche"/>
+          <Empty v-if="!d.inspectionsSoon.length" icon="calendar-days" text="Aucune échéance proche"/>
         </div>
       </div>
     </div>
@@ -127,7 +127,7 @@ export const Dashboard = {
   </div>
   <div v-else-if="d">
     <div class="page-head">
-      <div><h1>{{ hello }} {{ store.user.name.split(' ')[0] }} 👋</h1><div class="sub">{{ new Date().toLocaleDateString('fr-LU', {weekday:'long', day:'numeric', month:'long'}) }}</div></div>
+      <div><h1>{{ hello }} {{ store.user.name.split(' ')[0] }}</h1><div class="sub">{{ new Date().toLocaleDateString('fr-LU', {weekday:'long', day:'numeric', month:'long'}) }}</div></div>
       <div class="btns"><ModuleTools module="general"/><a class="btn" href="#/office"><Icon name="bot"/> Mon équipe IA</a></div>
     </div>
     <BriefCard/>
@@ -149,31 +149,31 @@ export const Dashboard = {
           <a v-if="p.work" class="live" :class="{ over: p.work.over }" :href="'#/document/' + p.work.document_id" :title="p.work.over ? 'Temps prévu dépassé' : ''">{{ p.work.number }} · {{ hours(p.work.spent) }}<template v-if="p.work.planned"> / {{ hours(p.work.planned) }}</template></a>
           <span v-else class="muted small">présent</span>
         </div>
-        <Empty v-if="!d.present.length" icon="😴" text="Aucun mécanicien pointé"/>
+        <Empty v-if="!d.present.length" icon="moon" text="Aucun mécanicien pointé"/>
       </div>
     </div>
     <MechanicStats v-if="showMech" style="margin-top:16px"/>
     <div class="grid g3" style="margin-top:16px">
       <div class="card">
-        <div class="card-head"><h2>📅 Rendez-vous du jour</h2><a href="#/planning" class="small">Planning →</a></div>
+        <div class="card-head"><h2>Rendez-vous du jour</h2><a href="#/planning" class="small">Planning →</a></div>
         <div v-for="a in d.appointmentsToday" class="list-item">
           <div><b>{{ time(a.start) }}</b> <span class="plate" v-if="a.plate">{{ a.plate }}</span> {{ a.customer_name }}<div class="muted small">{{ a.title }}</div></div>
           <Badge :status="a.status"/>
         </div>
-        <Empty v-if="!d.appointmentsToday.length" icon="☕" text="Pas de rendez-vous aujourd'hui"/>
+        <Empty v-if="!d.appointmentsToday.length" icon="coffee" text="Pas de rendez-vous aujourd'hui"/>
       </div>
       <div class="card">
-        <div class="card-head"><h2>📦 Stock bas</h2><a href="#/stock?low=1" class="small">Voir →</a></div>
+        <div class="card-head"><h2>Stock bas</h2><a href="#/stock?low=1" class="small">Voir →</a></div>
         <div v-for="p in d.lowStock" class="list-item"><a :href="'#/product/' + p.id">{{ p.ref }} {{ p.name }}</a><span class="neg">{{ p.qty_on_hand }} / {{ p.qty_min }}</span></div>
-        <Empty v-if="!d.lowStock.length" icon="✅" text="Stock OK"/>
+        <Empty v-if="!d.lowStock.length" icon="circle-check" text="Stock OK"/>
       </div>
       <div class="card">
-        <div class="card-head"><h2>🔔 Contrôles techniques (30 j)</h2></div>
+        <div class="card-head"><h2>Contrôles techniques (30 j)</h2></div>
         <div v-for="v in d.inspectionsSoon" class="list-item">
           <a :href="'#/vehicle/' + v.id"><span class="plate">{{ v.plate }}</span> {{ v.make }} {{ v.model }}</a>
           <div class="right small">{{ date(v.next_inspection) }}<div class="muted">{{ v.customer_name }} {{ v.mobile || v.phone }}</div></div>
         </div>
-        <Empty v-if="!d.inspectionsSoon.length" icon="🗓️" text="Aucune échéance proche"/>
+        <Empty v-if="!d.inspectionsSoon.length" icon="calendar-days" text="Aucune échéance proche"/>
       </div>
     </div>
   </div>`,

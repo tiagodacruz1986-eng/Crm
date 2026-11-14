@@ -55,7 +55,7 @@ export const Social = {
     const saveDraft = async () => { await act(() => persist('draft'), 'Brouillon enregistré'); edit.value = null; load(); };
     const schedule = async () => {
       if (!edit.value.scheduled_at) return toast('Choisissez la date et l\'heure de publication', 'error');
-      await act(() => persist('scheduled'), '🗓️ Publication programmée'); edit.value = null; load();
+      await act(() => persist('scheduled'), 'Publication programmée'); edit.value = null; load();
     };
     const publishNow = async () => {
       const p = await act(() => persist('draft'));
@@ -63,7 +63,7 @@ export const Social = {
       edit.value = null; load();
       const fails = Object.entries(r.results || {}).filter(([, x]) => !x.ok && !x.manual);
       if (fails.length) toast(fails.map(([k, x]) => `${meta.value.platforms[k].name} : ${x.error}`).join(' · '), 'error');
-      else toast(r.status === 'manual' || r.status === 'partial' ? 'Texte prêt : publiez-le à la main sur les autres réseaux (bouton Copier)' : '🚀 Publié !');
+      else toast(r.status === 'manual' || r.status === 'partial' ? 'Texte prêt : publiez-le à la main sur les autres réseaux (bouton Copier)' : 'Publié !');
     };
     const publish = async (p) => { const r = await act(() => POST(`/social/posts/${p.id}/publish`)); load(); if (r.status === 'error') toast('Échec de la publication : voir le détail', 'error'); };
     const manualDone = async (p) => { await act(() => POST(`/social/posts/${p.id}/manual-done`), 'Marquée comme publiée'); load(); };
@@ -121,7 +121,7 @@ export const Social = {
     </div>
 
     <div v-if="ai.ideas.length" class="card ideas">
-      <div class="card-head"><h2>💡 Idées pour ce mois</h2><button class="icon-btn" @click="ai.ideas = []"><Icon name="x"/></button></div>
+      <div class="card-head"><h2>Idées pour ce mois</h2><button class="icon-btn" @click="ai.ideas = []"><Icon name="x"/></button></div>
       <div class="grid g3"><button v-for="i in ai.ideas" :key="i.title" class="idea" @click="useIdea(i)"><b>{{ i.title }}</b><span>{{ i.brief }}</span><small>Meilleur jour : {{ i.best_day }}</small></button></div>
     </div>
 
@@ -142,7 +142,7 @@ export const Social = {
           <button v-if="canDelete" class="btn sm danger" @click="remove(p)">Supprimer</button>
         </div>
       </div>
-      <Empty v-if="!posts.length" icon="📣" text="Aucune publication. Cliquez sur « Nouvelle publication » ou demandez des idées à l'IA."/>
+      <Empty v-if="!posts.length" icon="megaphone" text="Aucune publication. Cliquez sur « Nouvelle publication » ou demandez des idées à l'IA."/>
     </div>
 
     <div v-if="view === 'calendar'" class="card">
@@ -186,7 +186,7 @@ export const Social = {
         <div>
           <div class="pnets"><button v-for="(p, k) in meta.platforms" :key="k" class="pnet" :class="[k, { on: edit.platforms.includes(k) }]" @click="toggle(k)"><span class="pchip" :class="k">{{ PICON[k] }}</span>{{ p.name }}<small v-if="p.auto && !meta.accounts[k]?.connected">non connecté</small><small v-else-if="!p.auto">à la main</small></button></div>
           <div class="ai-box">
-            <input v-model="ai.topic" placeholder="✨ Sujet pour l'IA (ex. : -20 % sur la climatisation jusqu'au 30 juin)">
+            <input v-model="ai.topic" placeholder="Sujet pour l'IA (ex. : -20 % sur la climatisation jusqu'au 30 juin)">
             <select v-model="ai.tone"><option>chaleureux</option><option>professionnel</option><option>humoristique</option><option>urgent (offre limitée)</option></select>
             <button class="btn sm primary" :disabled="ai.busy || !ai.topic.trim()" @click="write"><Icon name="wand-sparkles"/> {{ ai.busy ? '…' : 'Rédiger' }}</button>
           </div>
@@ -202,10 +202,10 @@ export const Social = {
             <button v-if="edit.image" class="btn sm" @click="edit.image = null">Retirer</button></div>
         </div>
         <div class="phone-prev">
-          <div class="pp-head"><span class="avatar" :style="{ background: store.settings?.layout?.primary || '#2563eb' }">{{ (store.company || 'G')[0] }}</span><div><b>{{ store.company }}</b><small>{{ edit.scheduled_at ? datetime(edit.scheduled_at) : 'Maintenant' }} · 🌍</small></div></div>
+          <div class="pp-head"><span class="avatar" :style="{ background: store.settings?.layout?.primary || '#2563eb' }">{{ (store.company || 'G')[0] }}</span><div><b>{{ store.company }}</b><small>{{ edit.scheduled_at ? datetime(edit.scheduled_at) : 'Maintenant' }} · <Icon name="globe" class="ti"/></small></div></div>
           <p>{{ edit.text || 'Votre texte apparaîtra ici…' }}</p>
           <img v-if="edit.image" :src="edit.image" alt="">
-          <div class="pp-foot">👍 J'aime · 💬 Commenter · ↗ Partager</div>
+          <div class="pp-foot"><Icon name="thumbs-up" class="ti"/> J'aime · <Icon name="message-circle" class="ti"/> Commenter · ↗ Partager</div>
         </div>
       </div>
       <template #foot>

@@ -132,8 +132,8 @@ export const UsersAdmin = {
     <Modal v-if="invite" title="Invitation prête" @close="invite = null">
       <p>Envoyez ce lien à <b>{{ invite.name }}</b>{{ invite.email ? ' (' + invite.email + ')' : '' }} : il ou elle choisira son mot de passe. Valable jusqu'au {{ datetime(invite.expires) }}.</p>
       <div class="invite-link"><input :value="invite.url" readonly @focus="$event.target.select()"><button class="btn primary" @click="copy(invite.url)"><Icon name="copy"/> Copier</button></div>
-      <p v-if="invite.sent" class="pos">✉️ Invitation envoyée par e-mail.</p>
-      <p v-if="lanOnly(invite.url)" class="muted small">⚠ Ce lien ne s'ouvre que sur le Wi-Fi du garage. Pour inviter quelqu'un à distance, indiquez l'adresse publique du logiciel dans Paramètres.</p>
+      <p v-if="invite.sent" class="pos"><Icon name="mail" class="ti"/> Invitation envoyée par e-mail.</p>
+      <p v-if="lanOnly(invite.url)" class="muted small"><Icon name="triangle-alert" class="ti"/> Ce lien ne s'ouvre que sur le Wi-Fi du garage. Pour inviter quelqu'un à distance, indiquez l'adresse publique du logiciel dans Paramètres.</p>
       <p class="muted small">Par WhatsApp : <a :href="'https://wa.me/?text=' + encodeURIComponent('Voici ton accès au logiciel du garage : ' + invite.url)" target="_blank" rel="noopener">partager le lien</a>.</p>
     </Modal>
   </div>`,

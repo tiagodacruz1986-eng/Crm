@@ -46,12 +46,12 @@ export const Settings = {
     const loadMail = async () => { mail.value = { ...(await GET('/mail/config')), pass: '' }; };
     // (la fenêtre d'envoi d'e-mail relit la configuration tout de suite : « Envoyer » n'attend plus un rechargement de la page)
     const saveMail = async () => { await act(() => PUT('/mail/config', mail.value), 'Configuration e-mail enregistrée'); await loadMail(); loadMeta(true).catch(() => {}); };
-    const testMail = async () => { await saveMail(); await act(() => POST('/mail/test'), '✅ Connexion au serveur d\'e-mail réussie'); };
+    const testMail = async () => { await saveMail(); await act(() => POST('/mail/test'), 'Connexion au serveur d\'e-mail réussie'); };
     const preset = (k) => Object.assign(mail.value, { gmail: { host: 'smtp.gmail.com', port: 465, secure: true }, outlook: { host: 'smtp.office365.com', port: 587, secure: false }, ovh: { host: 'ssl0.ovh.net', port: 465, secure: true }, pt: { host: 'mail.pt.lu', port: 587, secure: false } }[k]);
     const inbox = ref(null);
     const loadInbox = async () => { inbox.value = { ...(await GET('/bills/inbox')), pass: '' }; };
     const saveInbox = async () => { await act(() => PUT('/bills/inbox', inbox.value), 'Boîte « factures » enregistrée'); await loadInbox(); };
-    const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`✅ Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
+    const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
     const imapPreset = (k) => Object.assign(inbox.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
     const load = async () => { loadOdoo(); loadMail(); loadInbox(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     // Lien direct vers un onglet (ex. ?tab=mail) : sur téléphone, l'onglet actif est ramené à l'écran
@@ -102,7 +102,7 @@ export const Settings = {
       <table><thead><tr><th>Code</th><th>Intitulé</th><th>Type</th></tr></thead><tbody><tr v-for="a in accounts" class="click" @click="newAcc = {...a}"><td><b>{{ a.code }}</b></td><td>{{ a.name }}</td><td>{{ a.type }}</td></tr></tbody></table>
     </div>
     <div class="card" v-if="tab==='mail' && mail">
-      <h2>✉️ Envoi des e-mails</h2>
+      <h2>Envoi des e-mails</h2>
       <p class="muted">Les e-mails (devis, factures, relances, rappels…) partent de votre propre adresse. Renseignez les paramètres SMTP de votre messagerie.</p>
       <div class="btns small" style="margin-bottom:10px"><span class="muted">Préréglages :</span><button class="btn sm" @click="preset('gmail')">Gmail</button><button class="btn sm" @click="preset('outlook')">Outlook / Microsoft 365</button><button class="btn sm" @click="preset('ovh')">OVH</button><button class="btn sm" @click="preset('pt')">POST Luxembourg</button></div>
       <div class="form-grid">
@@ -117,10 +117,10 @@ export const Settings = {
         <label class="full">Signature<textarea v-model="mail.signature" placeholder="L'équipe du Garage …&#10;+352 …"></textarea></label>
       </div>
       <p class="muted small">Gmail / Microsoft 365 : utilisez un « mot de passe d'application » (sécurité du compte), pas votre mot de passe habituel.</p>
-      <div class="btns"><button class="btn primary" @click="saveMail">Enregistrer</button><button class="btn" @click="testMail">🔌 Tester</button><span v-if="mail.configured" class="pos">● Configuré</span></div>
+      <div class="btns"><button class="btn primary" @click="saveMail">Enregistrer</button><button class="btn" @click="testMail"><Icon name="plug" class="ti"/> Tester</button><span v-if="mail.configured" class="pos">● Configuré</span></div>
     </div>
     <div class="card" v-if="tab==='mail' && inbox">
-      <h2>📥 Réception des factures fournisseurs</h2>
+      <h2>Réception des factures fournisseurs</h2>
       <p class="muted">Créez une adresse dédiée (ex. <b>factures@votre-garage.lu</b>) et demandez à vos fournisseurs d'y envoyer leurs factures, ou transférez-les vous-même. Le logiciel lit cette boîte, l'IA encode chaque PDF ou photo en facture fournisseur et garde l'original en pièce jointe.</p>
       <div class="btns small" style="margin-bottom:10px"><span class="muted">Préréglages :</span><button class="btn sm" @click="imapPreset('gmail')">Gmail</button><button class="btn sm" @click="imapPreset('outlook')">Outlook / Microsoft 365</button><button class="btn sm" @click="imapPreset('ovh')">OVH</button><button class="btn sm" @click="imapPreset('pt')">POST Luxembourg</button></div>
       <div class="form-grid">
@@ -134,12 +134,12 @@ export const Settings = {
         <label>Vérifier toutes les (minutes)<input v-model.number="inbox.interval" type="number" min="1"></label>
         <label class="check"><input type="checkbox" v-model="inbox.enabled"> Vérification automatique</label>
       </div>
-      <div class="btns" style="margin-top:10px"><button class="btn primary" @click="saveInbox">Enregistrer</button><button class="btn" @click="testInbox">🔌 Tester</button>
-        <span v-if="inbox.status" class="small muted">Dernière vérification : {{ datetime(inbox.status.at) }} — {{ inbox.status.error ? '⚠ ' + inbox.status.error : inbox.status.emails + ' e-mail(s), ' + inbox.status.bills + ' facture(s)' }}</span></div>
+      <div class="btns" style="margin-top:10px"><button class="btn primary" @click="saveInbox">Enregistrer</button><button class="btn" @click="testInbox"><Icon name="plug" class="ti"/> Tester</button>
+        <span v-if="inbox.status" class="small muted">Dernière vérification : {{ datetime(inbox.status.at) }} — {{ inbox.status.error ? '' + inbox.status.error : inbox.status.emails + ' e-mail(s), ' + inbox.status.bills + ' facture(s)' }}</span></div>
       <p class="muted small">Seuls les e-mails non lus sont traités ; chaque e-mail n'est traité qu'une fois. Les petites images (logos de signature) sont ignorées.</p>
     </div>
     <div class="card" v-if="tab==='odoo' && odoo">
-      <h2>🔄 Importer mes données depuis Odoo</h2>
+      <h2>Importer mes données depuis Odoo</h2>
       <p class="muted">Récupère vos clients, fournisseurs, véhicules (avec contrôle technique, pneus…) et articles avec leur stock. Vous pouvez relancer l'import autant de fois que nécessaire : rien n'est dupliqué, les fiches sont mises à jour.</p>
       <div class="form-grid">
         <label class="full" style="grid-column: span 2">Adresse de votre Odoo<input v-model="odoo.form.url" placeholder="https://votre-societe.odoo.com"></label>
@@ -148,8 +148,8 @@ export const Settings = {
         <label class="full" style="grid-column: span 2">Clé API {{ odoo.config.has_key ? '(enregistrée — laisser vide pour la garder)' : '' }}<input v-model="odoo.form.api_key" type="password" autocomplete="off"></label>
       </div>
       <p class="muted small">Clé API : dans Odoo, cliquez sur votre photo → <b>Mon profil</b> → onglet <b>Sécurité du compte</b> → <b>Nouvelle clé API</b>. Le nom de la base apparaît dans Odoo sous <b>Paramètres → Activer le mode développeur</b>, ou c'est généralement le début de votre adresse (…<b>.odoo.com</b>).</p>
-      <div class="btns"><button class="btn" @click="saveOdoo">Enregistrer</button><button class="btn" @click="testOdoo">🔌 Tester la connexion</button></div>
-      <div v-if="odooTest" class="pos" style="margin-top:10px">✅ Connecté : {{ odooTest.partners }} contacts, {{ odooTest.vehicles }} véhicules, {{ odooTest.products }} articles trouvés.</div>
+      <div class="btns"><button class="btn" @click="saveOdoo">Enregistrer</button><button class="btn" @click="testOdoo"><Icon name="plug" class="ti"/> Tester la connexion</button></div>
+      <div v-if="odooTest" class="pos" style="margin-top:10px"><Icon name="circle-check" class="ti"/> Connecté : {{ odooTest.partners }} contacts, {{ odooTest.vehicles }} véhicules, {{ odooTest.products }} articles trouvés.</div>
       <h3 style="margin-top:18px">Que faut-il importer ?</h3>
       <div class="btns" style="margin:8px 0 12px">
         <label class="check"><input type="checkbox" v-model="odooOpts.customers"> Clients</label>
@@ -157,7 +157,7 @@ export const Settings = {
         <label class="check"><input type="checkbox" v-model="odooOpts.vehicles"> Véhicules</label>
         <label class="check"><input type="checkbox" v-model="odooOpts.products"> Articles & stock</label>
       </div>
-      <button class="btn primary" :disabled="odoo.job.running || !odoo.config.has_key" @click="importOdoo">{{ odoo.job.running ? '⏳ Import en cours…' : '⬇ Lancer l’import' }}</button>
+      <button class="btn primary" :disabled="odoo.job.running || !odoo.config.has_key" @click="importOdoo">{{ odoo.job.running ? 'Import en cours…' : 'Lancer l’import' }}</button>
       <div v-if="odoo.job.running || odoo.job.finished_at" style="margin-top:14px">
         <div><b>{{ odoo.job.step }}</b> <span v-if="odoo.job.running" class="typing"><span></span><span></span><span></span></span></div>
         <div v-if="odoo.job.error" class="error" style="margin-top:6px">{{ odoo.job.error }}</div>

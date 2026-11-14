@@ -108,7 +108,7 @@ export const Attendance = {
         <Icon :name="me.present ? 'log-out' : 'log-in'"/>
         <span>{{ me.present ? 'Départ' : 'Arrivée' }}</span>
       </button>
-      <transition name="fade"><div v-if="flash" class="att-flash" :class="flash">{{ flash === 'in' ? 'Bonne journée ! ☀️ Arrivée enregistrée' : 'Bonne soirée ! 👋 Départ enregistré' }}</div></transition>
+      <transition name="fade"><div v-if="flash" class="att-flash" :class="flash">{{ flash === 'in' ? 'Bonne journée ! Arrivée enregistrée' : 'Bonne soirée ! Départ enregistré' }}</div></transition>
       <div class="att-stats">
         <div><b>{{ hours(me.today_hours) }}</b><span>aujourd'hui</span></div>
         <div><b>{{ hours(me.week_hours) }}</b><span>cette semaine</span></div>
@@ -128,7 +128,7 @@ export const Attendance = {
         </div>
         <div class="att-h">{{ hours(u.today_hours) }}</div>
       </div>
-      <Empty v-if="!team.length" icon="👥" text="Aucun employé."/>
+      <Empty v-if="!team.length" icon="users" text="Aucun employé."/>
     </div>
 
     <template v-if="tab === 'report'">
@@ -159,7 +159,7 @@ export const Attendance = {
             <td>{{ e.end ? e.end.slice(11, 16) : '' }}<Badge v-if="!e.end" label="en cours" color="green"/></td><td class="num">{{ hours(e.hours) }}</td>
             <td class="small muted">{{ ({ kiosk: 'Kiosque', badge: 'Badge', web: 'Ordinateur', manual: 'Correction' })[e.source] || 'Kiosque' }}</td><td class="small">{{ e.note }}</td></tr></tbody>
         </table>
-        <Empty v-if="!entries.length" icon="🕘" text="Aucun pointage sur cette période."/>
+        <Empty v-if="!entries.length" icon="clock" text="Aucun pointage sur cette période."/>
       </div>
     </template>
 

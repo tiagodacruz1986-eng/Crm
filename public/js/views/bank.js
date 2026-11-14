@@ -27,7 +27,7 @@ export const Bank = {
       try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('windows-1252').decode(buf); }
       const r = await act(() => POST(`/bank/import/${acc.id}`, text));
       toast(`${r.added} opérations importées, ${r.skipped} doublons ignorés, ${r.matched} rapprochées automatiquement`);
-      if (r.rejected) toast(`⚠ ${r.rejected} ligne(s) du fichier n'ont pas été comprises (date ou montant illisible) : vérifiez le relevé.`, 'error');
+      if (r.rejected) toast(`${r.rejected} ligne(s) du fichier n'ont pas été comprises (date ou montant illisible) : vérifiez le relevé.`, 'error');
       load();
     };
     const sync = async (acc) => { await act(() => POST(`/bank/sync/${acc.id}`)); load(); };
@@ -53,19 +53,19 @@ export const Bank = {
   <div>
     <div class="page-head">
       <div><h1>Banque</h1><div class="sub">Importez vos relevés (CAMT.053 ou CSV) : les paiements sont rapprochés automatiquement des factures.</div></div>
-      <div class="btns"><ModuleTools module="banque"/><button class="btn" @click="auto">⚡ Rapprochement auto</button><button class="btn primary" @click="edit = {account_code: '5131', provider: 'import', opening_balance: 0}">+ Compte bancaire</button></div>
+      <div class="btns"><ModuleTools module="banque"/><button class="btn" @click="auto"><Icon name="zap" class="ti"/> Rapprochement auto</button><button class="btn primary" @click="edit = {account_code: '5131', provider: 'import', opening_balance: 0}">+ Compte bancaire</button></div>
     </div>
     <div class="grid g3">
       <div v-for="a in accounts" class="card">
-        <div class="card-head"><div><h2 style="margin:0">🏦 {{ a.name }}</h2><div class="muted small">{{ a.bank_name }} {{ a.iban }}</div></div><button class="icon-btn" @click="edit = {...a}">✎</button></div>
+        <div class="card-head"><div><h2 style="margin:0">{{ a.name }}</h2><div class="muted small">{{ a.bank_name }} {{ a.iban }}</div></div><button class="icon-btn" @click="edit = {...a}">✎</button></div>
         <div class="kpi" style="box-shadow:none;padding:0;border:0;border-radius:0;overflow:visible;background:none"><div class="l">Solde selon relevés</div><div class="v">{{ money(a.statement_balance) }}</div></div>
         <div class="muted small" style="margin:6px 0 10px">{{ a.unmatched }} à rapprocher · dernière synchro {{ a.last_sync ? datetime(a.last_sync) : 'jamais' }}</div>
         <div class="btns">
-          <label class="btn sm" style="flex-direction:row;color:inherit">📥 Importer un relevé<input type="file" accept=".xml,.csv,.txt,.053" hidden @change="importFile(a, $event)"></label>
-          <button class="btn sm" v-if="a.provider !== 'import'" @click="sync(a)">🔄 Synchroniser</button>
+          <label class="btn sm" style="flex-direction:row;color:inherit"><Icon name="inbox" class="ti"/> Importer un relevé<input type="file" accept=".xml,.csv,.txt,.053" hidden @change="importFile(a, $event)"></label>
+          <button class="btn sm" v-if="a.provider !== 'import'" @click="sync(a)"><Icon name="refresh-cw" class="ti"/> Synchroniser</button>
         </div>
       </div>
-      <div class="card" v-if="!accounts.length"><Empty icon="🏦" text="Ajoutez votre compte bancaire (BCEE, BGL, BIL, POST, Raiffeisen…)"/></div>
+      <div class="card" v-if="!accounts.length"><Empty icon="landmark" text="Ajoutez votre compte bancaire (BCEE, BGL, BIL, POST, Raiffeisen…)"/></div>
     </div>
 
     <div class="card" style="margin-top:16px">
@@ -84,8 +84,8 @@ export const Bank = {
             <template v-if="l.status === 'unmatched'">
               <div class="btns">
                 <button v-for="s in l.suggestions" class="btn sm" :class="{primary: s.score >= 90}" @click="match(l, s)" :title="'Confiance ' + s.score + '%'">
-                  {{ s.kind === 'invoice' ? '🧾' : '🛒' }} {{ s.number }} · {{ s.partner }} · {{ money(s.residual) }}</button>
-                <button class="btn sm" @click="assign = {line: l, account: l.amount < 0 ? '6181' : '7580', label: l.communication || l.counterparty}">📚 Affecter à un compte</button>
+                  <Icon :name="s.kind === 'invoice' ? 'receipt' : 'shopping-cart'" class="ti"/> {{ s.number }} · {{ s.partner }} · {{ money(s.residual) }}</button>
+                <button class="btn sm" @click="assign = {line: l, account: l.amount < 0 ? '6181' : '7580', label: l.communication || l.counterparty}"><Icon name="book-open" class="ti"/> Affecter à un compte</button>
                 <button class="btn sm" @click="ignore(l)">Ignorer</button>
               </div>
             </template>
@@ -93,7 +93,7 @@ export const Bank = {
           </td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!lines.length" icon="✅" text="Rien à rapprocher"/>
+      <Empty v-if="!lines.length" icon="circle-check" text="Rien à rapprocher"/>
     </div>
 
     <Modal v-if="edit" :title="edit.id ? 'Compte bancaire' : 'Nouveau compte bancaire'" @close="edit = null">

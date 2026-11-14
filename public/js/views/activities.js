@@ -14,9 +14,9 @@ export const Activities = {
     onMounted(async () => { await loadMeta(); load(); });
     watch(() => bus.tick, load);
     const cols = computed(() => [
-      ['⚠️ En retard', list.value.filter((a) => a.due_date < today()), 'late'],
-      ["📍 Aujourd'hui", list.value.filter((a) => a.due_date === today()), 'today'],
-      ['🗓️ À venir', list.value.filter((a) => a.due_date > today()), ''],
+      ['En retard', list.value.filter((a) => a.due_date < today()), 'late'],
+      ["Aujourd'hui", list.value.filter((a) => a.due_date === today()), 'today'],
+      ['À venir', list.value.filter((a) => a.due_date > today()), ''],
     ]);
     return { list, mine, module, creating, editing, load, cols, meta };
   },
@@ -34,7 +34,7 @@ export const Activities = {
       <div v-for="[title, items, cls] in cols" class="kcol">
         <div class="kcol-head"><span>{{ title }}</span><span class="badge" :class="cls === 'late' && items.length ? 'b-red' : 'b-gray'">{{ items.length }}</span></div>
         <ActivityItem v-for="a in items" :key="a.id" :a="a" show-record @changed="load" @edit="editing = $event"/>
-        <div v-if="!items.length" class="muted small pad">Rien ici 👍</div>
+        <div v-if="!items.length" class="muted small pad">Rien ici <Icon name="thumbs-up" class="ti"/></div>
       </div>
     </div>
     <ActivityModal v-if="creating || editing" :activity="editing" @close="creating = false; editing = null" @saved="load"/>
@@ -56,19 +56,19 @@ export const MailOutbox = {
   },
   template: `
   <div>
-    <div class="page-head"><div><h1>E-mails</h1><div class="sub">Tous les e-mails envoyés et programmés depuis le logiciel.</div></div><button class="btn primary" @click="composing = true">✉️ Nouvel e-mail</button></div>
+    <div class="page-head"><div><h1>E-mails</h1><div class="sub">Tous les e-mails envoyés et programmés depuis le logiciel.</div></div><button class="btn primary" @click="composing = true"><Icon name="mail" class="ti"/> Nouvel e-mail</button></div>
     <div class="card">
       <div class="table-wrap"><table>
         <thead><tr><th>Date</th><th>Destinataire</th><th>Objet</th><th>Fiche</th><th>Statut</th><th></th></tr></thead>
         <tbody><tr v-for="e in rows">
-          <td class="nowrap">{{ e.status === 'scheduled' ? '🕒 ' + datetime(e.scheduled_at) : datetime(e.sent_at || e.created_at.replace(' ', 'T') + 'Z') }}</td>
+          <td class="nowrap">{{ e.status === 'scheduled' ? '' + datetime(e.scheduled_at) : datetime(e.sent_at || e.created_at.replace(' ', 'T') + 'Z') }}</td>
           <td>{{ e.to_addr }}</td><td>{{ e.subject }}<div v-if="e.error" class="neg small">{{ e.error }}</div></td>
           <td><a v-if="e.record" :href="'#' + e.record.link">{{ e.record.label }}</a></td>
           <td><span class="badge" :class="STATUS[e.status]?.[1]">{{ STATUS[e.status]?.[0] || e.status }}</span></td>
           <td><button v-if="e.status === 'scheduled'" class="btn sm danger" @click="cancel(e)">Annuler</button></td>
         </tr></tbody>
       </table></div>
-      <Empty v-if="!rows.length" icon="✉️" text="Aucun e-mail pour l'instant"/>
+      <Empty v-if="!rows.length" icon="mail" text="Aucun e-mail pour l'instant"/>
     </div>
     <MailComposer v-if="composing" @close="composing = false"/>
   </div>`,

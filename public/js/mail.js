@@ -12,7 +12,7 @@ export async function loadMeta(force) {
   Object.assign(meta, m, { users: users.filter((u) => u.active), mail, loaded: true });
   return meta;
 }
-export const TYPE_ICON = { todo: '✅', call: '📞', email: '✉️', meeting: '🤝', reminder: '🔔', payment: '💶', order: '📦' };
+export const TYPE_ICON = { todo: 'circle-check', call: 'phone', email: 'mail', meeting: 'handshake', reminder: 'bell', payment: 'banknote', order: 'package' };
 const REC = { none: 'Pas de répétition', daily: 'Tous les jours', weekly: 'Toutes les semaines', monthly: 'Tous les mois', yearly: 'Tous les ans' };
 export const bus = reactive({ tick: 0 }); // incrémenté à chaque changement pour rafraîchir compteurs et listes
 
@@ -61,7 +61,7 @@ export const MailComposer = {
     return { f, when, at, preview, busy, ai, load, showPreview, draft, send, mailto, meta, store };
   },
   template: `
-  <Modal title="✉️ Envoyer un e-mail" wide @close="$emit('close')">
+  <Modal title="Envoyer un e-mail" wide @close="$emit('close')">
     <div v-if="meta.mail && !meta.mail.configured" class="error">L'envoi automatique n'est pas encore configuré (Paramètres → E-mails). Vous pouvez quand même ouvrir le message dans votre messagerie habituelle.</div>
     <div class="form-grid">
       <label v-if="f.templates.length > 1">Modèle<select v-model="f.template" @change="load(f.template)"><option v-for="t in f.templates" :value="t.key">{{ t.label }}</option></select></label>
@@ -72,8 +72,8 @@ export const MailComposer = {
     <label>Message<textarea v-model="f.intro" rows="9"></textarea></label>
     <div class="btns">
       <label class="check" v-if="model"><input type="checkbox" v-model="f.include_document"> Inclure le détail (lignes, total, QR code de paiement)</label>
-      <button class="btn sm" @click="ai.open = !ai.open">✨ Rédiger avec Sophie (IA)</button>
-      <button class="btn sm" @click="showPreview">👁 Aperçu</button>
+      <button class="btn sm" @click="ai.open = !ai.open"><Icon name="sparkles" class="ti"/> Rédiger avec Sophie (IA)</button>
+      <button class="btn sm" @click="showPreview"><Icon name="eye" class="ti"/> Aperçu</button>
     </div>
     <div v-if="ai.open" class="btns"><input v-model="ai.instruction" style="flex:1" placeholder="Ex. : plus court, ton ferme, en allemand, proposer un rendez-vous mardi…" @keydown.enter="draft"><button class="btn primary sm" :disabled="ai.busy" @click="draft">{{ ai.busy ? 'Sophie écrit…' : 'Rédiger' }}</button></div>
     <iframe v-if="preview" :srcdoc="preview" sandbox="allow-same-origin" title="Aperçu de l'e-mail" style="width:100%;height:340px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>
@@ -85,7 +85,7 @@ export const MailComposer = {
     <template #foot>
       <a class="btn" :href="mailto" style="margin-right:auto">Ouvrir dans ma messagerie</a>
       <button class="btn" @click="$emit('close')">Annuler</button>
-      <button class="btn primary" :disabled="busy || !f.to || !f.subject || (meta.mail && !meta.mail.configured)" @click="send">{{ when === 'later' ? '🕒 Programmer' : '➤ Envoyer' }}</button>
+      <button class="btn primary" :disabled="busy || !f.to || !f.subject || (meta.mail && !meta.mail.configured)" @click="send">{{ when === 'later' ? 'Programmer' : '➤ Envoyer' }}</button>
     </template>
   </Modal>`,
 };
@@ -107,8 +107,8 @@ export const ActivityModal = {
     return { a, meta, quick, save, REC, TYPE_ICON };
   },
   template: `
-  <Modal :title="a.id ? 'Modifier l\\'activité' : '⏰ Planifier une activité'" @close="$emit('close')">
-    <div class="btns"><button v-for="(l, k) in meta.types" class="btn sm" :class="{primary: a.type === k}" @click="a.type = k">{{ TYPE_ICON[k] }} {{ l }}</button></div>
+  <Modal :title="a.id ? 'Modifier l\\'activité' : 'Planifier une activité'" @close="$emit('close')">
+    <div class="btns"><button v-for="(l, k) in meta.types" class="btn sm" :class="{primary: a.type === k}" @click="a.type = k"><Icon :name="TYPE_ICON[k]" class="ti"/> {{ l }}</button></div>
     <label>Résumé<input v-model="a.summary" placeholder="Ex. : Rappeler le client pour le devis"></label>
     <div class="form-grid">
       <label>Échéance<input type="date" v-model="a.due_date"></label>
@@ -139,11 +139,11 @@ export const ActivityItem = {
   template: `
   <div class="activity" :class="{late, today: isToday}">
     <div style="display:flex;gap:8px;align-items:flex-start">
-      <span class="act-icon">{{ TYPE_ICON[a.type] || '✅' }}</span>
+      <span class="act-icon"><Icon :name="TYPE_ICON[a.type] || 'circle-check'" class="ti"/></span>
       <div style="flex:1;min-width:0">
-        <div><b>{{ a.summary }}</b> <span v-if="a.recurrence !== 'none'" title="Répétition" class="muted small">🔁</span></div>
+        <div><b>{{ a.summary }}</b> <span v-if="a.recurrence !== 'none'" title="Répétition" class="muted small"><Icon name="repeat" class="ti"/></span></div>
         <div class="small" :class="late ? 'neg' : isToday ? 'warn' : 'muted'">{{ late ? 'En retard · ' : isToday ? 'Aujourd\\'hui · ' : '' }}{{ date(a.due_date) }} {{ a.due_time || '' }} · {{ a.user_name }}</div>
-        <div v-if="showRecord && a.record" class="small"><a :href="'#' + a.record.link">🔗 {{ a.record.label }}</a></div>
+        <div v-if="showRecord && a.record" class="small"><a :href="'#' + a.record.link"><Icon name="link" class="ti"/> {{ a.record.label }}</a></div>
         <div v-else-if="showRecord" class="small muted">{{ meta.modules[a.module] || a.module }}</div>
         <div v-if="a.note" class="small" style="white-space:pre-wrap;margin-top:4px">{{ a.note }}</div>
       </div>
@@ -176,9 +176,9 @@ export const Chatter = {
   <StudioZone v-if="STUDIO.includes(model) && recordId && recordId !== 'new'" :model="model" :record-id="recordId" @mail="preset = $event; mode = 'mail'" @changed="load"/>
   <div class="card chatter no-print" v-if="data" v-bind="$attrs">
     <div class="btns">
-      <button class="btn sm" :class="{primary: mode==='mail'}" @click="mode = 'mail'">✉️ Envoyer un e-mail</button>
-      <button class="btn sm" :class="{primary: mode==='note'}" @click="mode = mode === 'note' ? null : 'note'">📝 Note</button>
-      <button class="btn sm" :class="{primary: mode==='activity'}" @click="mode = 'activity'">⏰ Planifier une activité</button>
+      <button class="btn sm" :class="{primary: mode==='mail'}" @click="mode = 'mail'"><Icon name="mail" class="ti"/> Envoyer un e-mail</button>
+      <button class="btn sm" :class="{primary: mode==='note'}" @click="mode = mode === 'note' ? null : 'note'"><Icon name="notebook-pen" class="ti"/> Note</button>
+      <button class="btn sm" :class="{primary: mode==='activity'}" @click="mode = 'activity'"><Icon name="alarm-clock" class="ti"/> Planifier une activité</button>
     </div>
     <div v-if="mode==='note'" style="margin-top:10px"><textarea v-model="note" placeholder="Note interne (visible uniquement par l'équipe)"></textarea><button class="btn sm primary" style="margin-top:6px" :disabled="!note.trim()" @click="addNote">Enregistrer la note</button></div>
     <template v-if="data.activities.length">
@@ -187,11 +187,11 @@ export const Chatter = {
     </template>
     <template v-if="data.scheduled.length">
       <h3 style="margin:14px 0 6px">E-mails programmés</h3>
-      <div v-for="e in data.scheduled" class="list-item small"><span>🕒 {{ datetime(e.scheduled_at) }} → {{ e.to_addr }} · {{ e.subject }}</span><button class="btn sm danger" @click="cancelMail(e)">Annuler</button></div>
+      <div v-for="e in data.scheduled" class="list-item small"><span><Icon name="clock" class="ti"/> {{ datetime(e.scheduled_at) }} → {{ e.to_addr }} · {{ e.subject }}</span><button class="btn sm danger" @click="cancelMail(e)">Annuler</button></div>
     </template>
     <h3 style="margin:14px 0 6px">Historique</h3>
     <div v-for="m in data.messages" class="chat-msg" :class="m.kind">
-      <span class="avatar" :style="{background: m.user_color || '#94a3b8', width: '26px', height: '26px', fontSize: '11px'}">{{ (m.user_name || '⚙')[0] }}</span>
+      <span class="avatar" :style="{background: m.user_color || '#94a3b8', width: '26px', height: '26px', fontSize: '11px'}">{{ (m.user_name || '•')[0] }}</span>
       <div style="flex:1;min-width:0"><div class="small muted">{{ m.user_name || 'Système' }} · {{ datetime(m.created_at.replace(' ', 'T') + 'Z') }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div><div style="white-space:pre-wrap">{{ m.body }}</div></div>
     </div>
     <div v-if="!data.messages.length" class="muted small">Aucun échange pour l'instant.</div>
@@ -219,10 +219,10 @@ export const ModuleTools = {
     <button class="btn" @click="open = 'mail'" title="Envoyer un e-mail"><Icon name="mail"/></button>
     <button class="btn" @click="open = 'list'" title="Activités de ce module"><Icon name="alarm-clock"/> <span class="badge" :class="late ? 'b-red' : 'b-gray'" v-if="list.length">{{ list.length }}</span></button>
     <MailComposer v-if="open === 'mail'" @close="open = null"/>
-    <Modal v-if="open === 'list'" :title="'⏰ Activités — ' + (meta.modules[module] || module)" @close="open = null">
+    <Modal v-if="open === 'list'" :title="'Activités — ' + (meta.modules[module] || module)" @close="open = null">
       <button class="btn primary" @click="open = 'new'">+ Nouvelle activité</button>
       <ActivityItem v-for="a in list" :key="a.id" :a="a" show-record @changed="load" @edit="editing = $event; open = null"/>
-      <Empty v-if="!list.length" icon="⏰" text="Aucune activité planifiée dans ce module"/>
+      <Empty v-if="!list.length" icon="alarm-clock" text="Aucune activité planifiée dans ce module"/>
       <a href="#/activities" @click="open = null">Voir toutes mes activités →</a>
     </Modal>
     <ActivityModal v-if="open === 'new' || editing" :activity="editing" :module="module" @close="open = null; editing = null" @saved="load"/>

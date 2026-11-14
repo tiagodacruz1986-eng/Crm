@@ -7,7 +7,7 @@ const COLS = [
 ];
 
 const STAGE_KEYS = ['received', 'diagnosis', 'approval', 'parts', 'repair', 'quality', 'ready'];
-const STAGE_LABEL = { received: '🚗 Véhicule reçu', diagnosis: '🔍 Diagnostic', approval: '✍️ Accord client', parts: '📦 Pièces', repair: '🔧 Réparation', quality: '✅ Contrôle qualité', ready: '🎉 Prêt' };
+const STAGE_LABEL = { received: 'Véhicule reçu', diagnosis: 'Diagnostic', approval: 'Accord client', parts: 'Pièces', repair: 'Réparation', quality: 'Contrôle qualité', ready: 'Prêt' };
 
 export const Workshop = {
   setup() {
@@ -57,10 +57,10 @@ export const Workshop = {
           <div class="row small">
             <span v-if="o.active_workers" class="live">{{ o.mechanic_name || 'en cours' }}</span>
             <span v-else class="muted">{{ o.mechanic_name || 'non assigné' }}</span>
-            <span :class="isLate(o) ? 'late' : 'muted'" v-if="o.promised_at">⏰ {{ date(o.promised_at) }} {{ time(o.promised_at) }}</span>
+            <span :class="isLate(o) ? 'late' : 'muted'" v-if="o.promised_at"><Icon name="alarm-clock" class="ti"/> {{ date(o.promised_at) }} {{ time(o.promised_at) }}</span>
           </div>
           <div class="row small muted" style="margin-top:4px">
-            <span v-if="o.hours_spent || o.hours_planned" :class="{ 'wt-over': timeOver(o) }" :title="timeOver(o) ? 'Temps prévu dépassé' : 'Temps pointé / temps prévu'">⏱ {{ hours(o.hours_spent) }}<template v-if="o.hours_planned"> / {{ hours(o.hours_planned) }}</template></span><span v-else></span>
+            <span v-if="o.hours_spent || o.hours_planned" :class="{ 'wt-over': timeOver(o) }" :title="timeOver(o) ? 'Temps prévu dépassé' : 'Temps pointé / temps prévu'"><Icon name="timer" class="ti"/> {{ hours(o.hours_spent) }}<template v-if="o.hours_planned"> / {{ hours(o.hours_planned) }}</template></span><span v-else></span>
             <span>{{ money(o.total) }}</span>
           </div>
           <div class="mini-gauge" :title="STAGE_LABEL[o.stage || 'received']"><div :style="{width: (100 * STAGE_KEYS.indexOf(o.stage || 'received') / 6) + '%'}"></div></div>
@@ -183,9 +183,9 @@ export const Planning = {
       <label class="check"><input type="checkbox" :checked="!!edit.courtesy_car" @change="edit.courtesy_car = $event.target.checked ? 1 : 0"> Véhicule de courtoisie</label>
       <template #foot>
         <button v-if="edit.id" class="btn danger" @click="remove" style="margin-right:auto">Supprimer</button>
-        <button v-if="edit.id && edit.customer_id" class="btn" @click="mailAppt = edit.id">✉️</button>
+        <button v-if="edit.id && edit.customer_id" class="btn" @click="mailAppt = edit.id"><Icon name="mail" class="ti"/></button>
         <button v-if="edit.document_id" class="btn" @click="go('/document/' + edit.document_id)">Voir l'OR</button>
-        <button v-else-if="edit.customer_id" class="btn" @click="arrive">🚗 Véhicule arrivé → OR</button>
+        <button v-else-if="edit.customer_id" class="btn" @click="arrive"><Icon name="car" class="ti"/> Véhicule arrivé → OR</button>
         <button class="btn primary" @click="save">Enregistrer</button>
       </template>
     </Modal>

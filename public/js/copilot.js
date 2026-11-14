@@ -75,7 +75,7 @@ export const Copilot = {
         messages.value.push({ role: 'assistant', content: r.reply, actions: r.actions });
         if (voiceOn.value) speak(r.reply);
       } catch (e) {
-        messages.value.push({ role: 'assistant', content: `⚠️ ${e.message}` });
+        messages.value.push({ role: 'assistant', content: `${e.message}` });
       } finally { busy.value = false; scroll(); }
     };
 
@@ -114,7 +114,7 @@ export const Copilot = {
         ambientRec.start();
       };
       startAmbient();
-      toast('🎧 Nova écoute : vos phrases sont notées dans le journal. Dites « Nova, … » pour lui demander quelque chose.');
+      toast('Nova écoute : vos phrases sont notées dans le journal. Dites « Nova, … » pour lui demander quelque chose.');
     };
     onUnmounted(() => { ambient.value = false; ambientRec?.stop(); rec?.stop(); });
 
@@ -131,15 +131,15 @@ export const Copilot = {
   <div v-if="open" class="copilot-panel no-print">
     <div class="copilot-head">
       <div class="mini-orb"><Icon name="sparkles"/></div>
-      <div style="flex:1"><b class="display" style="font-size:16px">Nova</b><div class="small muted">{{ ambient ? '🎧 écoute continue active' : 'Copilote IA — je vous écoute' }}</div></div>
+      <div style="flex:1"><b class="display" style="font-size:16px">Nova</b><div class="small muted">{{ ambient ? 'écoute continue active' : 'Copilote IA — je vous écoute' }}</div></div>
       <button class="icon-btn" :title="voiceOn ? 'Couper la voix' : 'Activer la voix'" @click="toggleVoice"><Icon :name="voiceOn ? 'volume-2' : 'square'"/></button>
       <button class="icon-btn" @click="open = false"><Icon name="x"/></button>
     </div>
     <div class="copilot-body" ref="body">
-      <div class="msg assistant"><div class="md">{{ hello }} {{ store.user.name.split(' ')[0] }} ✨ Parlez-moi ou écrivez : je note, je planifie, je réponds à partir de vos vrais chiffres. Chaque soir je vous prépare le résumé de la journée et les priorités du lendemain.</div>
+      <div class="msg assistant"><div class="md">{{ hello }} {{ store.user.name.split(' ')[0] }} <Icon name="sparkles" class="ti"/> Parlez-moi ou écrivez : je note, je planifie, je réponds à partir de vos vrais chiffres. Chaque soir je vous prépare le résumé de la journée et les priorités du lendemain.</div>
         <div class="suggest"><button v-for="s in SUGGEST" @click="send(s)">{{ s }}</button></div></div>
       <template v-for="m in messages">
-        <div v-if="m.role === 'note'" class="journal-note small">📓 {{ m.content }}</div>
+        <div v-if="m.role === 'note'" class="journal-note small"><Icon name="notebook" class="ti"/> {{ m.content }}</div>
         <div v-else class="msg" :class="m.role">
           <div v-if="m.role === 'assistant'" class="md" v-html="md(m.content)"></div><template v-else>{{ m.content }}</template>
           <div v-if="m.actions && m.actions.length"><span v-for="a in m.actions" class="action-chip">{{ a }}</span></div>
@@ -180,7 +180,7 @@ export const BriefCard = {
       <div class="md" v-html="md(brief.content)"></div>
       <div><h3 class="small muted" style="text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Priorités planifiées</h3>
         <div v-for="(p, i) in brief.priorities" class="priority"><span class="n">{{ i + 1 }}</span><div><b>{{ p.resume }}</b><div class="small muted">{{ p.pourquoi }} · {{ fdate(p.echeance) }}</div></div></div>
-        <div v-if="!brief.priorities.length" class="muted small">Rien d'urgent 👌</div>
+        <div v-if="!brief.priorities.length" class="muted small">Rien d'urgent</div>
       </div>
     </div>
     <div v-else class="muted">Parlez à Nova (bouton rond en bas à droite) pendant la journée : ce soir, elle vous fera le résumé et planifiera les priorités.</div>
@@ -207,13 +207,13 @@ export const CopilotPage = {
     <BriefCard/>
     <div class="grid g2">
       <div class="card">
-        <div class="card-head"><h2 style="margin:0">📓 Journal d'aujourd'hui</h2><span class="muted small">{{ data.journal.length }} note(s)</span></div>
+        <div class="card-head"><h2 style="margin:0">Journal d'aujourd'hui</h2><span class="muted small">{{ data.journal.length }} note(s)</span></div>
         <div class="btns" style="margin-bottom:12px"><input v-model="note" style="flex:1" placeholder="Ex. : Le client de la Golf rappelle demain pour le devis freins" @keydown.enter="note.trim() && add()"><button class="btn primary" :disabled="!note.trim()" @click="add">Noter</button></div>
-        <div v-for="j in data.journal" class="journal-note"><div class="small muted">{{ j.created_at.slice(11, 16) }} · {{ j.source === 'voice' ? '🎙️ dicté' : j.source === 'ia' ? '✨ noté par Nova' : '⌨️ écrit' }} <button class="link small" style="float:right" @click="remove(j)">supprimer</button></div>{{ j.text }}</div>
-        <Empty v-if="!data.journal.length" icon="🎧" text="Activez l'écoute continue (icône carnet dans Nova) ou dictez vos notes : tout est rassemblé ici pour le résumé du soir."/>
+        <div v-for="j in data.journal" class="journal-note"><div class="small muted">{{ j.created_at.slice(11, 16) }} · {{ j.source === 'voice' ? 'dicté' : j.source === 'ia' ? 'noté par Nova' : 'écrit' }} <button class="link small" style="float:right" @click="remove(j)">supprimer</button></div>{{ j.text }}</div>
+        <Empty v-if="!data.journal.length" icon="headphones" text="Activez l'écoute continue (icône carnet dans Nova) ou dictez vos notes : tout est rassemblé ici pour le résumé du soir."/>
       </div>
       <div class="card">
-        <h2>⚙️ Réglages</h2>
+        <h2>Réglages</h2>
         <div class="form-grid">
           <label>Heure du résumé automatique<input type="time" v-model="cfg.summary_time"></label>
           <label class="check"><input type="checkbox" v-model="cfg.enabled"> Résumé automatique chaque jour</label>
@@ -221,16 +221,16 @@ export const CopilotPage = {
           <label class="check"><input type="checkbox" v-model="cfg.email_me"> M'envoyer le résumé par e-mail</label>
         </div>
         <button class="btn primary" style="margin-top:12px" @click="save">Enregistrer</button>
-        <p class="muted small" style="margin-top:14px">🎙️ Voix : {{ voiceSupported ? 'disponible dans ce navigateur' : 'non disponible ici — utilisez Chrome, Edge ou Safari' }}. {{ data.ai ? '' : 'Sans clé API Claude, Nova note votre journal et fait un résumé chiffré simple.' }}</p>
+        <p class="muted small" style="margin-top:14px"><Icon name="mic" class="ti"/> Voix : {{ voiceSupported ? 'disponible dans ce navigateur' : 'non disponible ici — utilisez Chrome, Edge ou Safari' }}. {{ data.ai ? '' : 'Sans clé API Claude, Nova note votre journal et fait un résumé chiffré simple.' }}</p>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
-      <h2>🗂️ Résumés précédents</h2>
+      <h2>Résumés précédents</h2>
       <details v-for="b in data.briefs" class="result"><summary><b>{{ fdate(b.date) }}</b><span class="muted small">{{ b.priorities.length }} priorité(s)</span></summary>
         <div class="md" v-html="md(b.content)"></div>
         <div style="padding:0 13px 13px"><div v-for="(p, i) in b.priorities" class="priority"><span class="n">{{ i + 1 }}</span><div><b>{{ p.resume }}</b><div class="small muted">{{ p.pourquoi }} · {{ fdate(p.echeance) }}</div></div></div></div>
       </details>
-      <Empty v-if="!data.briefs.length" icon="🧠" text="Aucun résumé pour l'instant"/>
+      <Empty v-if="!data.briefs.length" icon="brain" text="Aucun résumé pour l'instant"/>
     </div>
   </div>`,
 };

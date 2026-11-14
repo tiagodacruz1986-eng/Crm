@@ -104,7 +104,7 @@ export const LayoutEditor = {
       const img = new Image();
       img.onload = () => {
         const c = colorsFromImage(img);
-        if (c) { L.value.primary = c.primary; L.value.secondary = c.secondary; toast(quiet ? 'Couleurs reprises de votre logo 🎨 (pensez à enregistrer)' : 'Couleurs reprises de votre logo 🎨'); }
+        if (c) { L.value.primary = c.primary; L.value.secondary = c.secondary; toast(quiet ? 'Couleurs reprises de votre logo (pensez à enregistrer)' : 'Couleurs reprises de votre logo'); }
         else if (!quiet) toast('Le logo n\'a pas de couleur marquée : choisissez une palette', 'error');
         resolve();
       };
@@ -153,7 +153,7 @@ export const LayoutEditor = {
         </div>
         <div class="palettes">
           <button v-for="p in LAYOUT_PALETTES" class="palette" :title="p.join(' / ')" @click="L.primary = p[0]; L.secondary = p[1]"><span :style="{ background: p[0] }"></span><span :style="{ background: p[1] }"></span></button>
-          <button class="btn sm" :disabled="!logoUrl" @click="applyLogoColors(false)">🎨 Couleurs du logo</button>
+          <button class="btn sm" :disabled="!logoUrl" @click="applyLogoColors(false)"><Icon name="palette" class="ti"/> Couleurs du logo</button>
         </div>
       </div>
 

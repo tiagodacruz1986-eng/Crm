@@ -26,7 +26,7 @@ export const ConfigPanel = {
       const r = await act(() => POST('/automation/followups'));
       toast(r.done.length ? `${r.done.length} relance(s) : ${r.done.map((d) => d.number + ' (' + d.name + ')').join(', ')}` : 'Aucune facture à relancer aujourd\'hui');
     };
-    const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); if (r.failed) toast(`⚠ ${r.failed} rappel(s) non envoyé(s) : ${r.errors.join(' · ')}`, 'error'); };
+    const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); if (r.failed) toast(`${r.failed} rappel(s) non envoyé(s) : ${r.errors.join(' · ')}`, 'error'); };
     // Rapports mensuels : envoi immédiat pour le mois écoulé (ce qui est déjà parti n'est pas renvoyé)
     const sendingReports = ref(false);
     const sendReports = async () => {
@@ -77,7 +77,7 @@ export const ConfigPanel = {
           <td><select v-model="l.action"><option value="email">E-mail de relance</option><option value="activity">Activité (appel, courrier recommandé…)</option></select></td>
           <td><button class="icon-btn" @click="O.relances.levels.splice(i, 1)"><Icon name="x"/></button></td></tr></tbody>
       </table>
-      <div class="btns"><button class="btn sm" v-if="O.relances.levels.length < 6" @click="addLevel">+ Niveau</button><button class="btn sm" @click="runFollowups">▶ Lancer les relances maintenant</button></div>
+      <div class="btns"><button class="btn sm" v-if="O.relances.levels.length < 6" @click="addLevel">+ Niveau</button><button class="btn sm" @click="runFollowups"><Icon name="play" class="ti"/> Lancer les relances maintenant</button></div>
     </section>
 
     <section class="card cfg">
@@ -85,7 +85,7 @@ export const ConfigPanel = {
       <div class="cfg-row"><div><b>Rappel au client la veille</b><small>E-mail de rappel automatique pour les rendez-vous du lendemain</small></div><label class="switch"><input type="checkbox" v-model="O.rendez_vous.reminder"><i></i></label></div>
       <div class="cfg-row" v-if="O.rendez_vous.reminder"><div><b>Heure d'envoi</b></div><input type="time" v-model="O.rendez_vous.reminder_time" style="max-width:140px"></div>
       <div class="cfg-row"><div><b>Durée par défaut</b></div><div class="inline"><input type="number" min="15" step="15" v-model.number="O.rendez_vous.default_duration"> minutes</div></div>
-      <div class="btns" v-if="O.rendez_vous.reminder"><button class="btn sm" @click="runReminders">▶ Envoyer les rappels de demain maintenant</button></div>
+      <div class="btns" v-if="O.rendez_vous.reminder"><button class="btn sm" @click="runReminders"><Icon name="play" class="ti"/> Envoyer les rappels de demain maintenant</button></div>
     </section>
 
     <section class="card cfg">

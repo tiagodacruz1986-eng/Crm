@@ -2,6 +2,7 @@
 // et pointent présence + temps passé sur chaque intervention des ordres de réparation
 // (temps prévu par le gérant ; le temps passe en rouge dès qu'il est dépassé).
 import { createApp, ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { Icon } from './icon.js';
 
 const IDLE_LOGOUT_MS = 90_000;
 
@@ -106,8 +107,8 @@ const App = {
       const first = (r.user?.name || '').split(' ')[0];
       const h = new Date().getHours();
       greet.value = r.action === 'in'
-        ? { cls: 'in', title: `${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'} ${first} !`, sub: `Arrivée enregistrée à ${r.at.slice(11, 16)}`, extra: h < 17 ? 'Bonne journée ☀️' : 'Bon travail 💪' }
-        : { cls: 'out', title: `Au revoir ${first} !`, sub: `Départ enregistré à ${r.at.slice(11, 16)}`, extra: `${hm(r.today_hours)} travaillées aujourd'hui · ${h >= 17 ? 'bonne soirée' : 'à bientôt'} 👋` };
+        ? { cls: 'in', title: `${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'} ${first} !`, sub: `Arrivée enregistrée à ${r.at.slice(11, 16)}`, extra: h < 17 ? 'Bonne journée' : 'Bon travail' }
+        : { cls: 'out', title: `Au revoir ${first} !`, sub: `Départ enregistré à ${r.at.slice(11, 16)}`, extra: `${hm(r.today_hours)} travaillées aujourd'hui · ${h >= 17 ? 'bonne soirée' : 'à bientôt'}` };
       clearTimeout(greetT);
       greetT = setTimeout(() => { greet.value = null; }, 4000);
     };
@@ -196,7 +197,7 @@ const App = {
           <small>{{ u.since ? 'Présent depuis ' + since(u.since) : (u.job_title || 'Absent') }}</small>
         </button>
       </div>
-      <p v-if="offline" class="k-err" style="text-align:center">📡 Pas de connexion au garage — nouvel essai automatique toutes les 30 secondes.</p>
+      <p v-if="offline" class="k-err" style="text-align:center"><Icon name="radio" class="ti"/> Pas de connexion au garage — nouvel essai automatique toutes les 30 secondes.</p>
       <p v-else-if="!info.users.length" class="k-muted" style="text-align:center">Personne n'a encore de code PIN. Le gérant les crée dans Paramètres → Utilisateurs & accès.</p>
       <div class="k-err" style="text-align:center">{{ err }}</div>
     </template>
@@ -217,12 +218,12 @@ const App = {
         <div class="k-muted">{{ st.attendance.present ? 'Présent(e) depuis ' + since(st.attendance.since) : 'Vous n’êtes pas encore pointé(e)' }}</div>
         <div v-if="st.attendance.present" class="k-timer">{{ presentFor }}</div>
         <button class="k-big" :class="st.attendance.present ? 'out' : 'in'" @click="attend">
-          <span class="ico">{{ st.attendance.present ? '⏏' : '▶' }}</span>{{ st.attendance.present ? 'Départ' : 'Arrivée' }}
+          <span class="ico"><Icon :name="st.attendance.present ? 'log-out' : 'log-in'" class="ti"/></span>{{ st.attendance.present ? 'Départ' : 'Arrivée' }}
         </button>
         <div class="k-stats"><div><b>{{ h(st.attendance.today_hours) }}</b>aujourd'hui</div><div><b>{{ h(st.attendance.week_hours) }}</b>cette semaine</div><div><b>{{ h(st.todayHours) }}</b>sur des OR</div></div>
       </div>
       <div class="k-err">{{ err }}</div>
-      <div v-if="notice" class="k-info" @click="notice = ''">⏹ {{ notice }}</div>
+      <div v-if="notice" class="k-info" @click="notice = ''"><Icon name="square" class="ti"/> {{ notice }}</div>
 
       <template v-if="st.show_orders && st.attendance.present">
         <div v-if="st.work" class="k-status working" :class="{ over: cur && cur.over }">
@@ -233,37 +234,37 @@ const App = {
             <div class="k-timer" :class="{ over: cur && cur.over }">{{ elapsed }}</div>
             <div v-if="cur" class="k-budget" :class="{ over: cur.over }">
               {{ cur.line ? 'Intervention' : 'OR' }} : {{ h(cur.spent) }}<template v-if="cur.planned"> / {{ h(cur.planned) }} prévu</template><template v-if="cur.with.length"> · avec {{ cur.with.join(', ') }}</template>
-              <template v-if="cur.over"><br>⚠ Temps prévu dépassé de {{ h(cur.spent - cur.planned) }}</template><template v-else-if="cur.planned"> · reste {{ h(cur.planned - cur.spent) }}</template>
+              <template v-if="cur.over"><br><Icon name="triangle-alert" class="ti"/> Temps prévu dépassé de {{ h(cur.spent - cur.planned) }}</template><template v-else-if="cur.planned"> · reste {{ h(cur.planned - cur.spent) }}</template>
             </div>
           </div>
-          <button class="k-btn orange" @click="clockAction('stop')">⏸ Pause / arrêter</button>
+          <button class="k-btn orange" @click="clockAction('stop')"><Icon name="pause" class="ti"/> Pause / arrêter</button>
         </div>
-      <div class="k-title" style="font-size:20px">🔧 Ordres de réparation</div>
+      <div class="k-title" style="font-size:20px"><Icon name="wrench" class="ti"/> Ordres de réparation</div>
       <div class="k-orders">
         <div v-for="o in st.orders" class="k-order" :class="{mine: o.mechanic_id === who.id, active: st.work && st.work.document_id === o.id}">
-          <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-time" :class="{ over: oOver(o) }">⏱ {{ h(oSpent(o)) }}<template v-if="o.hours_planned"> / {{ h(o.hours_planned) }}</template></span></h3>
+          <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-time" :class="{ over: oOver(o) }"><Icon name="timer" class="ti"/> {{ h(oSpent(o)) }}<template v-if="o.hours_planned"> / {{ h(o.hours_planned) }}</template></span></h3>
           <div class="k-muted">{{ o.make }} {{ o.model }} · {{ o.customer_name }} <span v-if="o.vin">· VIN {{ o.vin }}</span></div>
           <div class="complaint">{{ o.customer_complaint || 'Pas de description' }}</div>
           <!-- Le chrono se lance ici, sur l'OR : un bouton par intervention (main-d'œuvre, forfait) -->
           <div v-if="o.lines.some(l => l.timed)" class="k-work">
             <div v-for="l in o.lines.filter(x => x.timed)" :key="l.id" class="k-line" :class="{ done: l.done, running: isMine(o, l) }">
               <span class="box" @click="toggleLine(o, l)">{{ l.done ? '✓' : '' }}</span>
-              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="others(l.workers).length"> · 👤 {{ others(l.workers).join(', ') }}</span>
-                <span v-if="l.planned || lSpent(l) > 0" class="k-time" :class="{ over: lOver(l) }">⏱ {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
+              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="others(l.workers).length"> · <Icon name="user" class="ti"/> {{ others(l.workers).join(', ') }}</span>
+                <span v-if="l.planned || lSpent(l) > 0" class="k-time" :class="{ over: lOver(l) }"><Icon name="timer" class="ti"/> {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
               </span>
-              <button v-if="isMine(o, l)" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
-              <button v-else class="k-btn green sm k-go" title="Démarrer le chrono sur cette intervention" @click="startLine(o, l)">▶</button>
+              <button v-if="isMine(o, l)" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')"><Icon name="pause" class="ti"/></button>
+              <button v-else class="k-btn green sm k-go" title="Démarrer le chrono sur cette intervention" @click="startLine(o, l)"><Icon name="play" class="ti"/></button>
             </div>
             <div class="k-line k-general">
-              <span class="k-line-txt k-muted">Autre travail sur cet OR (diagnostic, essai…)<span v-if="o.hours_general > 0" class="k-time">⏱ {{ h(o.hours_general) }}</span></span>
-              <button v-if="st.work && st.work.document_id === o.id && !st.work.line_id" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
-              <button v-else class="k-btn sm k-go" title="Démarrer le chrono sans intervention précise" @click="clockAction('start', o.id)">▶</button>
+              <span class="k-line-txt k-muted">Autre travail sur cet OR (diagnostic, essai…)<span v-if="o.hours_general > 0" class="k-time"><Icon name="timer" class="ti"/> {{ h(o.hours_general) }}</span></span>
+              <button v-if="st.work && st.work.document_id === o.id && !st.work.line_id" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')"><Icon name="pause" class="ti"/></button>
+              <button v-else class="k-btn sm k-go" title="Démarrer le chrono sans intervention précise" @click="clockAction('start', o.id)"><Icon name="play" class="ti"/></button>
             </div>
           </div>
           <div class="k-actions">
-            <button v-if="st.work && st.work.document_id === o.id" class="k-btn orange sm" @click="clockAction('stop')">⏸ Pause</button>
-            <button v-else-if="!o.lines.some(l => l.timed)" class="k-btn green sm" @click="clockAction('start', o.id)">▶ Démarrer le chrono</button>
-            <button class="k-btn blue sm" @click="openLive(o)">📷 Photos & messages</button>
+            <button v-if="st.work && st.work.document_id === o.id" class="k-btn orange sm" @click="clockAction('stop')"><Icon name="pause" class="ti"/> Pause</button>
+            <button v-else-if="!o.lines.some(l => l.timed)" class="k-btn green sm" @click="clockAction('start', o.id)"><Icon name="play" class="ti"/> Démarrer le chrono</button>
+            <button class="k-btn blue sm" @click="openLive(o)"><Icon name="camera" class="ti"/> Photos & messages</button>
             <button class="k-btn sm" @click="open = open === o.id ? null : o.id">{{ open === o.id ? '▲ Fermer' : '▼ Détails' }}</button>
           </div>
           <template v-if="open === o.id">
@@ -275,11 +276,11 @@ const App = {
               <textarea v-model="draft(o).diagnosis" placeholder="Diagnostic / constat…"></textarea>
               <input v-model="draft(o).note" placeholder="Note pour le bureau (pièce manquante, travaux supplémentaires…)">
               <input v-model.number="draft(o).mileage" type="number" placeholder="Kilométrage relevé">
-              <button class="k-btn blue sm" @click="saveNotes(o)">💾 Enregistrer</button>
+              <button class="k-btn blue sm" @click="saveNotes(o)"><Icon name="save" class="ti"/> Enregistrer</button>
             </div>
             <div class="k-actions">
-              <button class="k-btn orange sm" @click="updateOrder(o, {status: 'waiting_parts'})">📦 Attente pièces</button>
-              <button class="k-btn green sm" @click="updateOrder(o, {status: 'done'})">✅ Travail terminé</button>
+              <button class="k-btn orange sm" @click="updateOrder(o, {status: 'waiting_parts'})"><Icon name="package" class="ti"/> Attente pièces</button>
+              <button class="k-btn green sm" @click="updateOrder(o, {status: 'done'})"><Icon name="circle-check" class="ti"/> Travail terminé</button>
             </div>
           </template>
         </div>
@@ -289,11 +290,13 @@ const App = {
     </template>
 
     <transition name="k-fade"><div v-if="greet" class="k-greet" :class="greet.cls" @click="greet = null">
-      <div class="k-greet-ico">{{ greet.cls === 'in' ? '👋' : '🌙' }}</div><h1>{{ greet.title }}</h1><p>{{ greet.sub }}</p><p class="k-muted">{{ greet.extra }}</p>
+      <div class="k-greet-ico"><Icon :name="greet.cls === 'in' ? 'sun' : 'moon'" class="ti"/></div><h1>{{ greet.title }}</h1><p>{{ greet.sub }}</p><p class="k-muted">{{ greet.extra }}</p>
     </div></transition>
   </div>`,
 };
 
-createApp(App).mount('#app');
+const app = createApp(App);
+app.component('Icon', Icon);
+app.mount('#app');
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => {});
