@@ -97,7 +97,7 @@ export const CustomerDetail = {
         <a class="btn" :href="'#/new/quote?customer_id=' + c.id">+ Devis</a>
         <a class="btn primary" :href="'#/new/order?customer_id=' + c.id">+ OR</a>
         <a class="btn" :href="'#/new/invoice?customer_id=' + c.id">+ Facture</a>
-        <button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button>
+        <button class="btn danger" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div class="grid g4" v-if="!isNew" style="margin-bottom:16px">
@@ -209,7 +209,7 @@ export const VehicleDetail = {
       <div class="btns">
         <a class="btn" :href="'#/new/quote?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ Devis</a>
         <a class="btn primary" :href="'#/new/order?customer_id=' + v.customer_id + '&vehicle_id=' + v.id">+ OR</a>
-        <button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button>
+        <button class="btn danger" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div class="grid g2">

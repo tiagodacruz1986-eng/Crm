@@ -91,7 +91,7 @@ export const ProductDetail = {
   <div v-if="p">
     <div class="page-head">
       <h1>{{ isNew ? 'Nouvel article' : (p.ref ? p.ref + ' — ' : '') + p.name }}</h1>
-      <div class="btns" v-if="!isNew"><button class="btn" v-if="!p.is_service" @click="adj = {qty: p.qty_on_hand, note: 'Inventaire'}"><Icon name="clipboard-list" class="ti"/> Inventaire</button><button class="btn danger" @click="remove"><Icon name="trash-2" class="ti"/></button></div>
+      <div class="btns" v-if="!isNew"><button class="btn" v-if="!p.is_service" @click="adj = {qty: p.qty_on_hand, note: 'Inventaire'}"><Icon name="clipboard-list" class="ti"/> Inventaire</button><button class="btn danger" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button></div>
     </div>
     <div class="grid g2">
       <div class="card">
@@ -266,7 +266,7 @@ export const PurchaseEditor = {
         <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="action('receive', 'Marchandise réceptionnée — stock mis à jour')"><Icon name="inbox" class="ti"/> Réceptionner</button>
         <button class="btn success" v-if="!isNew && !p.posted" @click="action('post', 'Facture fournisseur comptabilisée')"><Icon name="check" class="ti"/> Comptabiliser la facture</button>
         <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true"><Icon name="banknote" class="ti"/> Payer</button>
-        <button class="btn danger" v-if="!isNew && !p.posted" @click="remove"><Icon name="trash-2" class="ti"/></button>
+        <button class="btn danger" v-if="!isNew && !p.posted" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
     <div :class="{'bill-layout': viewer}">
@@ -306,14 +306,14 @@ export const PurchaseEditor = {
         <template v-if="p.amount_paid"><span class="muted">Payé</span><span class="num pos">{{ money(p.amount_paid) }}</span></template>
       </div>
       <div v-if="p.payments && p.payments.length" style="margin-top:12px">
-        <div v-for="x in p.payments" :key="x.id" class="list-item small"><span>Paiement du {{ date(x.date) }}</span><span><b>{{ money(x.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(x)">↩</button></span></div>
+        <div v-for="x in p.payments" :key="x.id" class="list-item small"><span>Paiement du {{ date(x.date) }}</span><span><b>{{ money(x.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(x)"><Icon name="undo-2" class="ti"/></button></span></div>
       </div>
     </div>
     <div class="card" v-if="!isNew">
       <div class="card-head"><h2 style="margin:0">Pièces jointes</h2><label class="btn sm">+ Ajouter<input type="file" multiple hidden @change="addFiles"></label></div>
       <div v-for="f in files" class="list-item small">
         <a href="#" @click.prevent="viewer = f" :class="{strong: viewer && viewer.id === f.id}"><Icon :name="/pdf/.test(f.mime) ? 'file-text' : /image/.test(f.mime) ? 'image' : 'paperclip'" class="ti"/> {{ f.filename }}</a>
-        <span class="btns"><a class="btn sm" :href="'/api/attachment/' + f.id + '?download=1'"><Icon name="download" class="ti"/></a><button class="btn sm danger" @click="removeFile(f)">✕</button></span>
+        <span class="btns"><a class="btn sm" :href="'/api/attachment/' + f.id + '?download=1'" title="Télécharger" aria-label="Télécharger"><Icon name="download" class="ti"/></a><button class="btn sm danger" @click="removeFile(f)">✕</button></span>
       </div>
       <div v-if="!files.length" class="muted small">Aucun document. Ajoutez la facture originale (PDF ou photo).</div>
     </div>

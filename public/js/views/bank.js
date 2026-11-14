@@ -89,7 +89,7 @@ export const Bank = {
                 <button class="btn sm" @click="ignore(l)">Ignorer</button>
               </div>
             </template>
-            <template v-else><Badge :status="l.status"/> <button v-if="manager" class="btn sm" style="margin-left:6px" @click="undo(l)">↩ Annuler</button></template>
+            <template v-else><Badge :status="l.status"/> <button v-if="manager" class="btn sm" style="margin-left:6px" @click="undo(l)"><Icon name="undo-2" class="ti"/> Annuler</button></template>
           </td>
         </tr></tbody>
       </table></div>

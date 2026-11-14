@@ -33,26 +33,26 @@
     </header>
 
     <nav class="inst-switch" aria-label="Application à installer">
-      <a id="sw-app" href="/installer.html">💼 Logiciel du garage</a>
-      <a id="sw-kiosk" href="/installer.html?app=kiosk">⏱️ Pointage atelier</a>
+      <a id="sw-app" href="/installer.html"><svg class="ico" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg> Logiciel du garage</a>
+      <a id="sw-kiosk" href="/installer.html?app=kiosk"><svg class="ico" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg> Pointage atelier</a>
     </nav>
 
     <section id="installed" class="inst-card ok" hidden>
-      <div class="big">✅</div>
+      <div class="big"><svg class="ico" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></svg></div>
       <h2>L'application est installée</h2>
       <p>Vous pouvez l'ouvrir depuis l'écran d'accueil du téléphone.</p>
       <a class="btn primary big" id="open-app" href="/">Ouvrir l'application</a>
     </section>
 
     <section id="insecure" class="inst-card warn" hidden>
-      <h2>⚠️ Connexion non sécurisée (http)</h2>
+      <h2>Connexion non sécurisée (http)</h2>
       <p>Sur cette adresse, le téléphone peut seulement créer un <b>raccourci</b> sur l'écran d'accueil (sur iPhone, il s'ouvre quand même en plein écran). Pour une <b>vraie application</b> — qui marche aussi en 4G hors du garage — ouvrez l'adresse sécurisée <b>https</b> :</p>
       <a id="secure-link" class="btn primary big" hidden>Ouvrir l'adresse sécurisée</a>
       <p id="no-secure" class="muted small" hidden>Aucune adresse sécurisée n'est encore configurée : sur l'ordinateur du garage, menu du compte → « Sur téléphone / tablette » explique comment en créer une.</p>
     </section>
 
     <section id="android" class="inst-card" hidden>
-      <h2>📲 Sur Android</h2>
+      <h2>Sur Android</h2>
       <button id="install-btn" class="btn primary big" hidden>Installer l'application</button>
       <p id="install-wait" class="muted small" hidden>Préparation de l'installation…</p>
       <ol class="steps" id="android-steps">
@@ -64,7 +64,7 @@
     </section>
 
     <section id="ios" class="inst-card" hidden>
-      <h2>📲 Sur iPhone / iPad</h2>
+      <h2>Sur iPhone / iPad</h2>
       <p id="ios-browser" class="warn-line" hidden>Ouvrez cette page dans <b>Safari</b> si le bouton Partager n'apparaît pas.</p>
       <ol class="steps">
         <li>Touchez le bouton <b>Partager</b>
@@ -73,11 +73,11 @@
         <li>Faites défiler et touchez <b>« Sur l'écran d'accueil »</b> <span class="add">＋</span>.</li>
         <li>Touchez <b>« Ajouter »</b> en haut à droite.</li>
       </ol>
-      <div class="arrow-down" id="ios-arrow">⬇</div>
+      <div class="arrow-down" id="ios-arrow"><svg class="ico" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></div>
     </section>
 
     <section id="desktop" class="inst-card" hidden>
-      <h2>💻 Sur ordinateur</h2>
+      <h2>Sur ordinateur</h2>
       <button id="install-btn-desk" class="btn primary big" hidden>Installer l'application</button>
       <p>Chrome ou Edge : cliquez sur l'icône d'installation <span class="kbd">⊕</span> à droite de la barre d'adresse.</p>
       <p class="muted small">Pour installer sur un téléphone, scannez le QR code affiché sur l'ordinateur (menu du compte → « Sur téléphone / tablette »).</p>

@@ -60,7 +60,7 @@ body.kiosk::before, body.kiosk::after { display: none; }
 [data-theme="light"] .k-time.over, [data-theme="light"] .k-timer.over, [data-theme="light"] .k-budget.over { color: #dc2626; }
 [data-theme="light"] .k-work-line { color: #334155; }
 [data-theme="light"] .k-budget { color: #475569; }
-[data-theme="light"] .k-line.done .k-line-txt { color: #94a3b8; }
+[data-theme="light"] .k-line.done .k-line-txt { color: #6c6c70; }
 .k-order textarea, .k-order input { background: #12161b; border-color: #3a4250; color: #fff; font-size: 16px; }
 .k-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .k-muted { color: #94a3b8; font-size: 14px; }
@@ -166,3 +166,9 @@ body.kiosk { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Int
 [data-theme="light"] .k-info { background: rgba(30, 58, 138, .92); }
 .k-greet.in { background: linear-gradient(180deg, #2fa24f, #166534); } .k-greet.out { background: linear-gradient(180deg, #3b5fd6, #1e3a8a); }
 @media (max-height: 760px) { .k-pad { gap: 10px 8px; } .k-pad button { width: 64px; height: 64px; font-size: 24px; } }
+
+/* message d'accueil (arrivée / départ) : toujours du texte clair sur le fond coloré, aussi en thème clair */
+.k-greet .k-muted, [data-theme="light"] .k-greet .k-muted { color: rgba(255, 255, 255, .88); }
+.k-avatar { text-shadow: 0 0 2px rgba(0, 0, 0, .45), 0 1px 1px rgba(0, 0, 0, .25); }
+/* téléphone : le bouton « Pause / arrêter » passe sous le texte, sur toute la largeur */
+@media (max-width: 600px) { .k-status { grid-template-columns: 1fr; } .k-status .k-btn { width: 100%; white-space: nowrap; justify-content: center; } }

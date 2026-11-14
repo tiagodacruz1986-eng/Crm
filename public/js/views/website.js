@@ -163,7 +163,7 @@ export const Website = {
           <button class="btn sm" @click="block.items.push({ q: '', a: '' })">+ Question</button>
         </template>
         <template v-if="block.type === 'gallery'">
-          <div class="gal-grid"><div v-for="(u, j) in block.images" :key="u" class="img-prev" :style="{ backgroundImage: 'url(' + u + ')' }"><button class="icon-btn" @click="block.images.splice(j, 1)"><Icon name="x"/></button></div></div>
+          <div class="gal-grid"><div v-for="(u, j) in block.images" :key="u" class="img-prev" :style="{ backgroundImage: 'url(' + u + ')' }"><button class="icon-btn" @click="block.images.splice(j, 1)" title="Retirer" aria-label="Retirer"><Icon name="x"/></button></div></div>
           <label class="btn sm"><Icon name="image"/> Ajouter une photo<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="upload($event.target.files[0], block, 'images'); $event.target.value = ''"></label>
         </template>
         <template v-if="block.type === 'hours'">

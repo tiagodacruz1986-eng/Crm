@@ -121,7 +121,7 @@ export const Social = {
     </div>
 
     <div v-if="ai.ideas.length" class="card ideas">
-      <div class="card-head"><h2>Idées pour ce mois</h2><button class="icon-btn" @click="ai.ideas = []"><Icon name="x"/></button></div>
+      <div class="card-head"><h2>Idées pour ce mois</h2><button class="icon-btn" @click="ai.ideas = []" title="Retirer" aria-label="Retirer"><Icon name="x"/></button></div>
       <div class="grid g3"><button v-for="i in ai.ideas" :key="i.title" class="idea" @click="useIdea(i)"><b>{{ i.title }}</b><span>{{ i.brief }}</span><small>Meilleur jour : {{ i.best_day }}</small></button></div>
     </div>
 

@@ -75,7 +75,7 @@ export const ConfigPanel = {
         <tbody><tr v-for="(l, i) in O.relances.levels" :key="i">
           <td><input v-model="l.name"></td><td class="inline"><input type="number" min="0" v-model.number="l.days" style="max-width:80px"> jours</td>
           <td><select v-model="l.action"><option value="email">E-mail de relance</option><option value="activity">Activité (appel, courrier recommandé…)</option></select></td>
-          <td><button class="icon-btn" @click="O.relances.levels.splice(i, 1)"><Icon name="x"/></button></td></tr></tbody>
+          <td><button class="icon-btn" @click="O.relances.levels.splice(i, 1)" title="Retirer" aria-label="Retirer"><Icon name="x"/></button></td></tr></tbody>
       </table>
       <div class="btns"><button class="btn sm" v-if="O.relances.levels.length < 6" @click="addLevel">+ Niveau</button><button class="btn sm" @click="runFollowups"><Icon name="play" class="ti"/> Lancer les relances maintenant</button></div>
     </section>

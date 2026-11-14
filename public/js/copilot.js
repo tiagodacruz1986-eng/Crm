@@ -133,7 +133,7 @@ export const Copilot = {
       <div class="mini-orb"><Icon name="sparkles"/></div>
       <div style="flex:1"><b class="display" style="font-size:16px">Nova</b><div class="small muted">{{ ambient ? 'écoute continue active' : 'Copilote IA — je vous écoute' }}</div></div>
       <button class="icon-btn" :title="voiceOn ? 'Couper la voix' : 'Activer la voix'" @click="toggleVoice"><Icon :name="voiceOn ? 'volume-2' : 'square'"/></button>
-      <button class="icon-btn" @click="open = false"><Icon name="x"/></button>
+      <button class="icon-btn" @click="open = false" title="Retirer" aria-label="Retirer"><Icon name="x"/></button>
     </div>
     <div class="copilot-body" ref="body">
       <div class="msg assistant"><div class="md">{{ hello }} {{ store.user.name.split(' ')[0] }} <Icon name="sparkles" class="ti"/> Parlez-moi ou écrivez : je note, je planifie, je réponds à partir de vos vrais chiffres. Chaque soir je vous prépare le résumé de la journée et les priorités du lendemain.</div>
@@ -152,7 +152,7 @@ export const Copilot = {
       <button class="mic" :class="{on: listening}" @click="talk" :title="voiceSupported ? 'Appuyez et parlez' : 'Dictée non disponible dans ce navigateur'"><div v-if="listening" class="wave"><i></i><i></i><i></i><i></i><i></i></div><Icon v-else name="mic"/></button>
       <textarea v-model="input" rows="1" placeholder="Demandez ou dictez…" @keydown="onKey" @input="grow"></textarea>
       <button class="mic" :class="{on: ambient}" @click="toggleAmbient" title="Écoute continue (journal de la journée)"><Icon name="notebook-pen"/></button>
-      <button class="btn primary" style="height:46px" :disabled="busy || !input.trim()" @click="send()"><Icon name="send"/></button>
+      <button class="btn primary" style="height:46px" :disabled="busy || !input.trim()" @click="send()" title="Envoyer" aria-label="Envoyer"><Icon name="send"/></button>
     </div>
   </div>`,
 };

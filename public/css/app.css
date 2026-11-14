@@ -178,6 +178,7 @@ tfoot td { font-weight: 700; background: var(--soft); }
 .table-wrap { overflow-x: auto; }
 .toolbar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
 .toolbar input, .toolbar select { width: auto; min-width: 180px; }
+.toolbar input[type=checkbox], .toolbar input[type=radio] { min-width: 0; width: auto; flex: none; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap; }
 .tabs button { border: 0; background: none; padding: 10px 14px; cursor: pointer; font: inherit; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; transition: color .15s; }
 .tabs button:hover { color: var(--ink); }
@@ -254,6 +255,7 @@ tfoot td { font-weight: 700; background: var(--soft); }
 .pl-day { position: relative; border-left: 1px solid var(--line); }
 .pl-slot { height: 48px; border-bottom: 1px solid var(--line); cursor: copy; }
 .pl-slot:hover { background: var(--brand-soft); }
+.pl-event, .avatar, .att-avatar { text-shadow: 0 0 2px rgba(0, 0, 0, .45), 0 1px 1px rgba(0, 0, 0, .25); }
 .pl-event { position: absolute; left: 3px; right: 3px; border-radius: 8px; padding: 4px 7px; font-size: 11px; color: #fff; overflow: hidden; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .25); }
 
 /* ---------- Devis / OR / factures ---------- */
@@ -483,8 +485,13 @@ a.live { text-decoration: none; white-space: nowrap; }
 /* ---------- Impression (toujours sur fond blanc) ---------- */
 .print-only { display: none; }
 @media print {
-  :root { color-scheme: light; --ink: #111; --line: #ddd; --soft: #f5f5f5; --muted: #555; }
+  :root, :root[data-theme="dark"], :root[data-theme="light"] { color-scheme: light; --ink: #111; --ink-2: #222; --line: #ddd; --line-strong: #bbb; --soft: #f5f5f5; --muted: #555;
+    --bg: #fff; --bg-2: #f5f5f5; --panel: #fff; --panel-solid: #fff; --panel-2: #fff; --panel-hover: #fff; --field: #fff; --seg: #f0f0f0; --seg-on: #fff;
+    --ok: #166534; --warn: #92400e; --bad: #b42318; --link: #0057b8; --brand: #0057b8; }
   html, body { background: #fff !important; color: #111; }
+  .card, .kpi, table.stackable tr { background: #fff !important; box-shadow: none !important; }
+  th { background: #f5f5f5 !important; color: #333 !important; }
+  .save-fab { display: none !important; }
   body::before, body::after { display: none; }
   .sidebar, .topbar, .no-print, .toasts, .bottom-nav, .copilot-orb, .copilot-panel { display: none !important; }
   .layout { display: block; } .content { padding: 0; max-width: none; }
@@ -668,6 +675,7 @@ a.live { text-decoration: none; white-space: nowrap; }
 .mini-gauge { height: 5px; margin: 8px 0 0; border: 0; }
 .live-bar > div, .mini-gauge > div { height: 100%; background: var(--grad); transition: width .6s; box-shadow: 0 0 12px rgba(129, 140, 248, .6); }
 .live-link { border-top: 1px solid var(--line); padding: 10px 0; }
+.live-link > b { margin-right: 8px; }
 .live-link input { font-size: 12px; padding: 6px 8px; min-width: 0 !important; }
 .live-panel { overflow: hidden; }
 .live-feed { max-height: 420px; overflow-y: auto; border-top: 1px solid var(--line); padding-top: 10px; }

@@ -223,7 +223,7 @@ const App = {
         <div class="k-stats"><div><b>{{ h(st.attendance.today_hours) }}</b>aujourd'hui</div><div><b>{{ h(st.attendance.week_hours) }}</b>cette semaine</div><div><b>{{ h(st.todayHours) }}</b>sur des OR</div></div>
       </div>
       <div class="k-err">{{ err }}</div>
-      <div v-if="notice" class="k-info" @click="notice = ''"><Icon name="square" class="ti"/> {{ notice }}</div>
+      <div v-if="notice" class="k-info" @click="notice = ''"><Icon name="info" class="ti"/> {{ notice }}</div>
 
       <template v-if="st.show_orders && st.attendance.present">
         <div v-if="st.work" class="k-status working" :class="{ over: cur && cur.over }">

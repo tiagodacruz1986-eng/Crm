@@ -370,9 +370,9 @@ export const DocumentEditor = {
         </template>
         <button class="btn success" v-if="['invoice','credit_note'].includes(doc.type) && doc.status==='draft' && !isNew" @click="post"><Icon name="check" class="ti"/> Valider</button>
         <button class="btn primary" v-if="['invoice','credit_note'].includes(doc.type) && ['posted','partial'].includes(doc.status)" @click="showPay = true"><Icon name="banknote" class="ti"/> {{ doc.type === 'credit_note' ? 'Rembourser' : 'Paiement' }}</button>
-        <button class="btn" v-if="doc.type==='invoice' && doc.status!=='draft'" @click="convert('credit_note')">↩ Note de crédit</button>
+        <button class="btn" v-if="doc.type==='invoice' && doc.status!=='draft'" @click="convert('credit_note')"><Icon name="undo-2" class="ti"/> Note de crédit</button>
         <button class="btn" v-if="!isNew" @click="print"><Icon name="printer" class="ti"/> Imprimer / PDF</button>
-        <button class="btn danger" v-if="!isNew && !locked" @click="remove"><Icon name="trash-2" class="ti"/></button>
+        <button class="btn danger" v-if="!isNew && !locked" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
 
@@ -384,7 +384,7 @@ export const DocumentEditor = {
               <div style="display:flex;gap:6px"><div style="flex:1"><Picker v-if="!locked" v-model="doc.customer_id" endpoint="/customers" :initial="doc.customer_name" :label="c => c.name + (c.company ? ' — ' + c.company : '') + (c.city ? ' (' + c.city + ')' : '')" placeholder="Rechercher un client…" @pick="onCustomer"/>
                 <input v-else :value="doc.customer_name" disabled></div>
                 <button class="btn" v-if="!locked" @click="showCustomer = true" title="Nouveau client">+</button>
-                <a class="btn" v-if="doc.customer_id" :href="'#/customer/' + doc.customer_id"><Icon name="user" class="ti"/></a></div>
+                <a class="btn" v-if="doc.customer_id" :href="'#/customer/' + doc.customer_id" title="Ouvrir la fiche du client" aria-label="Ouvrir la fiche du client"><Icon name="user" class="ti"/></a></div>
             </label>
             <label>Véhicule
               <select v-model="doc.vehicle_id" :disabled="locked"><option :value="null">—</option><option v-for="v in vehicles" :value="v.id">{{ v.plate }} {{ v.make }} {{ v.model }}</option></select>
@@ -525,7 +525,7 @@ export const DocumentEditor = {
         </div>
         <div class="card" v-if="doc.payments && doc.payments.length">
           <h2>Paiements</h2>
-          <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><span><b>{{ money(p.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(p)">↩</button></span></div>
+          <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><span><b>{{ money(p.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(p)"><Icon name="undo-2" class="ti"/></button></span></div>
         </div>
         <div class="card" v-if="doc.vehicle_id">
           <a :href="'#/vehicle/' + doc.vehicle_id"><Icon name="car" class="ti"/> Historique du véhicule →</a>

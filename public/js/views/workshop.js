@@ -183,7 +183,7 @@ export const Planning = {
       <label class="check"><input type="checkbox" :checked="!!edit.courtesy_car" @change="edit.courtesy_car = $event.target.checked ? 1 : 0"> Véhicule de courtoisie</label>
       <template #foot>
         <button v-if="edit.id" class="btn danger" @click="remove" style="margin-right:auto">Supprimer</button>
-        <button v-if="edit.id && edit.customer_id" class="btn" @click="mailAppt = edit.id"><Icon name="mail" class="ti"/></button>
+        <button v-if="edit.id && edit.customer_id" class="btn" @click="mailAppt = edit.id" title="Envoyer un e-mail" aria-label="Envoyer un e-mail"><Icon name="mail" class="ti"/></button>
         <button v-if="edit.document_id" class="btn" @click="go('/document/' + edit.document_id)">Voir l'OR</button>
         <button v-else-if="edit.customer_id" class="btn" @click="arrive"><Icon name="car" class="ti"/> Véhicule arrivé → OR</button>
         <button class="btn primary" @click="save">Enregistrer</button>
