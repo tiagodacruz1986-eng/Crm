@@ -47,7 +47,8 @@ export const Settings = {
     const aiKeyInput = ref('');
     const aiKeyBusy = ref(false);
     const aiKeyError = ref('');
-    const loadAiKey = async () => { try { aiKey.value = await GET('/ai/key'); } catch { aiKey.value = null; } };
+    // (l'état « IA active » de cet écran est remis à jour : la clé a pu être enregistrée depuis un autre poste)
+    const loadAiKey = async () => { try { aiKey.value = await GET('/ai/key'); store.ai = aiKey.value.source !== null; } catch { aiKey.value = null; } };
     const saveAiKey = async () => {
       const key = aiKeyInput.value.trim();
       if (aiKeyBusy.value || !key) return;
@@ -81,7 +82,8 @@ export const Settings = {
     onMounted(async () => { await load(); await nextTick(); document.querySelector('.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
     const save = async () => {
       // une clé Claude collée mais pas encore vérifiée : le bouton « Enregistrer » du haut de page la prend aussi
-      if (tab.value === 'ai' && aiKeyInput.value.trim()) await saveAiKey();
+      // (clé refusée : pas de confirmation verte par-dessus le message d'erreur)
+      if (tab.value === 'ai' && aiKeyInput.value.trim()) { await saveAiKey(); if (aiKeyError.value) return; }
       store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name;
     };
     const saveUser = async () => {

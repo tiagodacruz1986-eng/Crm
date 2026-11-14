@@ -29,7 +29,7 @@ import {
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { kioskLines, isIntervention, stopLineTimers, stopOrderTimers, workStats } from './src/worktime.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, importBrandLogos, job as odooJob } from './src/odoo.js';
-import { chat, meeting, clearHistory, aiConfigured, apiKeyStatus, saveApiKey, removeApiKey } from './src/claude.js';
+import { chat, meeting, clearHistory, aiConfigured, apiKeyStatus, saveApiKey, removeApiKey, isAiServiceError, maskKeys } from './src/claude.js';
 import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
 import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, maskDashboard, createInvite, findInvite, clearInvite } from './src/access.js';
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
@@ -1438,6 +1438,12 @@ app.use((err, req, res, _next) => {
   if (err.code === 'ERR_SQLITE_ERROR' && /constraint failed/i.test(err.message || '')) {
     const m = /NOT NULL constraint failed: \w+\.(\w+)/.exec(err.message);
     return res.status(400).json({ error: m ? `Champ obligatoire : ${label(m[1])}` : /FOREIGN KEY/.test(err.message) ? 'Une fiche liée est introuvable ou encore utilisée ailleurs.' : 'Enregistrement impossible : cette valeur existe déjà.' });
+  }
+  // Panne ou refus du service d'IA (clé révoquée, compte sans crédit…) : jamais le code 401 du fournisseur, que l'écran
+  // prendrait pour une session expirée — un message clair (comme les autres refus), et le détail dans le journal.
+  if (isAiServiceError(err)) {
+    console.error('Service IA :', err.status, maskKeys(err.message));
+    return res.status(400).json({ error: friendlyError(err) });
   }
   console.error(err);
   res.status(err.status && err.status < 500 ? err.status : 500).json({ error: err.status && err.status < 500 ? err.message : 'Erreur interne du logiciel. Réessayez ; si le problème persiste, consultez le journal du serveur.' });

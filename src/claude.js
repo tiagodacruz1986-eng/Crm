@@ -17,8 +17,16 @@ const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5';
 const KEY_FILE = path.join(dataDir, 'claude.key');
 // Une clé d'exemple laissée telle quelle dans .env (« sk-ant-... ») ne compte pas comme une vraie clé
 const realKey = (k) => Boolean(k && k.trim() && !/^sk-ant-\.\.\.$/.test(k.trim()));
+// Forme d'une clé : une seule ligne, sans espace. Le même contrôle sert à l'enregistrement et à la relecture du fichier.
+const KEY_RE = /^sk-ant-[A-Za-z0-9_-]{16,400}$/;
 let storedKey = null;
-try { const k = fs.readFileSync(KEY_FILE, 'utf8').trim(); if (realKey(k)) storedKey = k; } catch { /* aucune clé enregistrée */ }
+try {
+  const k = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  // Fichier abîmé ou modifié à la main (deuxième ligne, fichier coupé…) : il est ignoré, et la clé du fichier .env reste utilisée.
+  // Son contenu n'est jamais écrit dans le journal.
+  if (KEY_RE.test(k)) storedKey = k;
+  else if (k) console.error('Fichier claude.key illisible : il est ignoré. Recollez la clé dans Paramètres → Agents IA.');
+} catch { /* aucune clé enregistrée */ }
 export const aiConfigured = () => Boolean(storedKey) || realKey(process.env.ANTHROPIC_API_KEY) || realKey(process.env.ANTHROPIC_AUTH_TOKEN);
 
 let client = null, clientKey = null;
@@ -49,7 +57,7 @@ function keyTestError(e) {
   if (e instanceof Anthropic.NotFoundError) return `La clé est reconnue, mais le modèle réglé dans le logiciel (${MODEL}) n'est pas disponible pour ce compte.` + end;
   if (e instanceof Anthropic.RateLimitError) return 'Anthropic limite ce compte pour l\'instant (trop de demandes, ou plafond de dépense atteint). Réessayez dans une minute.' + end;
   if (e instanceof Anthropic.BadRequestError) {
-    const detail = String(e.error?.error?.message || e.message || '').replace(/\s+/g, ' ').slice(0, 240);
+    const detail = maskKeys(e.error?.error?.message || e.message || '').replace(/\s+/g, ' ').slice(0, 240);
     return `Anthropic a refusé l'essai : « ${detail} ». Le plus souvent, le compte n'a pas encore de crédit : dans la console Anthropic, ouvrez « Billing » et ajoutez un moyen de paiement.` + end;
   }
   if (e instanceof Anthropic.APIConnectionError) return 'Impossible de joindre Anthropic pour vérifier la clé (connexion internet ?).' + end;
@@ -64,7 +72,7 @@ function keyTestError(e) {
 export async function saveApiKey(raw) {
   const key = typeof raw === 'string' ? raw.trim() : '';
   if (!key) throw new BusinessError('Collez votre clé Claude.');
-  if (!/^sk-ant-[A-Za-z0-9_-]{16,400}$/.test(key)) throw new BusinessError('Ce texte ne ressemble pas à une clé Claude : elle commence par « sk-ant- » et ne contient ni espace ni retour à la ligne. Copiez-la en entier depuis la console Anthropic.');
+  if (!KEY_RE.test(key)) throw new BusinessError('Ce texte ne ressemble pas à une clé Claude : elle commence par « sk-ant- » et ne contient ni espace ni retour à la ligne. Copiez-la en entier depuis la console Anthropic.');
   const probe = new Anthropic({ apiKey: key, authToken: null, maxRetries: 0, timeout: 20_000 });
   try {
     await probe.messages.create({ model: MODEL, max_tokens: 32, messages: [{ role: 'user', content: 'Réponds simplement : ok' }] });
@@ -144,12 +152,21 @@ export async function runAgent(agentId, messages, { onStatus, user = null } = {}
 export const claudeClient = getClient;
 export const CLAUDE_MODEL = MODEL;
 
+/** Retire d'un message tout ce qui ressemble à une clé (un message d'erreur technique peut répéter un en-tête). */
+export const maskKeys = (msg) => {
+  let out = String(msg ?? '');
+  for (const k of [storedKey, process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_AUTH_TOKEN]) if (k && k.trim().length >= 8) out = out.split(k.trim()).join('[clé masquée]');
+  return out.replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, '[clé masquée]');
+};
+/** L'erreur vient-elle du service d'IA (et non du logiciel) ? */
+export const isAiServiceError = (e) => e instanceof Anthropic.APIError;
+
 export function friendlyError(e) {
   if (e instanceof Anthropic.AuthenticationError) return 'Clé API Claude invalide. L\'administrateur peut la remplacer dans Paramètres → Agents IA.';
   if (e instanceof Anthropic.RateLimitError) return 'Trop de demandes en même temps. Réessayez dans une minute.';
   if (e instanceof Anthropic.APIConnectionError) return 'Impossible de joindre le service IA (connexion internet ?).';
-  if (e instanceof Anthropic.APIError) return `Erreur du service IA (${e.status}) : ${e.message}`;
-  return e.message || String(e);
+  if (e instanceof Anthropic.APIError) return maskKeys(`Erreur du service IA (${e.status}) : ${e.error?.error?.message || e.message}`);
+  return maskKeys(e.message || String(e));
 }
 
 // Conversation persistante avec un agent (rangée dans l'historique)

@@ -4,7 +4,7 @@
 // Sans micro (navigateur, adresse non sécurisée) ou sans clé IA, la fenêtre reste utile : on écrit, on corrige,
 // et le texte peut être mis tel quel dans le document.
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { POST, toast, store } from './api.js';
+import { GET, POST, toast, store } from './api.js';
 import { voiceSupported, createRecognizer, micHold } from './copilot.js';
 import { leaveGuards } from './router.js';
 
@@ -136,6 +136,8 @@ export const VoiceRequest = {
       leaveGuards.add(leaveOk);
       window.addEventListener('beforeunload', onUnload);
       micHold.value = true; // l'écoute continue de Nova laisse le micro à cette fenêtre
+      // la clé Claude a pu être enregistrée depuis un autre poste pendant que cet écran restait ouvert
+      GET('/auth/status').then((r) => { store.ai = !!r.ai; }).catch(() => { /* hors ligne : on garde l'état connu */ });
       // Le bouton s'appelle « Écouter le client » : l'écoute commence dès l'ouverture de la fenêtre
       if (micOk) start();
     });

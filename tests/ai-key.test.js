@@ -11,6 +11,7 @@ import path from 'node:path';
 
 const PORT = 5300 + Math.floor(Math.random() * 80);
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-aikey-'));
+const directDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-aikey-direct-'));
 const KEY_FILE = path.join(dataDir, 'claude.key');
 const KEY = 'sk-ant-api03-' + 'A1b2C3d4E5f6G7h8'.repeat(5) + '-WXYZ';
 const KEY2 = 'sk-ant-api03-' + 'Z9y8X7w6V5u4T3s2'.repeat(5) + '-QRST';
@@ -63,7 +64,7 @@ before(async () => {
   assert.equal(s.status, 200, server.out());
   admin = s.data.token;
 });
-after(async () => { await stop(); claude.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+after(async () => { await stop(); claude.close(); for (const d of [dataDir, directDir]) fs.rmSync(d, { recursive: true, force: true }); });
 
 test('sans clé : mode démo, rien d\'enregistré', async () => {
   assert.equal(await aiOn(), false);
@@ -186,4 +187,47 @@ test('après un redémarrage la clé est toujours là ; elle passe avant celle d
   admin = await login();
   assert.equal(await aiOn(), false);
   assert.equal((await A('GET', '/ai/key')).data.source, null);
+});
+
+test('fichier claude.key abîmé ou modifié à la main : ignoré, jamais recopié dans le journal', async () => {
+  const restart = async (content, env) => { await stop(); fs.writeFileSync(KEY_FILE, content); await start(env); admin = await login(); };
+  // la clé suivie d'une deuxième ligne (commentaire, ancienne clé…) : ce n'est plus une clé utilisable
+  await restart(`${KEY}\n# clé du garage\n`);
+  assert.equal(await aiOn(), false);
+  assert.equal((await A('GET', '/ai/key')).data.source, null);
+  assert.match(server.out(), /claude\.key illisible/);
+  assert.ok(!server.out().includes(KEY), 'le contenu du fichier ne va pas dans le journal');
+  assert.match(server.out(), /mode démo/);
+  // fichier coupé (panne de courant) : la clé du fichier .env continue de servir
+  await restart(Buffer.alloc(120), { ANTHROPIC_API_KEY: ENV_KEY });
+  assert.deepEqual((await A('GET', '/ai/key')).data, { source: 'env', hint: 'sk-ant-…ENV1', model: 'claude-opus-5', env: true });
+  queue.push({ text: JSON.stringify({ resume: 'Vidange.', a_preciser: [] }) });
+  assert.equal((await A('POST', '/documents/request-summary', { type: 'order', transcript: 'vidange' })).status, 200);
+  assert.equal(seen.at(-1).key, ENV_KEY);
+  // un fichier correct (une ligne) est repris
+  await restart(`${KEY}\n`);
+  assert.deepEqual((await A('GET', '/ai/key')).data, { source: 'settings', hint: 'sk-ant-…WXYZ', model: 'claude-opus-5', env: false });
+});
+
+test('clé révoquée chez Anthropic : un message clair, pas une déconnexion', async () => {
+  // (le serveur tourne avec la clé du test précédent ; Anthropic répond maintenant « clé refusée »)
+  queue.push({ http: 401, type: 'authentication_error', message: 'invalid x-api-key' });
+  const r = await A('POST', '/social/ideas', {});
+  assert.notEqual(r.status, 401, 'un 401 ferait croire à l\'écran que la session a expiré');
+  assert.equal(r.status, 400, r.text);
+  assert.match(r.data.error, /Clé API Claude invalide.*Paramètres → Agents IA/);
+  assert.ok(!r.text.includes('authentication_error'), 'pas de message technique du fournisseur');
+  // la session est toujours valable
+  assert.equal((await A('GET', '/ai/key')).status, 200);
+});
+
+test('aucun message d\'erreur ne répète une clé', async () => {
+  Object.assign(process.env, { DATA_DIR: directDir, ANTHROPIC_API_KEY: ENV_KEY, ANTHROPIC_AUTH_TOKEN: '' });
+  const { friendlyError, maskKeys } = await import('../src/claude.js');
+  // message technique qui cite un en-tête (cas d'une clé mal formée refusée par la couche réseau)
+  const msg = friendlyError(new TypeError(`Headers.append: "${KEY}\n# x" is an invalid header value.`));
+  assert.ok(!msg.includes(KEY) && !msg.includes(KEY.slice(7, 30)), msg);
+  assert.match(msg, /\[clé masquée\]/);
+  assert.equal(maskKeys(`clé ${ENV_KEY} et ${KEY2}.`), 'clé [clé masquée] et [clé masquée].');
+  assert.equal(maskKeys('Bruit au freinage, sk-ant- tout court'), 'Bruit au freinage, sk-ant- tout court', 'un texte ordinaire n\'est pas touché');
 });
