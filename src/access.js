@@ -223,7 +223,7 @@ export function createInvite(userId, days = 7) {
 export function findInvite(token) {
   if (!/^[a-f0-9]{48}$/.test(String(token || ''))) return null;
   const u = get('SELECT * FROM users WHERE invite_hash=? AND active=1', sha(token));
-  if (!u || !u.invite_expires || u.invite_expires < new Date().toISOString()) return null;
+  if (!u || u.role === 'mechanic' || !u.invite_expires || u.invite_expires < new Date().toISOString()) return null;
   return u;
 }
 export function clearInvite(userId) { run('UPDATE users SET invite_hash=NULL, invite_expires=NULL WHERE id=?', userId); }

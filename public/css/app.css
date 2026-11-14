@@ -264,7 +264,8 @@ label.st-check input { width: auto; margin: 0; }
 label.st-check small { flex-basis: 100%; }
 .st-zone { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 14px; background: var(--panel-2); }
 .st-zone-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
-.st-file { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.st-file { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.studio-zone, .st-zone { min-width: 0; }
 .st-file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-file .muted { white-space: nowrap; }
 .st-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 6px; background: var(--panel-2); }
@@ -730,7 +731,7 @@ button, a, input, select { touch-action: manipulation; }
   .search-trigger kbd, .search-trigger .long { display: none; } .search-trigger .short { display: inline; }
   .grid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kanban { grid-template-columns: repeat(4, minmax(230px, 1fr)); }
-  .doc-layout, .bill-layout { grid-template-columns: 1fr; }
+  .doc-layout, .bill-layout { grid-template-columns: minmax(0, 1fr); }
   .bill-viewer { position: static; height: 70vh; }
 }
 
@@ -823,8 +824,11 @@ button, a, input, select { touch-action: manipulation; }
   .office .error { font-size: 12px; padding: 6px 10px; }
   .office-hud .btn { padding: 6px 10px; font-size: 12px; }
   .agent-panel { width: 100%; }
-  .doc-layout, .bill-layout { grid-template-columns: 1fr; }
+  .doc-layout, .bill-layout { grid-template-columns: minmax(0, 1fr); }
   .bill-viewer { position: static; height: 70vh; }
+  .st-file { flex-wrap: wrap; } .st-file a { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .st-item { flex-wrap: wrap; } .st-item-txt { flex-basis: calc(100% - 46px); } .st-item-txt b { white-space: normal; overflow-wrap: anywhere; }
+  .st-item > .icon-btn:first-of-type { margin-left: auto; }
   .login-card { padding: 26px; }
   .dropzone { padding: 14px; }
   .live-steps span { width: 34px; height: 34px; }

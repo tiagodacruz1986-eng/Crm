@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const PORT = 4500 + Math.floor(Math.random() * 90);
+const PORT = 4800 + Math.floor(Math.random() * 90); // (4500-4590 sert déjà à remote-access.test.js)
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'garage-worktime-'));
 let server, admin, customer;
@@ -532,4 +532,21 @@ test('un seul OR à la fois : démarrer sur un nouvel OR arrête le chrono de l\
   assert.equal((await call('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id }, as)).status, 403, 'le chrono d\'un autre : administrateur des Présences');
   const sans = await (async () => { await A('POST', '/users', { name: 'Ventes seul', email: 'vs@t.lu', role: 'office', password: 'secret123', permissions: { ventes: 'user' } }); return (await call('POST', '/auth/login', { email: 'vs@t.lu', password: 'secret123' })).data.token; })();
   assert.equal((await call('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: m.id }, sans)).status, 403, 'sans le droit Atelier');
+
+  // depuis le bureau, on ne pointe pas l'arrivée d'un mécanicien absent à sa place : refus avec un message, aucune présence créée
+  const absent = await mechanic('Otto');
+  const no = await A('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: absent.id });
+  assert.equal(no.status, 400);
+  assert.match(no.data.error, /Otto n'a pas pointé son arrivée/);
+  assert.equal((await A('GET', `/timesheets?${RANGE()}`)).data.entries.filter((e) => e.user_id === absent.id).length, 0, 'ni présence ni chrono');
+  // ... mais son propre chrono, on peut le lancer depuis le bureau (l'arrivée est alors pointée, comme à la tablette)
+  const mine = await call('POST', `/documents/${b.id}/clock`, { action: 'start', user_id: (await call('GET', '/auth/status', undefined, as)).data.user.id }, as);
+  assert.equal(mine.status, 200, JSON.stringify(mine.data));
+
+  // OR « Terminé » : relancer un chrono le remet « En cours » (il ne reste pas « Terminé » avec un chrono qui tourne)
+  await K(m.tok, { action: 'start', document_id: a.id, line_id: a.lines[0].id });
+  await A('POST', `/documents/${a.id}/status`, { status: 'done' });
+  assert.equal((await A('GET', `/documents/${a.id}`)).data.active_workers, 0, 'terminer un OR arrête ses chronos');
+  assert.equal((await A('POST', `/documents/${a.id}/clock`, { action: 'start', user_id: m.id, line_id: a.lines[0].id })).status, 200);
+  assert.equal((await A('GET', `/documents/${a.id}`)).data.status, 'in_progress');
 });

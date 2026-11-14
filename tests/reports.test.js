@@ -151,8 +151,11 @@ test('envoi : chacun reçoit le sien, le gérant celui de l\'équipe, rien n\'es
   const after = (await A('GET', `/timesheets/report/plan?month=${MONTH}`)).data;
   assert.equal(after.mechanics.find((m) => m.name === 'Paulo Silva').last.status, 'sent');
 
-  // adresse supplémentaire pour le rapport d'équipe (comptable, associé) ; les adresses invalides sont écartées
-  const s = (await A('PUT', '/settings', { options: { atelier: { monthly_report: true, monthly_report_time: '99:99', report_to: 'compta@t.lu, pas-une-adresse' } } })).data;
+  // adresse supplémentaire pour le rapport d'équipe (comptable, associé) ; une adresse mal écrite est refusée, avec un message
+  const wrong = await A('PUT', '/settings', { options: { atelier: { monthly_report: true, report_to: 'compta@t.lu, pas-une-adresse' } } });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.data.error, /pas-une-adresse/);
+  const s = (await A('PUT', '/settings', { options: { atelier: { monthly_report: true, monthly_report_time: '99:99', report_to: 'compta@t.lu' } } })).data;
   assert.deepEqual(s.options.atelier, { monthly_report: true, monthly_report_time: '07:00', report_to: 'compta@t.lu' });
   const teamOnly = (await A('POST', '/timesheets/report/send', { month: MONTH, only: { team: true } })).data;
   assert.deepEqual(teamOnly.delivery.map((d) => [d.to, d.status]), [['gerant@t.lu', 'already'], ['compta@t.lu', 'sent']]);
@@ -187,4 +190,30 @@ test('mise en page et envoi automatique de début de mois', async () => {
   const run = await R.runMonthlyReports(opts, first);
   assert.equal(run.month, R.previousMonth(first));
   assert.equal(await R.runMonthlyReports(opts, first), null, 'une seule fois par mois');
+
+  const D = await import('../src/db.js');
+  const prev = R.previousMonth(first);
+  const to = (r, addr) => r.delivery.find((d) => d.to === addr)?.status;
+  // un envoi fait AVANT la fin du mois (essai en cours de mois) n'empêche pas le rapport complet de partir ensuite
+  D.run("INSERT INTO report_runs(month, kind, user_id, to_addr, status, auto, sent_at) VALUES(?, 'team', NULL, 'associe@t.lu', 'sent', 0, ?)", prev, `${prev}-15T10:00:00`);
+  assert.equal(R.reportPlan(prev, 'associe@t.lu').team.find((r) => r.email === 'associe@t.lu').last.partial, true, 'signalé comme « mois incomplet »');
+  const only = { only: { team: true }, extra: 'associe@t.lu' };
+  assert.equal(to(await R.sendMonthlyReports(prev, only), 'associe@t.lu'), 'sent', 'le rapport du mois complet part');
+  assert.equal(to(await R.sendMonthlyReports(prev, only), 'associe@t.lu'), 'already', 'mais pas deux fois');
+  // deux demandes au même moment : une seule est exécutée
+  const both = await Promise.allSettled([R.sendMonthlyReports(prev, { ...only, force: true }), R.sendMonthlyReports(prev, { ...only, force: true })]);
+  assert.deepEqual(both.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+  assert.match(both.find((r) => r.status === 'rejected').reason.message, /déjà en cours/);
+  // envoi automatique en échec : nouvel essai une heure plus tard (pas avant), ce qui est déjà parti ne repart pas
+  D.run("UPDATE report_runs SET status='partial', error='1 envoi(s) en échec' WHERE month=? AND kind='auto'", prev);
+  assert.equal(await R.runMonthlyReports(opts, new Date(first.getTime() + 30 * 60000)), null, 'pas de nouvel essai avant une heure');
+  const retry = await R.runMonthlyReports(opts, new Date(first.getTime() + 61 * 60000));
+  assert.equal(retry?.month, prev, 'nouvel essai après une heure');
+  assert.equal(retry.sent, 0, 'rien n\'est renvoyé à ceux qui ont déjà reçu leur rapport');
+  assert.equal(D.get("SELECT status FROM report_runs WHERE month=? AND kind='auto'", prev).status, 'done');
+  assert.equal(await R.runMonthlyReports(opts, new Date(first.getTime() + 200 * 60000)), null, 'terminé : plus d\'essai');
+
+  // une intervention non jugée (en cours, chrono oublié) n'affiche pas d'écart dans le rapport
+  const html2 = R.mechanicHtml(rep, { ...m, rows: [{ date: '2026-10-06', number: 'OR2026-0008', description: 'Embrayage', planned: 3, spent: 1, gap: null, state: 'open', with: '' }] });
+  assert.ok(/en cours/.test(html2) && !/− 2h00/.test(html2));
 });

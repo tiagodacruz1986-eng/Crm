@@ -28,17 +28,21 @@ export const ConfigPanel = {
     };
     const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); if (r.failed) toast(`⚠ ${r.failed} rappel(s) non envoyé(s) : ${r.errors.join(' · ')}`, 'error'); };
     // Rapports mensuels : envoi immédiat pour le mois écoulé (ce qui est déjà parti n'est pas renvoyé)
+    const sendingReports = ref(false);
     const sendReports = async () => {
+      if (sendingReports.value) return;
       const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
       const month = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
       if (!confirm('Envoyer maintenant les rapports du mois dernier ? Chaque mécanicien reçoit le sien, les administrateurs celui de l’équipe.')) return;
-      const r = await act(() => POST('/timesheets/report/send', { month }));
+      sendingReports.value = true;
+      let r;
+      try { r = await act(() => POST('/timesheets/report/send', { month })); } catch { return; } finally { sendingReports.value = false; }
       const no = r.delivery.filter((x) => x.status === 'no_email').map((x) => x.name);
       toast(r.sent ? r.sent + ' rapport(s) envoyé(s) pour ' + r.label : 'Aucun nouveau rapport à envoyer pour ' + r.label, r.sent ? 'ok' : 'error');
       if (no.length) toast('Pas d’adresse e-mail : ' + no.join(', '), 'error');
       if (r.failed) toast(r.failed + ' envoi(s) en échec', 'error');
     };
-    return { O, A, DAYS, toggleDay, addLevel, bgInput, uploadBg, removeBg, runFollowups, runReminders, sendReports, s: props.s };
+    return { O, A, DAYS, toggleDay, addLevel, bgInput, uploadBg, removeBg, runFollowups, runReminders, sendReports, sendingReports, s: props.s };
   },
   template: `
   <div class="config">
@@ -92,7 +96,7 @@ export const ConfigPanel = {
       </template>
       <div class="cfg-row"><div><b>Autre adresse pour le rapport d'équipe</b><small>Facultatif : en plus des administrateurs (comptable, associé…)</small></div><input v-model="O.atelier.report_to" type="email" placeholder="nom@exemple.lu" style="max-width:240px"></div>
       <p class="muted small">L'adresse de chaque mécanicien se saisit dans Utilisateurs & accès. L'envoi demande que les e-mails soient configurés (onglet E-mails).</p>
-      <div class="btns"><a class="btn sm" href="#/reports">Voir le rapport du mois</a><button class="btn sm" @click="sendReports">▶ Envoyer maintenant les rapports du mois dernier</button></div>
+      <div class="btns"><a class="btn sm" href="#/reports">Voir le rapport du mois</a><button class="btn sm" :disabled="sendingReports" @click="sendReports">{{ sendingReports ? 'Envoi en cours…' : 'Envoyer maintenant les rapports du mois dernier' }}</button></div>
     </section>
 
     <section class="card cfg">

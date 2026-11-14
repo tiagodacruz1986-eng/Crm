@@ -48,12 +48,12 @@ export const StudioDesigner = {
     const save = async () => {
       const e = edit.value;
       const body = { target: e.target, kind: e.kind, label: e.label, help: e.help, active: e.active ? 1 : 0, options: e.options };
-      if (e.id) await act(() => PUT('/studio/fields/' + e.id, body), 'Élément enregistré');
+      if (e.id) { const r = await act(() => PUT('/studio/fields/' + e.id, body), 'Élément enregistré'); if (r.notice) toast(r.notice); }
       else await act(() => POST('/studio/fields', body), 'Élément ajouté');
       await done();
     };
     const remove = async (f) => {
-      const what = f.kind === 'file' ? 'Les fichiers déjà déposés restent attachés à leurs fiches.' : f.kind === 'button' ? '' : 'Ce qui a été saisi dans ce champ, sur toutes les fiches, sera effacé.';
+      const what = f.kind === 'file' ? 'Une zone qui contient encore des fichiers ne se supprime pas : masquez-la, ou retirez d’abord les fichiers.' : f.kind === 'button' ? '' : 'Ce qui a été saisi dans ce champ, sur toutes les fiches, sera effacé.';
       if (!confirm('Supprimer « ' + f.label + ' » ? ' + what)) return;
       await act(() => DEL('/studio/fields/' + f.id), 'Élément supprimé');
       await done();
@@ -153,9 +153,12 @@ export const StudioZone = {
     const picker = ref(null);
     let target = null, savedT;
     const admin = computed(() => store.user?.role === 'admin');
+    // un nombre s'affiche à la française : 12,5
+    const comma = (f) => { if (f.kind === 'number' && f.value !== null && f.value !== undefined) f.value = String(f.value).replace('.', ','); return f; };
+    const shown = (d) => { (d.fields || []).forEach(comma); return d; };
     const load = async () => {
       if (!props.recordId || props.recordId === 'new') { data.value = null; return; }
-      try { data.value = await GET('/studio/record/' + props.model + '/' + props.recordId); } catch { data.value = null; }
+      try { data.value = shown(await GET('/studio/record/' + props.model + '/' + props.recordId)); } catch { data.value = null; }
     };
     onMounted(load);
     watch(() => [props.model, props.recordId], load);
@@ -167,26 +170,34 @@ export const StudioZone = {
       try {
         const r = await PUT('/studio/record/' + props.model + '/' + props.recordId, { values: { [f.id]: f.value } });
         const fresh = r.fields.find((x) => x.id === f.id);
-        if (fresh) f.value = fresh.value;
+        if (fresh) f.value = comma({ kind: f.kind, value: fresh.value }).value;
         saved.value = f.id; clearTimeout(savedT); savedT = setTimeout(() => { saved.value = null; }, 2000);
       } catch (e) { toast(e.message, 'error'); await load(); }
     };
     const pick = (f) => { target = f; picker.value.accept = f.options.accept === 'any' ? 'application/pdf,image/jpeg,image/png,image/webp' : 'application/pdf'; picker.value.click(); };
     const send = async (f, list) => {
       busy.value = f.id;
-      try {
-        for (const file of list) await act(() => uploadFile('/studio/files/' + props.model + '/' + props.recordId + '/' + f.id, file));
-        toast(list.length > 1 ? list.length + ' fichiers ajoutés' : 'Fichier ajouté');
-      } catch { /* l'erreur est déjà affichée */ } finally { busy.value = null; await load(); }
+      let ok = 0;
+      const refused = [];
+      for (const file of list) {
+        try { await uploadFile('/studio/files/' + props.model + '/' + props.recordId + '/' + f.id, file); ok += 1; }
+        catch (e) { refused.push(file.name + ' (' + e.message + ')'); }
+      }
+      if (ok) toast(ok > 1 ? ok + ' fichiers ajoutés' : 'Fichier ajouté');
+      if (refused.length) toast((refused.length > 1 ? refused.length + ' fichiers refusés : ' : 'Fichier refusé : ') + refused.join(' ; '), 'error');
+      busy.value = null;
+      await load();
     };
     const chosen = (e) => { const list = [...e.target.files]; e.target.value = ''; if (target && list.length) send(target, list); };
     const drop = (f, e) => { if (!canWrite.value) return; const list = [...(e.dataTransfer?.files || [])]; if (list.length) send(f, list); };
     const removeFile = async (a) => { if (!confirm('Retirer « ' + a.filename + ' » de la fiche ?')) return; await act(() => DEL('/attachment/' + a.id), 'Fichier retiré'); await load(); };
     const press = async (b) => {
       if (b.options.action === 'email') { emit('mail', b.mail); return; }
-      const r = await act(() => POST('/studio/buttons/' + props.model + '/' + props.recordId + '/' + b.id, {}));
+      const url = '/studio/buttons/' + props.model + '/' + props.recordId + '/' + b.id;
+      let r = await act(() => POST(url, {}));
+      if (r.confirm) { if (!confirm(r.confirm)) return; r = await act(() => POST(url, { force: true })); }
       toast(r.done);
-      data.value = { ...r.record, can_write: data.value.can_write };
+      data.value = shown({ ...r.record, can_write: data.value.can_write });
       emit('changed');
     };
     const closeDesign = async () => { design.value = false; await load(); };
@@ -217,7 +228,7 @@ export const StudioZone = {
           <textarea v-else-if="f.kind === 'textarea'" v-model="f.value" rows="3" :placeholder="f.options.placeholder" :disabled="!canWrite" @change="save(f)"></textarea>
           <input v-else-if="f.kind === 'number'" v-model="f.value" type="text" inputmode="decimal" class="right" :disabled="!canWrite" @change="save(f)">
           <input v-else-if="f.kind === 'date'" v-model="f.value" type="date" :disabled="!canWrite" @change="save(f)">
-          <select v-else-if="f.kind === 'select'" v-model="f.value" :disabled="!canWrite" @change="save(f)"><option :value="null">—</option><option v-for="c in f.options.choices" :key="c" :value="c">{{ c }}</option></select>
+          <select v-else-if="f.kind === 'select'" v-model="f.value" :disabled="!canWrite" @change="save(f)"><option :value="null">—</option><option v-if="f.value !== null && f.value !== undefined && !f.options.choices.includes(f.value)" :value="f.value">{{ f.value }} (ancien choix)</option><option v-for="c in f.options.choices" :key="c" :value="c">{{ c }}</option></select>
           <small v-if="f.help" class="muted">{{ f.help }}</small>
         </template>
       </label>

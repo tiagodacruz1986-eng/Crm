@@ -374,7 +374,8 @@ function stopWork(userId, now) {
  * Une personne n'est pointée que sur UN travail à la fois : le chrono qui tournait ailleurs est arrêté d'office
  * (« switched » dit lequel, pour le lui afficher). Utilisé par la tablette de l'atelier et par la fiche de l'OR au bureau.
  */
-function startWork(uid, documentId, lineRef, note) {
+// presence=false (chrono lancé depuis le bureau pour quelqu'un d'autre) : on ne pointe pas l'arrivée à sa place
+function startWork(uid, documentId, lineRef, note, { presence = true } = {}) {
   const now = localDateTime();
   let resumed = null, reopened = null, switched = null;
   tx(() => {
@@ -390,7 +391,10 @@ function startWork(uid, documentId, lineRef, note) {
       // Reprise d'une intervention déjà cochée « fait » : elle redevient « à faire » (sinon elle resterait cochée, chrono en marche)
       if (l.done) { run('UPDATE document_lines SET done=0 WHERE id=?', l.id); touchDocument(d.id); reopened = d.id; }
     }
-    if (!get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid)) insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
+    if (!get("SELECT id FROM time_entries WHERE user_id=? AND kind='presence' AND end IS NULL", uid)) {
+      if (!presence) throw new BusinessError(`${get('SELECT name FROM users WHERE id=?', uid)?.name || 'Cette personne'} n'a pas pointé son arrivée. Pointez d'abord son arrivée (Présences), ou laissez le mécanicien lancer le chrono sur la tablette.`);
+      insert('time_entries', { user_id: uid, kind: 'presence', start: now }, ['user_id', 'kind', 'start']);
+    }
     const running = get(`SELECT t.document_id, t.line_id, r.number, l.description AS line FROM time_entries t LEFT JOIN documents r ON r.id=t.document_id
       LEFT JOIN document_lines l ON l.id=t.line_id AND l.document_id=t.document_id WHERE t.user_id=? AND t.kind='work' AND t.end IS NULL ORDER BY t.start DESC LIMIT 1`, uid);
     // Déjà en cours sur ce même travail : le chrono continue (un second appui ne le découpe pas)
@@ -399,8 +403,8 @@ function startWork(uid, documentId, lineRef, note) {
       stopWork(uid, now);
       insert('time_entries', { user_id: uid, kind: 'work', document_id: d.id, line_id: lineId, start: now, note: typeof note === 'string' ? note.slice(0, 500) : undefined }, ['user_id', 'kind', 'document_id', 'line_id', 'start', 'note']);
     }
-    // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces)
-    if (d.status === 'open' || d.status === 'waiting_parts') { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
+    // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces, ou s'il était déjà « Terminé »)
+    if (['open', 'waiting_parts', 'done'].includes(d.status)) { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
   });
   if (resumed) stageFromStatus(resumed, 'in_progress');
   else if (reopened) livePublish(reopened);
@@ -740,7 +744,7 @@ api.post('/documents/:id/clock', wrap((req) => {
   if (target.id !== req.user.id && !can(req.user, 'presences', 'manager')) throw new BusinessError('Lancer ou arrêter le chrono de quelqu\'un d\'autre est réservé aux administrateurs des Présences', 403);
   if (target.role !== 'mechanic' && !can(target, 'atelier', 'user')) throw new BusinessError(`${target.name} n'a pas le droit de travailler sur un OR`);
   let switched = null;
-  if (req.body.action === 'start') ({ switched } = startWork(target.id, id, req.body.line_id));
+  if (req.body.action === 'start') ({ switched } = startWork(target.id, id, req.body.line_id, undefined, { presence: target.id === req.user.id }));
   else if (req.body.action === 'stop') run("UPDATE time_entries SET end=? WHERE user_id=? AND document_id=? AND kind='work' AND end IS NULL", localDateTime(), target.id, id);
   else throw new BusinessError('Action inconnue');
   return { ok: true, switched };
@@ -837,16 +841,16 @@ api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...re
 api.get('/studio/meta', (req, res) => res.json(studio.meta()));
 api.get('/studio/fields', adminOnly, wrap((req) => studio.listFields(String(req.query.target || ''), { all: true })));
 api.post('/studio/fields', adminOnly, wrap((req) => ({ id: studio.saveField(req.body) })));
-api.put('/studio/fields/:id', adminOnly, wrap((req) => ({ id: studio.saveField(req.body, Number(req.params.id)) })));
+api.put('/studio/fields/:id', adminOnly, wrap((req) => { const id = studio.saveField(req.body, Number(req.params.id)); return { id, notice: studio.choicesNotice(id) }; }));
 api.delete('/studio/fields/:id', adminOnly, wrap((req) => studio.deleteField(Number(req.params.id))));
 api.post('/studio/order', adminOnly, wrap((req) => studio.orderFields(String(req.body.target || ''), req.body.ids)));
 const studioField = (req) => { const f = Number(req.params.field); if (!Number.isInteger(f)) throw new BusinessError('Élément inconnu'); return f; };
 // (« can_write » : l'utilisateur peut-il remplir les champs de cette fiche ?)
 const studioOut = (req, d) => ({ ...d, can_write: can(req.user, recordApp(d.model, d.id), 'user') });
-api.get('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.recordData(req.params.model, Number(req.params.id)))));
-api.put('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.saveValues(req.params.model, Number(req.params.id), req.body?.values, req.user.id))));
+api.get('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.recordData(req.params.model, Number(req.params.id), req.user))));
+api.put('/studio/record/:model/:id', wrap((req) => studioOut(req, studio.saveValues(req.params.model, Number(req.params.id), req.body?.values, req.user))));
 api.post('/studio/files/:model/:id/:field', rawBody, wrap((req) => studio.addFile(req.params.model, Number(req.params.id), studioField(req), fileMeta(req))));
-api.post('/studio/buttons/:model/:id/:field', wrap((req) => studio.pressButton(req.params.model, Number(req.params.id), studioField(req), req.user)));
+api.post('/studio/buttons/:model/:id/:field', wrap((req) => studio.pressButton(req.params.model, Number(req.params.id), studioField(req), req.user, { force: req.body?.force === true })));
 
 // ---------- Comptabilité ----------
 const period = (req) => [req.query.from || `${today().slice(0, 4)}-01-01`, req.query.to || today()];
@@ -1026,7 +1030,10 @@ function userData(b, creating, cur = null) {
   const data = { ...b };
   if ('active' in b) data.active = b.active === true || b.active === 1 || b.active === '1' ? 1 : 0;
   if (b.name !== undefined) data.name = String(b.name ?? '').trim();
-  if (b.email !== undefined) data.email = b.email ? String(b.email).trim().toLowerCase() : null;
+  if (b.email !== undefined) {
+    data.email = b.email ? String(b.email).trim().toLowerCase() : null;
+    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) throw new BusinessError('Adresse e-mail invalide (exemple : nom@exemple.lu)');
+  }
   if (b.role !== undefined && !['admin', 'office', 'mechanic'].includes(b.role)) throw new BusinessError('Type d\'utilisateur inconnu');
   if (b.password) { if (String(b.password).length < 8) throw new BusinessError('Mot de passe : 8 caractères minimum'); data.password_hash = hashSecret(b.password); }
   if (b.pin) { if (!/^\d{4,6}$/.test(String(b.pin))) throw new BusinessError('Code PIN : 4 à 6 chiffres'); data.pin_hash = hashSecret(String(b.pin)); }
@@ -1057,6 +1064,7 @@ const baseUrl = (req) => {
 async function inviteUser(req, id, send) {
   const u = get('SELECT * FROM users WHERE id=?', id);
   if (!u?.email) throw new BusinessError('Adresse e-mail requise pour inviter');
+  if (u.role === 'mechanic') throw new BusinessError('Un mécanicien pointe à la tablette avec son code PIN : il ne reçoit pas d\'invitation.');
   // On vérifie AVANT de créer un nouveau lien : un envoi impossible ne doit pas rendre l'ancien lien inutilisable
   if (send && !isMailConfigured()) throw new BusinessError('L\'envoi d\'e-mails n\'est pas configuré (Paramètres → E-mails). Créez le lien sans l\'envoyer, puis transmettez-le vous-même.');
   const { token, expires } = createInvite(id);

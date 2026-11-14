@@ -191,9 +191,15 @@ test('zones PDF : dépôt, contrôle du fichier, téléchargement, retrait', asy
   // retrait
   assert.equal((await A('DELETE', `/attachment/${files[0].id}`)).status, 200);
   assert.equal(byId(await zone('vehicle', veh), pdfZone).files.length, 0);
-  // zone supprimée : le fichier reste attaché à la fiche
+  // une zone qui contient encore un fichier ne se supprime pas (le fichier deviendrait introuvable) ; vide, elle se supprime
+  const refused = await A('DELETE', `/studio/fields/${anyZone}`);
+  assert.equal(refused.status, 400);
+  assert.match(refused.data.error, /1 fichier/);
+  const kept = (await A('GET', `/attachments/vehicle/${veh}`)).data;
+  assert.equal(kept.length, 1, 'rien n\'est perdu');
+  assert.equal(byId(await zone('vehicle', veh), anyZone).files.length, 1, 'le fichier est toujours dans sa zone');
+  assert.equal((await A('DELETE', `/attachment/${kept[0].id}`)).status, 200);
   assert.equal((await A('DELETE', `/studio/fields/${anyZone}`)).status, 200);
-  assert.equal((await A('GET', `/attachments/vehicle/${veh}`)).data.length, 1, 'rien n\'est perdu');
 });
 
 test('boutons : lien avec les informations de la fiche, e-mail préparé, champ rempli, activité', async () => {
@@ -226,6 +232,30 @@ test('boutons : lien avec les informations de la fiche, e-mail préparé, champ 
   assert.equal(acts.length, 1);
   assert.equal(acts[0].summary, 'Rappeler Müller & Fils pour le CT de AB 12/34');
   assert.equal(acts[0].type, 'call');
+  // le champ contient déjà une autre date : le bouton demande avant de remplacer, et l'ancienne valeur reste dans l'historique
+  assert.equal((await A('PUT', `/studio/record/vehicle/${veh}`, { values: { [washed]: '2026-01-02' } })).status, 200);
+  const ask = (await A('POST', `/studio/buttons/vehicle/${veh}/${stamp}`, {})).data;
+  assert.match(ask.confirm, /02\/01\/2026/);
+  assert.equal(byId(await zone('vehicle', veh), washed).value, '2026-01-02', 'rien n\'a été remplacé sans accord');
+  const forced = (await A('POST', `/studio/buttons/vehicle/${veh}/${stamp}`, { force: true })).data;
+  assert.equal(byId(forced.record, washed).value, today);
+  assert.match((await A('GET', `/chatter/vehicle/${veh}`)).data.messages.map((x) => x.body).join('\n'), /avant : 02\/01\/2026/);
+  // un champ rempli par un bouton ne peut pas être masqué tant que le bouton existe
+  assert.equal((await A('PUT', `/studio/fields/${washed}`, { active: 0 })).status, 400);
+  // lien « appeler le client » et lien e-mail : numéro nettoyé, objet encodé (un « & » dans un nom n'ajoute pas de champ)
+  const tel = await field({ target: 'vehicle', kind: 'button', label: 'Appeler', options: { action: 'link', url: 'tel:{telephone}' } });
+  const mailto = await field({ target: 'vehicle', kind: 'button', label: 'Écrire', options: { action: 'link', url: 'mailto:{email}?subject=Véhicule {plaque} de {client}' } });
+  assert.equal((await A('POST', '/studio/fields', { target: 'vehicle', kind: 'button', label: 'Espace', options: { action: 'link', url: 'https://exemple.com/a b' } })).data.error.includes('espace'), true);
+  assert.equal((await A('POST', '/studio/fields', { target: 'vehicle', kind: 'button', label: 'Loin', options: { action: 'activity', summary: 'x', days: 900 } })).status, 400);
+  await A('PUT', `/customers/${cust}`, { name: 'Müller & Fils', email: 'muller@t.lu', mobile: '+352 621 123 456' });
+  const z2 = await zone('vehicle', veh);
+  assert.equal(byId(z2, tel).href, 'tel:+352621123456');
+  assert.equal(byId(z2, mailto).href, 'mailto:muller@t.lu?subject=Véhicule%20AB%2012%2F34%20de%20M%C3%BCller%20%26%20Fils');
+  // sans droit sur les Contacts, l'e-mail et le téléphone du client ne sont pas donnés par ces boutons
+  const noContacts = await userWith({ vehicules: 'user' }, 'sanscontacts');
+  const z3 = (await call('GET', `/studio/record/vehicle/${veh}`, undefined, noContacts)).data;
+  assert.equal(byId(z3, tel).href, 'tel:');
+  assert.ok(!/muller@t\.lu/.test(JSON.stringify(z3)));
   // un lien ou un e-mail ne s'exécute pas côté serveur ; bouton inconnu ; lecture seule
   assert.equal((await A('POST', `/studio/buttons/vehicle/${veh}/${link}`, {})).status, 400);
   assert.equal((await A('POST', `/studio/buttons/vehicle/${veh}/999999`, {})).status, 400);

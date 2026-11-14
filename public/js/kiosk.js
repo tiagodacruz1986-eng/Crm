@@ -22,7 +22,12 @@ const App = {
     let noticeT;
     // Heure de réception de l'état : les chronos en cours continuent d'avancer à l'écran depuis cet instant
     let fetchedAt = Date.now();
-    const setState = (s) => { st.value = s; fetchedAt = Date.now(); };
+    // Les cartes des OR gardent leur place tant que le mécanicien est devant la tablette : démarrer un chrono ne les fait pas sauter
+    const rank = new Map();
+    const setState = (s) => {
+      if (Array.isArray(s?.orders)) { s.orders.forEach((o) => { if (!rank.has(o.id)) rank.set(o.id, rank.size); }); s.orders.sort((a, b) => rank.get(a.id) - rank.get(b.id)); }
+      st.value = s; fetchedAt = Date.now();
+    };
     let idle, clock, greetT;
 
     const call = async (method, url, body) => {
@@ -39,7 +44,7 @@ const App = {
     const logout = () => {
       // la session est aussi fermée sur le serveur (elle ne reste pas valable après « Terminer »)
       if (token.value) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token.value } }).catch(() => {});
-      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; notice.value = ''; err.value = ''; q.value = ''; loadUsers();
+      rank.clear(); token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; notice.value = ''; err.value = ''; q.value = ''; loadUsers();
     };
     const offline = ref(false);
     const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); offline.value = false; } catch { offline.value = true; } };

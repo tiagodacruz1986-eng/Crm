@@ -6,11 +6,16 @@ import { db, all, get, run, round2, localDateTime } from './db.js';
 if (!all('PRAGMA table_info(document_lines)').some((c) => c.name === 'planned_hours')) db.exec('ALTER TABLE document_lines ADD COLUMN planned_hours REAL');
 db.exec('CREATE INDEX IF NOT EXISTS idx_time_document ON time_entries(document_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_lines_document ON document_lines(document_id)');
+// (colonne « source » : aussi créée par attendance.js, mais ce fichier peut être chargé avant lui)
+if (!all('PRAGMA table_info(time_entries)').some((c) => c.name === 'source')) db.exec('ALTER TABLE time_entries ADD COLUMN source TEXT');
 // Une personne ne peut être pointée que sur UN travail à la fois : garanti aussi par la base.
-// (d'éventuels doublons laissés par une ancienne version sont d'abord fermés : l'ancien s'arrête au début du suivant)
+// (d'éventuels doublons laissés par une ancienne version sont d'abord fermés : on garde le chrono démarré en dernier,
+// les autres s'arrêtent au début du suivant et sont marqués « à vérifier » comme un chrono oublié)
 try {
-  db.exec(`UPDATE time_entries SET end = COALESCE((SELECT MIN(n.start) FROM time_entries n WHERE n.user_id=time_entries.user_id AND n.kind='work' AND n.start > time_entries.start), start)
-    WHERE kind='work' AND end IS NULL AND id NOT IN (SELECT MAX(id) FROM time_entries WHERE kind='work' AND end IS NULL GROUP BY user_id)`);
+  db.exec(`UPDATE time_entries SET source='auto', note = TRIM(COALESCE(note, '') || ' Arrêt automatique (deux chronos en même temps)'),
+    end = COALESCE((SELECT MIN(n.start) FROM time_entries n WHERE n.user_id=time_entries.user_id AND n.kind='work' AND n.start > time_entries.start), start)
+    WHERE kind='work' AND end IS NULL AND id NOT IN (SELECT t.id FROM time_entries t WHERE t.kind='work' AND t.end IS NULL
+      AND NOT EXISTS (SELECT 1 FROM time_entries o WHERE o.user_id=t.user_id AND o.kind='work' AND o.end IS NULL AND (o.start > t.start OR (o.start = t.start AND o.id > t.id))))`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_work ON time_entries(user_id) WHERE kind='work' AND end IS NULL");
 } catch (e) { console.error('Index « un seul chrono par personne »', e.message); }
 

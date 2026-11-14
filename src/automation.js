@@ -68,8 +68,11 @@ export function cleanOptions(input = {}) {
   for (const k of ['run_time']) if (!/^\d{2}:\d{2}$/.test(out.relances[k])) out.relances[k] = '09:00';
   if (!/^\d{2}:\d{2}$/.test(out.rendez_vous.reminder_time)) out.rendez_vous.reminder_time = '17:00';
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(out.atelier.monthly_report_time)) out.atelier.monthly_report_time = '07:00';
-  // adresses supplémentaires pour le rapport d'équipe : seules les adresses valides sont gardées
-  out.atelier.report_to = String(out.atelier.report_to || '').split(/[;,\s]+/).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 5).join(', ');
+  // adresses supplémentaires pour le rapport d'équipe (5 au plus) : une adresse mal écrite est signalée
+  const extra = String(out.atelier.report_to || '').split(/[;,\s]+/).filter(Boolean);
+  const wrong = extra.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  if (wrong.length) throw new BusinessError(`Adresse e-mail invalide pour le rapport d'équipe : ${wrong.join(', ').slice(0, 120)}`);
+  out.atelier.report_to = extra.slice(0, 5).join(', ');
   return out;
 }
 

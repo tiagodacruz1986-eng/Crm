@@ -51,10 +51,11 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-work-line { font-size: 17px; color: #cbd5e1; margin-top: 2px; }
 .k-budget { font-size: 16px; font-weight: 600; color: #94a3b8; margin-top: 4px; }
 .k-status.working.over { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.3); }
-.k-info { background: rgba(37,99,235,.18); border: 1px solid #2563eb; border-radius: 10px; padding: 14px 16px; margin: 0 0 16px; font-weight: 600; font-size: 17px; text-align: center; }
+/* Message « chrono arrêté sur l'autre OR » : collé en haut de l'écran, visible où que l'on soit dans la liste */
+.k-info { position: fixed; top: 12px; left: 12px; right: 12px; max-width: 760px; margin: 0 auto; z-index: 40; background: #1e3a8a; color: #fff; border: 1px solid #3b6fe0; border-radius: 10px; padding: 14px 16px; font-weight: 600; font-size: 17px; text-align: center; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); cursor: pointer; }
 .k-work { margin-top: 8px; }
 .k-work .k-line:first-child { border-top: 0; }
-[data-theme="light"] .k-info { background: #dbeafe; color: #1e3a8a; }
+[data-theme="light"] .k-info { background: #1e3a8a; color: #fff; box-shadow: 0 10px 30px rgba(16, 24, 40, .25); }
 [data-theme="light"] .k-time { color: #475569; }
 [data-theme="light"] .k-time.over, [data-theme="light"] .k-timer.over, [data-theme="light"] .k-budget.over { color: #dc2626; }
 [data-theme="light"] .k-work-line { color: #334155; }

@@ -5,6 +5,7 @@ import { db, all, get, run, insert, update, tx, today, localDateTime, isDate } f
 import { saveAttachment } from './bills.js';
 import { logMessage, createActivity, ACTIVITY_TYPES } from './mail.js';
 import { BusinessError } from './business.js';
+import { can } from './access.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS studio_fields (
@@ -73,7 +74,7 @@ export function listFields(target, { all: every = false } = {}) {
 }
 
 /** Options contrôlées selon le type d'élément. */
-function cleanOptions(kind, o = {}, target, selfId = null) {
+function cleanOptions(kind, o = {}, target, selfId = null, prev = {}) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) o = {};
   const res = {};
   if (kind === 'text' || kind === 'textarea') res.placeholder = str(o.placeholder, 80);
@@ -90,7 +91,8 @@ function cleanOptions(kind, o = {}, target, selfId = null) {
     if (o.action === 'link') {
       res.url = str(o.url, 500);
       // adresse web, e-mail ou téléphone uniquement (jamais de script)
-      if (!/^(https?:\/\/[^\s]+|mailto:[^\s]+|tel:[+\d][\d\s().-]*)$/i.test(res.url)) throw new BusinessError('Bouton « lien » : l\'adresse doit commencer par https:// (ou mailto: / tel:)');
+      if (/^https?:/i.test(res.url) && /\s/.test(res.url)) throw new BusinessError('Bouton « lien » : l\'adresse ne doit pas contenir d\'espace (remplacez-les par %20)');
+      if (!/^(https?:\/\/[^\s]+|mailto:[^\s?]+(\?[^\r\n]*)?|tel:(\{[a-z_]+\}|[+\d][\d\s().-]*))$/i.test(res.url)) throw new BusinessError('Bouton « lien » : l\'adresse doit commencer par https:// (ou mailto: pour un e-mail, tel: pour un numéro de téléphone)');
     }
     if (o.action === 'email') {
       res.subject = str(o.subject, 200); res.body = String(o.body ?? '').slice(0, 5000);
@@ -100,12 +102,14 @@ function cleanOptions(kind, o = {}, target, selfId = null) {
       res.summary = str(o.summary, 200);
       if (!res.summary) throw new BusinessError('Bouton « activité » : indiquez ce qu\'il faudra faire');
       res.activity_type = ACTIVITY_TYPES[o.activity_type] ? o.activity_type : 'todo';
-      const days = Number(o.days);
-      res.days = Number.isInteger(days) && days >= 0 && days <= 365 ? days : 0;
+      const days = o.days === undefined || o.days === null || o.days === '' ? 0 : Number(o.days);
+      if (!Number.isInteger(days) || days < 0 || days > 365) throw new BusinessError('Bouton « activité » : le délai doit être compris entre 0 et 365 jours');
+      res.days = days;
     }
     if (o.action === 'stamp') {
-      const f = get('SELECT id, kind FROM studio_fields WHERE id=? AND target=? AND active=1', Number(o.field_id) || 0, target);
-      if (!f || f.id === selfId || !STAMP_KINDS.includes(f.kind)) throw new BusinessError('Bouton « remplir un champ » : choisissez un champ date, case à cocher ou texte de cette fiche');
+      // le champ doit être affiché sur les fiches ; un bouton déjà en place garde le sien, même masqué depuis
+      const f = get('SELECT id, kind, active FROM studio_fields WHERE id=? AND target=?', Number(o.field_id) || 0, target);
+      if (!f || f.id === selfId || !STAMP_KINDS.includes(f.kind) || (!f.active && f.id !== prev?.field_id)) throw new BusinessError('Bouton « remplir un champ » : choisissez un champ date, case à cocher ou texte de cette fiche');
       res.field_id = f.id;
     }
   }
@@ -122,24 +126,53 @@ export function saveField(data, id = null) {
   if (!KINDS[kind]) throw new BusinessError('Type d\'élément inconnu');
   const label = str(data.label ?? cur?.label, 60);
   if (!label) throw new BusinessError('Donnez un nom à cet élément');
+  const prev = cur ? parse(cur.options) : {};
   const row = { target, kind, label, help: str(data.help ?? cur?.help, 200) || null,
-    options: JSON.stringify(cleanOptions(kind, data.options === undefined && cur ? parse(cur.options) : data.options, target, id)),
+    options: JSON.stringify(cleanOptions(kind, data.options === undefined && cur ? prev : data.options, target, id, prev)),
     active: data.active === undefined ? (cur ? cur.active : 1) : data.active ? 1 : 0 };
-  if (cur) { update('studio_fields', id, row, ['label', 'help', 'options', 'active']); return id; }
+  if (cur) {
+    if (cur.active && !row.active) { const b = stampButtons(cur); if (b.length) throw new BusinessError(`Le bouton « ${b[0].label} » remplit ce champ : masquez ou modifiez d'abord le bouton.`); }
+    update('studio_fields', id, row, ['label', 'help', 'options', 'active']);
+    return id;
+  }
   if (get('SELECT COUNT(*) n FROM studio_fields WHERE target=?', target).n >= MAX_FIELDS) throw new BusinessError(`Maximum ${MAX_FIELDS} éléments par fiche`);
   row.sequence = (get('SELECT COALESCE(MAX(sequence), 0) + 1 AS n FROM studio_fields WHERE target=?', target)).n;
   return insert('studio_fields', row, ['target', 'kind', 'label', 'help', 'options', 'sequence', 'active']);
 }
 
-/** Supprime un élément : ses valeurs sont effacées ; les fichiers d'une zone restent attachés aux fiches (rien n'est perdu). */
+/** Boutons « remplir un champ » qui visent cet élément. */
+const stampButtons = (f) => all("SELECT id, label, options FROM studio_fields WHERE target=? AND kind='button' AND id!=?", f.target, f.id)
+  .filter((b) => { const o = parse(b.options); return o.action === 'stamp' && o.field_id === f.id; });
+
+/**
+ * Après la modification d'une liste de choix : message si des fiches utilisent encore un choix retiré ou renommé
+ * (ce choix reste affiché sur ces fiches, marqué « ancien choix », tant qu'on n'en choisit pas un autre).
+ */
+export function choicesNotice(id) {
+  const f = get("SELECT options FROM studio_fields WHERE id=? AND kind='select'", id);
+  if (!f) return null;
+  const choices = parse(f.options).choices || [];
+  const old = all('SELECT value, COUNT(*) AS n FROM studio_values WHERE field_id=? GROUP BY value', id).filter((v) => !choices.includes(v.value));
+  if (!old.length) return null;
+  const n = old.reduce((s, v) => s + v.n, 0);
+  return `${n} fiche(s) utilisent encore ${old.length > 1 ? 'd\'anciens choix' : 'l\'ancien choix'} (${old.slice(0, 3).map((v) => `« ${v.value} »`).join(', ')}) : il reste affiché sur ces fiches jusqu'à ce qu'on en choisisse un autre.`;
+}
+
+/**
+ * Supprime un élément et les valeurs saisies. Une zone qui contient encore des fichiers ne se supprime pas
+ * (ils deviendraient introuvables) : on la masque, ou on retire d'abord les fichiers.
+ */
 export function deleteField(id) {
   const f = get('SELECT * FROM studio_fields WHERE id=?', id);
   if (!f) throw new BusinessError('Élément introuvable', 404);
-  const used = all("SELECT id, label, options FROM studio_fields WHERE target=? AND kind='button' AND id!=?", f.target, id).filter((b) => parse(b.options).field_id === id);
+  const used = stampButtons(f);
   if (used.length) throw new BusinessError(`Le bouton « ${used[0].label} » remplit ce champ : supprimez ou modifiez d'abord le bouton.`);
+  if (f.kind === 'file') {
+    const files = get('SELECT COUNT(*) AS n, COUNT(DISTINCT record_id) AS r FROM attachments WHERE zone_id=?', id);
+    if (files.n) throw new BusinessError(`Cette zone contient encore ${files.n} fichier(s) sur ${files.r} fiche(s). Pour ne rien perdre, masquez-la (décochez « Affiché sur les fiches ») ou retirez d'abord ces fichiers.`);
+  }
   tx(() => {
     run('DELETE FROM studio_values WHERE field_id=?', id);
-    run('UPDATE attachments SET zone_id=NULL WHERE zone_id=?', id);
     run('DELETE FROM studio_fields WHERE id=?', id);
   });
   return { ok: true };
@@ -154,28 +187,38 @@ export function orderFields(target, ids) {
 }
 
 /** Valeur contrôlée d'un champ ; null = vide. */
-function cleanValue(f, v) {
+function cleanValue(f, v, stored = null) {
   const o = f.options || {};
   if (v === null || v === undefined || v === '') return null;
   switch (f.kind) {
     case 'text': if (typeof v !== 'string' && typeof v !== 'number') throw new BusinessError(`${f.label} : texte attendu`); return String(v).replace(/[\r\n]+/g, ' ').slice(0, 500);
     case 'textarea': if (typeof v !== 'string') throw new BusinessError(`${f.label} : texte attendu`); return v.slice(0, 10000);
     case 'number': {
-      const n = typeof v === 'string' ? Number(v.trim().replace(',', '.')) : typeof v === 'number' ? v : NaN;
-      if (!Number.isFinite(n) || Math.abs(n) > 1e12) throw new BusinessError(`${f.label} : nombre invalide`);
+      // « 1 234,5 » comme « 1234.5 » ; ni lettres, ni notation scientifique
+      let n = NaN;
+      if (typeof v === 'number') n = v;
+      else if (typeof v === 'string') {
+        const s = v.replace(/[\s\u00a0\u202f]/g, '');
+        if (s === '') return null;
+        if (/^-?\d+([.,]\d+)?$/.test(s)) n = Number(s.replace(',', '.'));
+      }
+      if (!Number.isFinite(n) || Math.abs(n) > 1e12) throw new BusinessError(`${f.label} : nombre invalide (exemple : 12,5)`);
       return String(n);
     }
     case 'date': if (!isDate(v)) throw new BusinessError(`${f.label} : date invalide`); return v;
     case 'checkbox': return v === true || v === 1 || v === '1' ? '1' : null;
-    case 'select': if (!(o.choices || []).includes(v)) throw new BusinessError(`${f.label} : choix inconnu`); return v;
+    // un ancien choix (retiré de la liste depuis) peut rester tel quel sur la fiche
+    case 'select': if (!(o.choices || []).includes(v) && v !== stored) throw new BusinessError(`${f.label} : choix inconnu`); return v;
     default: throw new BusinessError(`${f.label} ne se remplit pas`);
   }
 }
 const typed = (f, v) => (v === null || v === undefined ? null : f.kind === 'number' ? Number(v) : f.kind === 'checkbox' ? v === '1' : v);
 
 /** Mots {plaque}, {client}… disponibles pour cette fiche (liens et e-mails des boutons). */
-export function context(model, id) {
-  const pick = (r, map) => Object.fromEntries(Object.entries(map).map(([k, col]) => [k, r?.[col] ?? '']));
+export function context(model, id, user = null) {
+  // sur un véhicule ou un document, l'e-mail et le téléphone du client ne sont donnés qu'à qui peut lire les Contacts
+  const hide = user && (model === 'vehicle' || model === 'document') && !can(user, 'contacts', 'read');
+  const pick = (r, map) => Object.fromEntries(Object.entries(map).map(([k, col]) => [k, hide && (k === 'email' || k === 'telephone') ? '' : r?.[col] ?? '']));
   if (model === 'customer') return pick(get('SELECT name, company, email, COALESCE(mobile, phone) AS tel FROM customers WHERE id=?', id), { client: 'name', societe: 'company', email: 'email', telephone: 'tel' });
   if (model === 'vehicle') return pick(get(`SELECT v.plate, v.vin, v.make, v.model, c.name, c.email, COALESCE(c.mobile, c.phone) AS tel FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE v.id=?`, id),
     { plaque: 'plate', vin: 'vin', marque: 'make', modele: 'model', client: 'name', email: 'email', telephone: 'tel' });
@@ -188,29 +231,48 @@ export function context(model, id) {
   return {};
 }
 /** Remplace {plaque}, {client}… ; dans une adresse web, les valeurs sont encodées. */
+const euros = new Intl.NumberFormat('fr-LU', { style: 'currency', currency: 'EUR' });
 export function fill(template, ctx, encode = false) {
-  return String(template || '').replace(/\{([a-z_]+)\}/gi, (m, k) => { const key = k.toLowerCase(); if (!(key in ctx)) return m; const v = String(ctx[key] ?? ''); return encode ? encodeURIComponent(v) : v; });
+  return String(template || '').replace(/\{([a-z_]+)\}/gi, (m, k) => {
+    const key = k.toLowerCase();
+    if (!Object.hasOwn(ctx, key)) return m;
+    if (encode) return encodeURIComponent(String(ctx[key] ?? ''));
+    return key === 'total' && ctx[key] !== '' ? euros.format(Number(ctx[key]) || 0) : String(ctx[key] ?? '');
+  });
+}
+/** Adresse d'un bouton « lien », avec les informations de la fiche. */
+function linkHref(url, ctx) {
+  // téléphone : seulement des chiffres et « + »
+  if (/^tel:/i.test(url)) return `tel:${fill(url.slice(4), ctx).replace(/[^\d+]/g, '')}`;
+  // e-mail : l'adresse telle quelle (sans rien qui puisse ajouter un champ), l'objet et le texte encodés
+  if (/^mailto:/i.test(url)) {
+    const i = url.indexOf('?');
+    const to = fill(i < 0 ? url : url.slice(0, i), ctx).replace(/[?&\s]/g, '');
+    return i < 0 ? to : to + fill(url.slice(i), ctx, true).replace(/ /g, '%20'); // l'objet peut contenir des espaces
+  }
+  return fill(url, ctx, true);
 }
 
 /** Tout ce qu'il faut pour afficher la zone personnalisée d'une fiche : éléments, valeurs, fichiers, liens prêts. */
-export function recordData(model, id) {
+export function recordData(model, id, user = null) {
   id = Number(id);
   const target = targetOf(model, id);
   const fields = listFields(target);
   const values = Object.fromEntries(all(`SELECT v.field_id, v.value FROM studio_values v JOIN studio_fields f ON f.id=v.field_id WHERE v.record_id=? AND f.target=?`, id, target).map((v) => [v.field_id, v.value]));
   const files = {};
   for (const a of all('SELECT id, filename, mime, size, created_at, zone_id FROM attachments WHERE model=? AND record_id=? AND zone_id IS NOT NULL ORDER BY id', model, id)) (files[a.zone_id] ||= []).push(a);
-  const ctx = context(model, id);
+  const ctx = context(model, id, user);
   return {
     model, id, target, target_label: TARGETS[target].label,
-    fields: fields.map((f) => {
+    // un bouton « remplir un champ » dont le champ est masqué n'est pas proposé (il ne pourrait qu'échouer)
+    fields: fields.filter((f) => !(f.kind === 'button' && f.options.action === 'stamp' && !fields.some((x) => x.id === f.options.field_id))).map((f) => {
       const item = { ...f };
       if (VALUE_KINDS.includes(f.kind)) item.value = typed(f, values[f.id] ?? null);
       if (f.kind === 'file') item.files = files[f.id] || [];
       if (f.kind === 'button') {
         const o = f.options;
         // le lien et le message sont préparés ici, avec les informations de la fiche
-        if (o.action === 'link') item.href = fill(o.url, ctx, !/^(mailto:|tel:)/i.test(o.url));
+        if (o.action === 'link') item.href = linkHref(o.url, ctx);
         if (o.action === 'email') item.mail = { subject: fill(o.subject, ctx), body: fill(o.body, ctx) };
       }
       return item;
@@ -219,7 +281,8 @@ export function recordData(model, id) {
 }
 
 /** Enregistre les valeurs saisies sur une fiche : { idDuChamp: valeur }. Les champs inconnus ou d'une autre fiche sont refusés. */
-export function saveValues(model, id, values, userId) {
+export function saveValues(model, id, values, user) {
+  const userId = user?.id ?? null;
   id = Number(id);
   const target = targetOf(model, id);
   if (!values || typeof values !== 'object' || Array.isArray(values)) throw new BusinessError('Valeurs invalides');
@@ -229,13 +292,13 @@ export function saveValues(model, id, values, userId) {
     for (const [k, raw] of Object.entries(values)) {
       const f = fields.get(Number(k));
       if (!f || !VALUE_KINDS.includes(f.kind)) throw new BusinessError('Champ inconnu sur cette fiche');
-      const v = cleanValue(f, raw);
+      const v = cleanValue(f, raw, get('SELECT value FROM studio_values WHERE field_id=? AND record_id=?', f.id, id)?.value ?? null);
       if (v === null) run('DELETE FROM studio_values WHERE field_id=? AND record_id=?', f.id, id);
       else run(`INSERT INTO studio_values(field_id, record_id, value, updated_at, updated_by) VALUES(?,?,?,?,?)
         ON CONFLICT(field_id, record_id) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by`, f.id, id, v, now, userId || null);
     }
   });
-  return recordData(model, id);
+  return recordData(model, id, user);
 }
 
 /** Dépose un fichier dans une zone de la fiche (PDF ; images aussi si la zone les accepte). */
@@ -256,7 +319,7 @@ export function addFile(model, id, fieldId, file) {
 }
 
 /** Bouton « remplir un champ » ou « planifier une activité » : exécuté par le serveur, avec une trace dans l'historique de la fiche. */
-export function pressButton(model, id, fieldId, user) {
+export function pressButton(model, id, fieldId, user, { force = false } = {}) {
   id = Number(id);
   const target = targetOf(model, id);
   const fields = listFields(target);
@@ -268,16 +331,20 @@ export function pressButton(model, id, fieldId, user) {
     if (!f) throw new BusinessError('Le champ rempli par ce bouton n\'existe plus : modifiez le bouton dans la personnalisation.');
     const day = today().split('-').reverse().join('/'), hour = localDateTime().slice(11, 16);
     const value = f.kind === 'date' ? today() : f.kind === 'checkbox' ? true : `${user.name} — ${day} ${hour}`;
-    saveValues(model, id, { [f.id]: value }, user.id);
-    logMessage(model, id, `🔘 ${b.label} : « ${f.label} » rempli par ${user.name} le ${day} à ${hour}`, user.id, 'system');
-    return { done: `${f.label} : enregistré`, record: recordData(model, id) };
+    // le champ contient déjà autre chose : on demande avant de remplacer, et l'ancienne valeur reste dans l'historique
+    const old = get('SELECT value FROM studio_values WHERE field_id=? AND record_id=?', f.id, id)?.value ?? null;
+    const shown = old === null ? '' : f.kind === 'date' ? old.split('-').reverse().join('/') : old;
+    if (old !== null && f.kind !== 'checkbox' && old !== value && !force) return { confirm: `« ${f.label} » contient déjà : ${shown.slice(0, 120)}\nLe remplacer ?` };
+    saveValues(model, id, { [f.id]: value }, user);
+    logMessage(model, id, `${b.label} : « ${f.label} » rempli par ${user.name} le ${day} à ${hour}${old !== null && f.kind !== 'checkbox' && old !== value ? ` (avant : ${shown.slice(0, 200)})` : ''}`, user.id, 'system');
+    return { done: `${f.label} : enregistré`, record: recordData(model, id, user) };
   }
   if (o.action === 'activity') {
     const d = new Date(); d.setDate(d.getDate() + (o.days || 0));
     const due = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const ctx = context(model, id);
+    const ctx = context(model, id, user);
     createActivity({ model, record_id: id, type: o.activity_type || 'todo', summary: fill(o.summary, ctx).slice(0, 200), due_date: due, user_id: user.id }, user.id);
-    return { done: `Activité planifiée pour le ${due.split('-').reverse().join('/')}`, record: recordData(model, id) };
+    return { done: `Activité planifiée pour le ${due.split('-').reverse().join('/')}`, record: recordData(model, id, user) };
   }
   throw new BusinessError('Ce bouton s\'utilise directement depuis la fiche');
 }

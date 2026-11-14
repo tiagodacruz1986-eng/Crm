@@ -49,7 +49,7 @@ export const Reports = {
       } finally { sending.value = false; }
     };
     const sendAll = () => { if (confirm('Envoyer son rapport à chaque mécanicien et le rapport de l’équipe aux administrateurs ?')) send(null); };
-    const lastLabel = (l) => (!l ? 'pas encore envoyé' : l.status === 'sent' ? 'envoyé le ' + date(l.sent_at.slice(0, 10)) + (l.auto ? ' (automatique)' : '') : 'échec : ' + (l.error || ''));
+    const lastLabel = (l) => (!l ? 'pas encore envoyé' : l.status === 'sent' ? 'envoyé le ' + date(l.sent_at.slice(0, 10)) + (l.auto ? ' (automatique)' : '') + (l.partial ? ' — mois incomplet, le rapport complet repartira' : '') : 'échec : ' + (l.error || ''));
     const auto = computed(() => store.settings?.options?.atelier || {});
     return { month, who, rep, error, one, load, lastMonth, thisMonth, print, plan, openSend, send, sendAll, sending, force, canSend, lastLabel, auto, hours, date, gapLabel, STATE };
   },
