@@ -130,7 +130,7 @@ export const Copilot = {
   <button class="copilot-orb no-print" :class="{listening: listening || ambient}" @click="open = !open" title="Nova — copilote IA"><Icon :name="open ? 'x' : 'sparkles'"/></button>
   <div v-if="open" class="copilot-panel no-print">
     <div class="copilot-head">
-      <div class="mini-orb"></div>
+      <div class="mini-orb"><Icon name="sparkles"/></div>
       <div style="flex:1"><b class="display" style="font-size:16px">Nova</b><div class="small muted">{{ ambient ? '🎧 écoute continue active' : 'Copilote IA — je vous écoute' }}</div></div>
       <button class="icon-btn" :title="voiceOn ? 'Couper la voix' : 'Activer la voix'" @click="toggleVoice"><Icon :name="voiceOn ? 'volume-2' : 'square'"/></button>
       <button class="icon-btn" @click="open = false"><Icon name="x"/></button>
@@ -172,7 +172,7 @@ export const BriefCard = {
   template: `
   <div class="card brief" v-if="data" style="margin-bottom:16px">
     <div class="card-head">
-      <div style="display:flex;gap:12px;align-items:center"><div class="mini-orb" style="flex:none;width:34px;height:34px;border-radius:50%;background:conic-gradient(from 0deg,#22d3ee,#818cf8,#e879f9,#22d3ee);box-shadow:0 0 18px rgba(129,140,248,.6)"></div>
+      <div style="display:flex;gap:12px;align-items:center"><div class="mini-orb brief-orb"><Icon name="sparkles"/></div>
         <div><h2 style="margin:0">Briefing de Nova</h2><div class="small muted">{{ brief ? 'Journée du ' + fdate(brief.date) + (brief.ai ? '' : ' · sans IA') : 'Résumé automatique chaque soir à ' + data.config.summary_time }}</div></div></div>
       <div class="btns"><button v-if="brief" class="btn sm" @click="listen"><Icon name="volume-2"/> Écouter</button><button v-if="store.user?.role === 'admin'" class="btn sm" :disabled="busy" @click="generate"><Icon name="sparkles"/> {{ busy ? 'Nova réfléchit…' : 'Résumer ma journée' }}</button><a class="btn sm" href="#/copilot">Journal</a></div>
     </div>
@@ -183,7 +183,7 @@ export const BriefCard = {
         <div v-if="!brief.priorities.length" class="muted small">Rien d'urgent 👌</div>
       </div>
     </div>
-    <div v-else class="muted">Parlez à Nova (bouton lumineux en bas à droite) pendant la journée : ce soir, elle vous fera le résumé et planifiera les priorités.</div>
+    <div v-else class="muted">Parlez à Nova (bouton rond en bas à droite) pendant la journée : ce soir, elle vous fera le résumé et planifiera les priorités.</div>
   </div>`,
 };
 
