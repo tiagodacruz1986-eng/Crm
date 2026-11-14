@@ -31,7 +31,9 @@ export const Workshop = {
     };
     const moveTo = async (o, status) => { dragged = o; await drop(status); };
     const isLate = (o) => o.promised_at && new Date(o.promised_at) < new Date() && o.status !== 'done';
-    return { moveTo, STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
+    // Temps pointé au-delà du temps prévu : affiché en rouge sur la fiche
+    const timeOver = (o) => o.hours_planned > 0 && (o.hours_spent || 0) - o.hours_planned > 1 / 120;
+    return { timeOver, moveTo, STAGE_KEYS, STAGE_LABEL, COLS, byCol, over, drop, go, money, date, time, hours, isLate, mech, mechanics, setDrag: (o) => { dragged = o; } };
   },
   template: `
   <div>
@@ -56,7 +58,10 @@ export const Workshop = {
             <span v-else class="muted">{{ o.mechanic_name || 'non assigné' }}</span>
             <span :class="isLate(o) ? 'late' : 'muted'" v-if="o.promised_at">⏰ {{ date(o.promised_at) }} {{ time(o.promised_at) }}</span>
           </div>
-          <div class="row small muted" style="margin-top:4px"><span>{{ o.hours_sold ? hours(o.hours_sold) + ' vendues' : '' }}</span><span>{{ money(o.total) }}</span></div>
+          <div class="row small muted" style="margin-top:4px">
+            <span v-if="o.hours_spent || o.hours_planned" :class="{ 'wt-over': timeOver(o) }" :title="timeOver(o) ? 'Temps prévu dépassé' : 'Temps pointé / temps prévu'">⏱ {{ hours(o.hours_spent) }}<template v-if="o.hours_planned"> / {{ hours(o.hours_planned) }}</template></span><span v-else></span>
+            <span>{{ money(o.total) }}</span>
+          </div>
           <div class="mini-gauge" :title="STAGE_LABEL[o.stage || 'received']"><div :style="{width: (100 * STAGE_KEYS.indexOf(o.stage || 'received') / 6) + '%'}"></div></div>
           <div class="small muted">{{ STAGE_LABEL[o.stage || 'received'] }}</div>
           <select class="touch-move" :value="o.status" @click.stop @change="moveTo(o, $event.target.value)"><option v-for="[k, label] in COLS" :value="k">➜ {{ label }}</option></select>

@@ -247,6 +247,35 @@ tfoot td { font-weight: 700; background: var(--soft); }
 table.lines { min-width: 780px; }
 .lines .kind { width: 118px; } .lines .q { width: 80px; } .lines .p { width: 100px; } .lines .d { width: 70px; } .lines .t { width: 80px; }
 .lines tr.text-line input.descr { font-style: italic; background: var(--soft); }
+/* Temps atelier : temps prévu / temps passé par intervention (rouge = temps prévu dépassé) */
+.lines .pl { width: 104px; } table.lines.with-time { min-width: 890px; }
+.wt-cell input { width: 100%; }
+.wt-under { font-size: 11px; color: var(--muted); text-align: right; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wt-under.neg { color: var(--bad); font-weight: 650; }
+.wt-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-left: 5px; animation: pulse 1.2s infinite; }
+.wt-list { margin-top: 12px; display: grid; gap: 10px; }
+.wt-row { padding-top: 10px; border-top: 1px solid var(--line); }
+.wt-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 13px; }
+.wt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-row.done .wt-name { color: var(--muted); }
+.wt-num { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+.wt-bar { height: 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin-top: 6px; }
+.wt-bar i { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
+.wt-row.over .wt-bar i { background: var(--bad); } .wt-row.over .wt-num { color: var(--bad); }
+.wt-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin-top: 4px; }
+.wt-details { margin-top: 12px; } .wt-details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.wt-over { color: var(--bad); font-weight: 650; }
+.live.over { color: var(--bad); } .live.over::before { background: var(--bad); box-shadow: 0 0 10px var(--bad); }
+a.live { text-decoration: none; white-space: nowrap; }
+.wt-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 0; min-width: 100%; }
+.wt-table td:nth-child(2) { white-space: normal; min-width: 200px; }
+/* téléphone : les tableaux deviennent des fiches, le texte peut passer à la ligne */
+table.stackable.wt-table td, table.stackable.wt-table td:nth-child(2) { white-space: normal; min-width: 0; }
+table.stackable.wt-table .wt-cur { text-align: right; }
+.wt-table td, .wt-table th { white-space: nowrap; } .wt-table td:first-child { white-space: normal; }
+.wt-chips { display: inline-flex; gap: 4px; }
+.wt-chips button { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 99px; padding: 4px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+.wt-chips button.on { background: var(--brand-soft); color: var(--ink); border-color: var(--line-strong); font-weight: 650; }
 .totals { display: grid; grid-template-columns: 1fr auto; gap: 7px 16px; }
 .totals .grand { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; }
 .stepper { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }

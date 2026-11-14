@@ -37,7 +37,26 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-line { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid #1e293b; font-size: 16px; cursor: pointer; }
 .k-line .box { width: 30px; height: 30px; border-radius: 8px; border: 2px solid #475569; display: grid; place-items: center; flex-shrink: 0; font-size: 18px; }
 .k-line.done .box { background: #16a34a; border-color: #16a34a; }
-.k-line.done span:last-child { text-decoration: line-through; color: #64748b; }
+.k-line.done .k-line-txt { text-decoration: line-through; color: #64748b; }
+/* Temps prévu / temps passé par intervention : rouge dès que le temps prévu est dépassé */
+.k-line { cursor: default; }
+.k-line .box, .k-line .k-line-txt { cursor: pointer; }
+.k-line .k-line-txt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.k-line .k-line-txt .k-time { display: block; margin-top: 2px; font-size: 14px; white-space: normal; }
+.k-line.running { background: rgba(22,163,74,.12); border-radius: 10px; padding-left: 8px; padding-right: 8px; }
+.k-line.k-general { font-size: 14px; }
+.k-time { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; color: #94a3b8; font-size: 15px; }
+.k-time.over, .k-timer.over, .k-budget.over { color: #f87171; }
+.k-go { min-width: 52px; padding-left: 0; padding-right: 0; flex-shrink: 0; }
+.k-work-line { font-size: 17px; color: #cbd5e1; margin-top: 2px; }
+.k-budget { font-size: 16px; font-weight: 600; color: #94a3b8; margin-top: 4px; }
+.k-status.working.over { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.3); }
+.k-hint { background: rgba(37,99,235,.18); border: 1px solid #2563eb; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-weight: 600; }
+[data-theme="light"] .k-time { color: #475569; }
+[data-theme="light"] .k-time.over, [data-theme="light"] .k-timer.over, [data-theme="light"] .k-budget.over { color: #dc2626; }
+[data-theme="light"] .k-work-line { color: #334155; }
+[data-theme="light"] .k-budget { color: #475569; }
+[data-theme="light"] .k-line.done .k-line-txt { color: #94a3b8; }
 .k-order textarea, .k-order input { background: #0b1220; border-color: #334155; color: #fff; font-size: 16px; }
 .k-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .k-muted { color: #94a3b8; font-size: 14px; }

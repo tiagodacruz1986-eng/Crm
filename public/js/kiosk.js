@@ -1,5 +1,6 @@
 // Kiosque de pointage atelier (tablette) : les mécaniciens se connectent avec leur PIN
-// et pointent présence + temps passé sur chaque ordre de réparation.
+// et pointent présence + temps passé sur chaque intervention des ordres de réparation
+// (temps prévu par le gérant ; le temps passe en rouge dès qu'il est dépassé).
 import { createApp, ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 
 const IDLE_LOGOUT_MS = 90_000;
@@ -17,6 +18,10 @@ const App = {
     const q = ref('');
     const greet = ref(null);
     const drafts = reactive({});
+    const hint = ref(null);
+    // Heure de réception de l'état : les chronos en cours continuent d'avancer à l'écran depuis cet instant
+    let fetchedAt = Date.now();
+    const setState = (s) => { st.value = s; fetchedAt = Date.now(); };
     let idle, clock, greetT;
 
     const call = async (method, url, body) => {
@@ -33,7 +38,7 @@ const App = {
     const logout = () => {
       // la session est aussi fermée sur le serveur (elle ne reste pas valable après « Terminer »)
       if (token.value) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token.value } }).catch(() => {});
-      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; err.value = ''; q.value = ''; loadUsers();
+      token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; hint.value = null; err.value = ''; q.value = ''; loadUsers();
     };
     const offline = ref(false);
     const loadUsers = async () => { try { info.value = await call('GET', '/kiosk/users'); offline.value = false; } catch { offline.value = true; } };
@@ -82,7 +87,7 @@ const App = {
       try {
         const r = await call('POST', '/kiosk/login', { user_id: who.value.id, pin: pin.value });
         token.value = r.token;
-        st.value = await call('GET', '/kiosk/state');
+        setState(await call('GET', '/kiosk/state'));
         bump();
       } catch (e) { err.value = e.message; pin.value = ''; }
     };
@@ -100,13 +105,22 @@ const App = {
       try {
         const r = await call('POST', '/kiosk/attendance', {});
         showGreeting(r);
-        st.value = await call('GET', '/kiosk/state');
+        setState(await call('GET', '/kiosk/state'));
         // Au départ, ou pour le bureau : retour à l'écran d'accueil ; un mécanicien arrivé reste pour ses OR
         if (r.action === 'out' || !st.value.show_orders) setTimeout(logout, 400);
       } catch (e) { err.value = e.message; }
     };
-    const act = async (fn) => { try { const r = await fn(); st.value = { ...st.value, ...r }; err.value = ''; } catch (e) { err.value = e.message; } };
-    const clockAction = (action, document_id) => act(() => call('POST', '/kiosk/clock', { action, document_id }));
+    const act = async (fn) => { try { const r = await fn(); setState({ ...st.value, ...r }); err.value = ''; } catch (e) { err.value = e.message; } };
+    const clockAction = (action, document_id, line_id) => { hint.value = null; return act(() => call('POST', '/kiosk/clock', { action, document_id, line_id })); };
+    // « Démarrer » sur un OR : une seule intervention à faire → le chrono part dessus ; plusieurs → le mécanicien choisit laquelle
+    const todo = (o) => o.lines.filter((l) => l.timed && !l.done);
+    const startOrder = (o) => {
+      const list = todo(o);
+      if (list.length === 1) return clockAction('start', o.id, list[0].id);
+      if (list.length > 1) { open.value = o.id; hint.value = o.id; return null; }
+      return clockAction('start', o.id);
+    };
+    const startLine = (o, l) => clockAction('start', o.id, l.id);
     const updateOrder = (o, body) => act(() => call('POST', `/kiosk/orders/${o.id}`, body));
     const toggleLine = (o, l) => updateOrder(o, { line_id: l.id, done: !l.done });
     const saveNotes = async (o) => {
@@ -119,6 +133,24 @@ const App = {
     const draft = (o) => (drafts[o.id] ||= { diagnosis: o.diagnosis || '', note: '', mileage: null });
 
     const fmt = (s) => { const sec = Math.max(0, Math.floor(s)); return [sec / 3600, (sec % 3600) / 60, sec % 60].map((v) => String(Math.floor(v)).padStart(2, '0')).join(':'); };
+    // Temps passé « en direct » : le temps reçu du serveur + ce qui s'est écoulé depuis sur les chronos en cours
+    const liveHours = (spent, active) => (spent || 0) + (active || 0) * Math.max(0, now.value - fetchedAt) / 3.6e6;
+    const over = (spent, planned) => planned > 0 && spent - planned > 1 / 120;
+    const hms = (hrs) => fmt(hrs * 3600);
+    const lSpent = (l) => liveHours(l.spent, l.active);
+    const oSpent = (o) => liveHours(o.hours_spent, o.active);
+    const lOver = (l) => over(lSpent(l), l.planned);
+    const oOver = (o) => over(oSpent(o), o.hours_planned);
+    const isMine = (o, l) => !!st.value?.work && st.value.work.document_id === o.id && st.value.work.line_id === l.id;
+    // Travail en cours : temps passé / prévu de l'intervention (ou de l'OR entier si le chrono n'est pas sur une intervention)
+    const cur = computed(() => {
+      const w = st.value?.work;
+      const o = w && (st.value.orders || []).find((x) => x.id === w.document_id);
+      if (!o) return null;
+      const l = w.line_id ? o.lines.find((x) => x.id === w.line_id && x.timed) : null;
+      const spent = l ? lSpent(l) : oSpent(o), planned = l ? l.planned : o.hours_planned;
+      return { spent, planned, over: over(spent, planned) };
+    });
     const elapsed = computed(() => (st.value?.work ? fmt((now.value - new Date(st.value.work.start)) / 1000) : ''));
     const presentFor = computed(() => (st.value?.attendance?.present ? fmt((now.value - new Date(st.value.attendance.since)) / 1000) : ''));
     const timeStr = computed(() => new Date(now.value).toLocaleTimeString('fr-LU', { hour: '2-digit', minute: '2-digit' }));
@@ -127,7 +159,8 @@ const App = {
     const h = hm;
     const since = (s) => (s ? s.slice(11, 16) : '');
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
-    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
+    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startOrder, startLine, hint, lSpent, oSpent, lOver, oOver, isMine, cur, hms,
+      updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
   },
   template: `
   <div class="k-wrap">
@@ -175,24 +208,48 @@ const App = {
       <div class="k-err">{{ err }}</div>
 
       <template v-if="st.show_orders && st.attendance.present">
-        <div v-if="st.work" class="k-status working">
-          <div><div class="k-muted">En cours sur</div><div style="font-size:22px;font-weight:700">{{ st.work.number }} <span class="plate">{{ st.work.plate }}</span></div><div class="k-timer">{{ elapsed }}</div></div>
+        <div v-if="st.work" class="k-status working" :class="{ over: cur && cur.over }">
+          <div>
+            <div class="k-muted">En cours sur</div>
+            <div style="font-size:22px;font-weight:700">{{ st.work.number }} <span class="plate">{{ st.work.plate }}</span></div>
+            <div v-if="st.work.line_description" class="k-work-line">{{ st.work.line_description }}</div>
+            <div class="k-timer" :class="{ over: cur && cur.over }">{{ cur ? hms(cur.spent) : elapsed }}</div>
+            <div v-if="cur && cur.planned" class="k-budget" :class="{ over: cur.over }">
+              <template v-if="cur.over">⚠ Temps prévu dépassé de {{ h(cur.spent - cur.planned) }}</template><template v-else>Reste {{ h(cur.planned - cur.spent) }}</template>
+              · prévu {{ h(cur.planned) }}
+            </div>
+          </div>
           <button class="k-btn orange" @click="clockAction('stop')">⏸ Pause / arrêter</button>
         </div>
       <div class="k-title" style="font-size:20px">🔧 Ordres de réparation</div>
       <div class="k-orders">
         <div v-for="o in st.orders" class="k-order" :class="{mine: o.mechanic_id === who.id, active: st.work && st.work.document_id === o.id}">
-          <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-muted">{{ h(o.hours_spent) }}</span></h3>
+          <h3><span>{{ o.number }} <span class="plate">{{ o.plate }}</span></span><span class="k-time" :class="{ over: oOver(o) }">⏱ {{ h(oSpent(o)) }}<template v-if="o.hours_planned"> / {{ h(o.hours_planned) }}</template></span></h3>
           <div class="k-muted">{{ o.make }} {{ o.model }} · {{ o.customer_name }} <span v-if="o.vin">· VIN {{ o.vin }}</span></div>
           <div class="complaint">{{ o.customer_complaint || 'Pas de description' }}</div>
           <div class="k-actions">
-            <button v-if="!(st.work && st.work.document_id === o.id)" class="k-btn green sm" @click="clockAction('start', o.id)">▶ Démarrer</button>
+            <button v-if="!(st.work && st.work.document_id === o.id)" class="k-btn green sm" @click="startOrder(o)">▶ Démarrer</button>
             <button v-else class="k-btn orange sm" @click="clockAction('stop')">⏸ Pause</button>
             <button class="k-btn blue sm" @click="openLive(o)">📷 Photos & messages</button>
             <button class="k-btn sm" @click="open = open === o.id ? null : o.id">{{ open === o.id ? '▲ Fermer' : '▼ Détails' }}</button>
           </div>
           <template v-if="open === o.id">
-            <div v-for="l in o.lines" class="k-line" :class="{done: l.done}" @click="toggleLine(o, l)"><span class="box">{{ l.done ? '✓' : '' }}</span><span>{{ l.description }} <span class="k-muted" v-if="l.kind==='labor'">({{ l.quantity }} h)</span></span></div>
+            <div v-if="hint === o.id" class="k-hint">👉 Touchez ▶ en face de l'intervention que vous commencez.</div>
+            <div v-for="l in o.lines" class="k-line" :class="{ done: l.done, running: isMine(o, l) }">
+              <span class="box" @click="toggleLine(o, l)">{{ l.done ? '✓' : '' }}</span>
+              <span class="k-line-txt" @click="toggleLine(o, l)">{{ l.description }}<span class="k-muted" v-if="l.active && !isMine(o, l)"> · 👤 {{ l.workers.join(', ') }}</span>
+                <span v-if="l.timed && (l.planned || lSpent(l) > 0)" class="k-time" :class="{ over: lOver(l) }">⏱ {{ h(lSpent(l)) }}<template v-if="l.planned"> / {{ h(l.planned) }} prévu</template><template v-if="lOver(l)"> · dépassé</template></span>
+              </span>
+              <template v-if="l.timed">
+                <button v-if="isMine(o, l)" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
+                <button v-else class="k-btn green sm k-go" title="Démarrer cette intervention" @click="startLine(o, l)">▶</button>
+              </template>
+            </div>
+            <div v-if="o.lines.some(l => l.timed)" class="k-line k-general">
+              <span class="k-line-txt k-muted">Autre travail sur cet OR (diagnostic, essai…)<span v-if="o.hours_general > 0" class="k-time">⏱ {{ h(o.hours_general) }}</span></span>
+              <button v-if="st.work && st.work.document_id === o.id && !st.work.line_id" class="k-btn orange sm k-go" title="Pause" @click="clockAction('stop')">⏸</button>
+              <button v-else class="k-btn sm k-go" title="Démarrer sans intervention précise" @click="clockAction('start', o.id)">▶</button>
+            </div>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
               <textarea v-model="draft(o).diagnosis" placeholder="Diagnostic / constat…"></textarea>
               <input v-model="draft(o).note" placeholder="Note pour le bureau (pièce manquante, travaux supplémentaires…)">

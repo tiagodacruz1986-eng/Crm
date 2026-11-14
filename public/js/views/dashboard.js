@@ -1,10 +1,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { GET, money, date, time, store } from '../api.js';
+import { GET, money, date, time, hours, store } from '../api.js';
 import { BriefCard } from '../copilot.js';
+import { MechanicStats } from '../worktime.js';
+import { can } from '../apps.js';
 import { theme } from '../theme.js';
 
 export const Dashboard = {
-  components: { BriefCard },
+  components: { BriefCard, MechanicStats },
   setup() {
     const d = ref(null);
     const load = async () => { d.value = await GET('/dashboard'); };
@@ -44,7 +46,9 @@ export const Dashboard = {
       return { line, area: `${line} L${W},${H} L0,${H} Z`, x: last[0], y: last[1] };
     });
     const overdueShare = computed(() => (d.value?.receivable ? Math.min(100, Math.round((100 * d.value.overdue) / d.value.receivable)) : 0));
-    return { d, money, date, time, store, hello, monthLabel, glass, firstName, today, recent, trend, yearTotal, curve, overdueShare };
+    // Statistiques des mécaniciens : réservées à ceux qui ont le droit Présences (comme les feuilles de temps)
+    const showMech = can('presences');
+    return { showMech, hours, d, money, date, time, store, hello, monthLabel, glass, firstName, today, recent, trend, yearTotal, curve, overdueShare };
   },
   template: `
   <div v-if="d && glass" class="gdash">
@@ -65,8 +69,9 @@ export const Dashboard = {
         <div class="card">
           <div class="card-head"><h2>À l'atelier maintenant</h2><a href="#/timesheets" class="small">Pointage →</a></div>
           <div v-for="p in d.present" class="list-item">
-            <div style="display:flex;gap:10px;align-items:center"><span class="gsq" :style="{ background: p.color }"></span>{{ p.name }}</div>
-            <span v-if="p.working_on" class="live">{{ p.working_on }}</span><span v-else class="muted small">présent</span>
+            <div style="display:flex;gap:10px;align-items:center;min-width:0;flex:1"><span class="gsq" :style="{ background: p.color }"></span><div style="min-width:0;flex:1">{{ p.name }}<div v-if="p.work && p.work.line" class="muted small wt-clip">{{ p.work.line }}</div></div></div>
+            <a v-if="p.work" class="live" :class="{ over: p.work.over }" :href="'#/document/' + p.work.document_id" :title="p.work.over ? 'Temps prévu dépassé' : ''">{{ p.work.number }} · {{ hours(p.work.spent) }}<template v-if="p.work.planned"> / {{ hours(p.work.planned) }}</template></a>
+            <span v-else class="muted small">présent</span>
           </div>
           <Empty v-if="!d.present.length" icon="😴" text="Aucun mécanicien pointé"/>
         </div>
@@ -79,6 +84,7 @@ export const Dashboard = {
           <Empty v-if="!d.appointmentsToday.length" icon="☕" text="Pas de rendez-vous aujourd'hui"/>
         </div>
       </div>
+      <MechanicStats v-if="showMech" style="margin-top:14px"/>
       <div class="gd-row">
         <div class="card">
           <div class="card-head"><h2>Stock bas</h2><a href="#/stock?low=1" class="small">Voir →</a></div>
@@ -139,12 +145,14 @@ export const Dashboard = {
       <div class="card">
         <div class="card-head"><h2>À l'atelier maintenant</h2><a href="#/timesheets" class="small">Pointage →</a></div>
         <div v-for="p in d.present" class="list-item">
-          <div style="display:flex;gap:8px;align-items:center"><span class="avatar" :style="{background: p.color}">{{ p.name[0] }}</span>{{ p.name }}</div>
-          <span v-if="p.working_on" class="live">{{ p.working_on }}</span><span v-else class="muted small">présent</span>
+          <div style="display:flex;gap:8px;align-items:center;min-width:0;flex:1"><span class="avatar" :style="{background: p.color}">{{ p.name[0] }}</span><div style="min-width:0;flex:1">{{ p.name }}<div v-if="p.work && p.work.line" class="muted small wt-clip">{{ p.work.line }}</div></div></div>
+          <a v-if="p.work" class="live" :class="{ over: p.work.over }" :href="'#/document/' + p.work.document_id" :title="p.work.over ? 'Temps prévu dépassé' : ''">{{ p.work.number }} · {{ hours(p.work.spent) }}<template v-if="p.work.planned"> / {{ hours(p.work.planned) }}</template></a>
+          <span v-else class="muted small">présent</span>
         </div>
         <Empty v-if="!d.present.length" icon="😴" text="Aucun mécanicien pointé"/>
       </div>
     </div>
+    <MechanicStats v-if="showMech" style="margin-top:16px"/>
     <div class="grid g3" style="margin-top:16px">
       <div class="card">
         <div class="card-head"><h2>📅 Rendez-vous du jour</h2><a href="#/planning" class="small">Planning →</a></div>

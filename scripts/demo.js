@@ -89,9 +89,17 @@ B.saveDocument({ type: 'order', customer_id: cs[2].id, vehicle_id: cs[2].v, cust
 // Pointages du jour
 const t0 = (h, m = 0) => `${today()}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 for (const [i, u] of mech.entries()) insert('time_entries', { user_id: u, kind: 'presence', start: t0(7, 30 + i * 5) }, ['user_id', 'kind', 'start']);
-insert('time_entries', { user_id: mech[0], kind: 'work', document_id: o1, start: t0(8) }, ['user_id', 'kind', 'document_id', 'start']);
+// Chronos par intervention : le temps prévu vient de la ligne de main-d'œuvre (ou de ce que le gérant a saisi)
+const laborLine = (doc) => get("SELECT id FROM document_lines WHERE document_id=? AND kind='labor' ORDER BY sequence LIMIT 1", doc).id;
+const WORK = ['user_id', 'kind', 'document_id', 'line_id', 'start', 'end'];
+insert('time_entries', { user_id: mech[0], kind: 'work', document_id: o1, line_id: laborLine(o1), start: t0(8) }, WORK);
 run("UPDATE documents SET status='in_progress' WHERE id=?", o1);
-insert('time_entries', { user_id: mech[2], kind: 'work', document_id: o3, start: t0(7, 45), end: t0(9, 10) }, ['user_id', 'kind', 'document_id', 'start', 'end']);
+// terminé dans le temps prévu (0h40 pour 1h00)
+insert('time_entries', { user_id: mech[1], kind: 'work', document_id: o2, line_id: laborLine(o2), start: t0(8, 15), end: t0(8, 55) }, WORK);
+run('UPDATE document_lines SET done=1 WHERE id=?', laborLine(o2));
+// terminé en dépassement (1h25 pour 1h00 prévu) : affiché en rouge
+insert('time_entries', { user_id: mech[2], kind: 'work', document_id: o3, line_id: laborLine(o3), start: t0(7, 45), end: t0(9, 10) }, WORK);
+run('UPDATE document_lines SET done=1 WHERE id=?', laborLine(o3));
 
 // Rendez-vous
 const A = (n, h, c, title, m) => insert('appointments', { customer_id: c.id, vehicle_id: c.v, mechanic_id: m, start: dt(n, h), end: dt(n, h + 1), title }, ['customer_id', 'vehicle_id', 'mechanic_id', 'start', 'end', 'title']);

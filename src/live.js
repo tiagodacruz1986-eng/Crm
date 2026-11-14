@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { db, all, get, run, insert, getSettings, round2, localDateTime, today } from './db.js';
+import { stopLineTimers } from './worktime.js';
 import { BusinessError, refreshTotals, touchDocument } from './business.js';
 import { logMessage, createActivity } from './mail.js';
 
@@ -255,6 +256,7 @@ export function mountLive(app, api) {
     const l = writable(req);
     if (l.role !== 'mechanic') throw new BusinessError('Accès refusé', 403);
     run('UPDATE document_lines SET done=? WHERE id=? AND document_id=?', req.body.done ? 1 : 0, req.params.line, l.document_id);
+    if (req.body.done && Number.isInteger(Number(req.params.line))) stopLineTimers(l.document_id, Number(req.params.line)); // intervention terminée : son chrono s'arrête
     touchDocument(l.document_id);
     publish(l.document_id);
     return { ok: true };

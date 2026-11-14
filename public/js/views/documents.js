@@ -142,11 +142,43 @@ export const DocumentEditor = {
         }
       } else {
         doc.value = await GET('/documents/' + route.params.id);
+        loadedAt = Date.now(); tick.value = loadedAt;
         if (doc.value.customer_id) vehicles.value = (await GET('/customers/' + doc.value.customer_id)).vehicles;
       }
       await nextTick();
       dirty.value = false;
     };
+    // ---------- Temps atelier : temps prévu / temps passé par intervention ----------
+    // (les chronos en cours avancent à l'écran ; l'OR est relu toutes les minutes tant qu'aucune saisie n'est en cours)
+    let loadedAt = Date.now(), ticker;
+    const tick = ref(Date.now());
+    onMounted(() => { ticker = setInterval(async () => {
+      tick.value = Date.now();
+      if (doc.value?.type === 'order' && doc.value.id && doc.value.active_workers && !dirty.value && Date.now() - loadedAt > 60000) { try { await load(); } catch { /* prochain essai dans une minute */ } }
+    }, 10000); });
+    onUnmounted(() => clearInterval(ticker));
+    const isWork = (l) => l.kind === 'labor' || l.kind === 'fee';
+    // Temps prévu : celui saisi ; sinon, pour la main-d'œuvre, les heures vendues (0 = pas de temps prévu)
+    const plannedOf = (l) => {
+      if (!isWork(l)) return null;
+      const v = l.planned_hours;
+      if (v !== null && v !== undefined && v !== '') { const n = Number(v); return n > 0 ? n : null; }
+      const q = Number(l.quantity);
+      return l.kind === 'labor' && q > 0 ? q : null;
+    };
+    const liveHours = (spent, active) => (Number(spent) || 0) + (Number(active) || 0) * Math.max(0, tick.value - loadedAt) / 3.6e6;
+    const isOver = (spent, planned) => planned > 0 && spent - planned > 1 / 120;
+    const lineSpent = (l) => liveHours(l.spent, l.active);
+    const lineOver = (l) => isOver(lineSpent(l), plannedOf(l));
+    const work = computed(() => {
+      const d = doc.value;
+      if (!d || d.type !== 'order') return null;
+      const lines = (d.lines || []).filter(isWork).map((l) => ({ l, planned: plannedOf(l), spent: lineSpent(l), over: lineOver(l) }));
+      const planned = lines.reduce((s, x) => s + (x.planned || 0), 0);
+      const spent = liveHours(d.hours_spent, d.active_workers);
+      return { lines, planned, spent, over: isOver(spent, planned), general: liveHours(d.hours_general, d.general_active) };
+    });
+    const pct = (spent, planned) => (planned > 0 ? Math.min(100, Math.round((100 * spent) / planned)) : spent > 0 ? 100 : 0);
     onMounted(async () => { mechanics.value = (await GET('/users')).filter((u) => u.role === 'mechanic' && u.active); await load(); });
     watch(() => doc.value && [doc.value.lines, doc.value.customer_id, doc.value.vehicle_id, doc.value.notes, doc.value.customer_complaint, doc.value.diagnosis, doc.value.mileage,
       doc.value.date, doc.value.due_date, doc.value.reference, doc.value.mechanic_id, doc.value.promised_at, doc.value.internal_notes], () => { dirty.value = true; }, { deep: true });
@@ -163,7 +195,7 @@ export const DocumentEditor = {
     const totals = computed(() => computeTotals(doc.value?.lines));
 
     const addLine = (kind) => {
-      const base = { kind, description: '', quantity: 1, unit_price: 0, discount: 0, tax_rate: s.default_tax, product_id: null };
+      const base = { kind, description: '', quantity: 1, unit_price: 0, discount: 0, tax_rate: s.default_tax, product_id: null, planned_hours: null };
       if (kind === 'labor') Object.assign(base, { description: "Main-d'œuvre", unit_price: s.labor_rate, unit: 'h' });
       doc.value.lines.push(base);
     };
@@ -248,7 +280,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -308,8 +340,8 @@ export const DocumentEditor = {
 
         <div class="card">
           <div class="card-head"><h2>Prestations & pièces</h2></div>
-          <div class="table-wrap"><table class="lines" :class="{ 'no-disc': !showDiscount }">
-            <thead><tr><th class="kind">Type</th><th>Désignation</th><th class="q num">Qté</th><th class="p num">P.U. HT</th><th class="d num dcol">Rem. %</th><th class="t">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'">Fait</th><th></th></tr></thead>
+          <div class="table-wrap"><table class="lines" :class="{ 'no-disc': !showDiscount, 'with-time': doc.type === 'order' }">
+            <thead><tr><th class="kind">Type</th><th>Désignation</th><th class="q num">Qté</th><th class="p num">P.U. HT</th><th class="d num dcol">Rem. %</th><th class="t">TVA</th><th class="num">Total HT</th><th v-if="doc.type==='order'" class="pl num" title="Temps prévu pour l'intervention, en heures (1,5 = 1 h 30). Vide = heures vendues de la main-d'œuvre.">Temps prévu (h)</th><th v-if="doc.type==='order'">Fait</th><th></th></tr></thead>
             <tbody>
               <tr v-for="(l, i) in doc.lines" :class="{'text-line': l.kind === 'text'}">
                 <td><select v-model="l.kind" :disabled="locked"><option value="labor">🔧 M.O.</option><option value="part">📦 Pièce</option><option value="fee">🏷️ Forfait</option><option value="text">📝 Texte</option></select></td>
@@ -326,6 +358,13 @@ export const DocumentEditor = {
                   <td class="num">{{ money(lineTotal(l)) }}</td>
                 </template>
                 <td v-else colspan="5"></td>
+                <td v-if="doc.type==='order'" class="pl">
+                  <div v-if="isWork(l)" class="wt-cell">
+                    <input v-model.number="l.planned_hours" type="number" step="0.25" min="0" class="right" :placeholder="l.kind === 'labor' && l.quantity > 0 ? l.quantity : '—'" :disabled="locked" title="Temps prévu, en heures (1,5 = 1 h 30). Vide = heures vendues.">
+                    <div v-if="lineSpent(l) > 0" class="wt-under" :class="{ neg: lineOver(l) }" :title="lineOver(l) ? 'Temps prévu dépassé' : 'Temps déjà pointé'">⏱ {{ hours(lineSpent(l)) }}<span v-if="l.active" class="wt-dot"></span></div>
+                    <div v-else-if="linePlanned(l)" class="wt-under" title="Temps prévu">= {{ hours(linePlanned(l)) }}</div>
+                  </div>
+                </td>
                 <td v-if="doc.type==='order'" style="text-align:center"><input type="checkbox" :checked="!!l.done" @change="l.done = $event.target.checked ? 1 : 0" :disabled="locked"></td>
                 <td class="nowrap" v-if="!locked"><button class="icon-btn" @click="move(i,-1)">↑</button><button class="icon-btn" @click="move(i,1)">↓</button><button class="icon-btn" @click="doc.lines.splice(i,1)">✕</button></td>
               </tr>
@@ -360,10 +399,40 @@ export const DocumentEditor = {
           <Teleport to="body"><button v-if="dirty && !locked" class="btn primary save-fab" @click="save()">Enregistrer</button></Teleport>
         </div>
         <LivePanel v-if="doc.type==='order' && !isNew && doc.id" :doc-id="doc.id" @changed="onLive"/>
-        <div class="card" v-if="doc.type==='order' && !isNew">
+        <div class="card" v-if="doc.type==='order' && !isNew && work">
           <h2>⏱️ Temps atelier</h2>
-          <div class="totals"><span class="muted">Heures vendues</span><b>{{ hours(doc.hours_sold) }}</b><span class="muted">Heures pointées</span><b :class="doc.hours_spent > doc.hours_sold ? 'neg' : 'pos'">{{ hours(doc.hours_spent) }}</b></div>
-          <div v-for="t in doc.time_entries" class="list-item small"><span>{{ t.user_name }}</span><span class="muted">{{ datetime(t.start) }}</span><span v-if="t.end">{{ hours((new Date(t.end) - new Date(t.start)) / 3.6e6) }}</span><span v-else class="live">en cours</span></div>
+          <div class="totals">
+            <span class="muted">Temps prévu</span><b>{{ work.planned ? hours(work.planned) : '—' }}</b>
+            <span class="muted">Temps pointé</span><b :class="work.over ? 'neg' : work.spent ? 'pos' : ''">{{ hours(work.spent) }}</b>
+            <template v-if="work.over"><span class="neg">Dépassement</span><b class="neg">+ {{ hours(work.spent - work.planned) }}</b></template>
+            <template v-if="doc.hours_sold && Math.abs(doc.hours_sold - work.planned) > 0.005"><span class="muted">Heures vendues</span><span>{{ hours(doc.hours_sold) }}</span></template>
+          </div>
+          <div v-if="work.lines.length" class="wt-list">
+            <div v-for="x in work.lines" class="wt-row" :class="{ over: x.over, done: x.l.done }">
+              <div class="wt-head">
+                <span class="wt-name">{{ x.l.done ? '✓ ' : '' }}{{ x.l.description || 'Intervention' }}</span>
+                <span class="wt-num">{{ hours(x.spent) }}<span class="muted"> / {{ x.planned ? hours(x.planned) : '—' }}</span></span>
+              </div>
+              <div class="wt-bar"><i :style="{ width: pct(x.spent, x.planned) + '%' }"></i></div>
+              <div v-if="x.l.active || x.over" class="wt-sub">
+                <span v-if="x.l.active" class="live">{{ (x.l.workers || []).join(', ') || 'en cours' }}</span><span v-else></span>
+                <span v-if="x.over" class="neg">dépassé de {{ hours(x.spent - x.planned) }}</span>
+              </div>
+            </div>
+            <div v-if="work.general > 0" class="wt-row">
+              <div class="wt-head"><span class="wt-name muted">Autre travail sur l'OR</span><span class="wt-num">{{ hours(work.general) }}</span></div>
+              <div v-if="doc.general_active" class="wt-sub"><span class="live">{{ (doc.general_workers || []).join(', ') }}</span></div>
+            </div>
+          </div>
+          <p v-else class="muted small" style="margin:10px 0 0">Ajoutez une ligne de main-d'œuvre ou un forfait et indiquez son temps prévu : le mécanicien démarre le chrono dessus à la tablette, et le temps passe en rouge s'il est dépassé.</p>
+          <details v-if="doc.time_entries && doc.time_entries.length" class="wt-details">
+            <summary>Détail des pointages ({{ doc.time_entries.length }})</summary>
+            <div v-for="t in doc.time_entries" class="list-item small">
+              <span>{{ t.user_name }}<span v-if="t.line_description" class="muted"> · {{ t.line_description }}</span></span>
+              <span class="muted nowrap">{{ datetime(t.start) }}</span>
+              <span v-if="t.end" class="nowrap">{{ hours(t.hours) }}</span><span v-else class="live">en cours</span>
+            </div>
+          </details>
         </div>
         <div class="card" v-if="doc.payments && doc.payments.length">
           <h2>💶 Paiements</h2>

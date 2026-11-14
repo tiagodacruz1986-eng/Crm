@@ -1,5 +1,6 @@
 // Logique métier : documents (devis / OR / factures), stock, comptabilité, paiements.
-import { all, get, run, insert, update, tx, round2, today, nextNumber, getSettings, localDate, isDate } from './db.js';
+import { all, get, run, insert, update, tx, round2, today, nextNumber, getSettings, localDate, localDateTime, isDate } from './db.js';
+import { attachTimes, cleanPlanned, isIntervention, stopLineTimers, stopOrderTimers, currentWork } from './worktime.js';
 
 export const DOC_COLS = [
   'type', 'number', 'status', 'customer_id', 'vehicle_id', 'mileage', 'date', 'due_date', 'reference',
@@ -7,7 +8,7 @@ export const DOC_COLS = [
 ];
 export const LINE_COLS = [
   'document_id', 'sequence', 'kind', 'product_id', 'description', 'quantity', 'unit', 'unit_price',
-  'discount', 'tax_rate', 'total_ht', 'mechanic_id', 'done',
+  'discount', 'tax_rate', 'total_ht', 'mechanic_id', 'done', 'planned_hours',
 ];
 const INCOME_ACCOUNT = { labor: '7030', part: '7040', fee: '7080' };
 
@@ -55,13 +56,8 @@ export function getDocument(id) {
   d.payments = all('SELECT * FROM payments WHERE document_id=? ORDER BY date', id);
   d.children = all('SELECT id,type,number,status,total FROM documents WHERE parent_id=?', id);
   d.parent = d.parent_id ? get('SELECT id,type,number,status FROM documents WHERE id=?', d.parent_id) : null;
-  if (d.type === 'order') {
-    d.time_entries = all(
-      `SELECT t.*, u.name AS user_name FROM time_entries t JOIN users u ON u.id=t.user_id
-       WHERE t.document_id=? ORDER BY t.start`, id);
-    d.hours_spent = round2(d.time_entries.reduce((s, t) => s + durationHours(t), 0));
-    d.hours_sold = round2(d.lines.filter((l) => l.kind === 'labor').reduce((s, l) => s + Number(l.quantity || 0), 0));
-  }
+  // OR : temps prévu / temps passé de chaque intervention, pointages, totaux
+  if (d.type === 'order') attachTimes(d);
   return d;
 }
 
@@ -92,8 +88,13 @@ const num = (v, label) => {
 /** Ligne de document contrôlée : quantité, prix, remise (0 à 100 %) et TVA sont de vrais nombres. */
 function cleanLine(l, defaultTax) {
   if (!l || typeof l !== 'object') throw new BusinessError('Ligne invalide');
-  if (l.kind === 'text') return { ...l, quantity: 1, unit_price: 0, discount: 0, tax_rate: Number(l.tax_rate) || 0 };
+  if (l.kind === 'text') return { ...l, quantity: 1, unit_price: 0, discount: 0, tax_rate: Number(l.tax_rate) || 0, planned_hours: l.planned_hours === undefined ? undefined : null };
   const line = { ...l, quantity: num(l.quantity ?? 1, 'Quantité'), unit_price: num(l.unit_price ?? 0, 'Prix unitaire'), discount: num(l.discount ?? 0, 'Remise'), tax_rate: num(l.tax_rate ?? defaultTax ?? 0, 'TVA') };
+  // Temps prévu de l'intervention (main-d'œuvre ou forfait), en heures. Non transmis = inchangé.
+  if (l.planned_hours !== undefined) {
+    line.planned_hours = isIntervention(line) ? cleanPlanned(l.planned_hours) : null;
+    if (line.planned_hours === undefined) throw new BusinessError('Temps prévu invalide : indiquez un nombre d\'heures (par exemple 1,5 pour 1 h 30)');
+  }
   if (line.discount < 0 || line.discount > 100) throw new BusinessError('La remise doit être comprise entre 0 et 100 %');
   if (line.tax_rate < 0 || line.tax_rate > 100) throw new BusinessError('Taux de TVA invalide');
   return line;
@@ -137,14 +138,24 @@ export function saveDocument(data, id = null) {
       const lines = data.lines.map((l) => cleanLine(l, s.workshop.default_tax));
       // Les lignes déjà enregistrées gardent leur identifiant (le kiosque et le suivi client s'y réfèrent pour cocher « fait ») ;
       // seules les lignes retirées sont supprimées, les nouvelles ajoutées
-      const existing = new Set(all('SELECT id FROM document_lines WHERE document_id=?', id).map((l) => l.id));
+      const existing = new Map(all('SELECT id, done FROM document_lines WHERE document_id=?', id).map((l) => [l.id, l.done]));
       const kept = new Set();
+      const now = localDateTime();
       lines.forEach((l, i) => {
         const row = { ...l, document_id: id, sequence: i, total_ht: lineTotal(l), done: l.done ? 1 : 0 };
-        if (existing.has(l.id) && !kept.has(l.id)) { kept.add(l.id); update('document_lines', l.id, { ...row, product_id: l.product_id ?? null, unit: l.unit ?? null, mechanic_id: l.mechanic_id ?? null }, LINE_COLS); }
-        else insert('document_lines', { ...row, id: undefined }, LINE_COLS);
+        if (existing.has(l.id) && !kept.has(l.id)) {
+          kept.add(l.id);
+          update('document_lines', l.id, { ...row, product_id: l.product_id ?? null, unit: l.unit ?? null, mechanic_id: l.mechanic_id ?? null }, LINE_COLS);
+          // Intervention cochée « fait » par le bureau : les chronos encore en cours dessus s'arrêtent
+          if (row.done && !existing.get(l.id)) stopLineTimers(id, l.id, now);
+        } else insert('document_lines', { ...row, id: undefined }, LINE_COLS);
       });
-      for (const old of existing) if (!kept.has(old)) run('DELETE FROM document_lines WHERE id=?', old);
+      for (const old of existing.keys()) {
+        if (kept.has(old)) continue;
+        // Ligne retirée : le temps déjà pointé dessus reste sur l'OR (sans intervention précise)
+        run('UPDATE time_entries SET line_id=NULL WHERE line_id=? AND document_id=?', old, id);
+        run('DELETE FROM document_lines WHERE id=?', old);
+      }
     }
     refreshTotals(id);
     // Mise à jour du kilométrage du véhicule
@@ -192,7 +203,10 @@ export function convertDocument(id, targetType) {
     src.lines.forEach((l, i) => insert('document_lines', { ...l, document_id: newId, sequence: i, done: 0 }, LINE_COLS));
     refreshTotals(newId);
     if (src.type === 'quote') run("UPDATE documents SET status='accepted' WHERE id=?", src.id);
-    if (src.type === 'order' && targetType === 'invoice') run("UPDATE documents SET status='invoiced' WHERE id=?", src.id);
+    if (src.type === 'order' && targetType === 'invoice') {
+      run("UPDATE documents SET status='invoiced' WHERE id=?", src.id);
+      stopOrderTimers(src.id); // OR facturé : plus aucun chrono ne tourne dessus
+    }
     return newId;
   });
 }
@@ -468,6 +482,7 @@ export function dashboard() {
   const present = all(`SELECT u.id, u.name, u.color,
       (SELECT d.number FROM time_entries w JOIN documents d ON d.id=w.document_id WHERE w.user_id=u.id AND w.kind='work' AND w.end IS NULL LIMIT 1) AS working_on
     FROM users u WHERE u.active=1 AND u.role='mechanic' AND EXISTS (SELECT 1 FROM time_entries t WHERE t.user_id=u.id AND t.kind='presence' AND t.end IS NULL)`);
+  for (const p of present) p.work = currentWork(p.id);
   const appointmentsToday = all(`SELECT a.*, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name FROM appointments a
     LEFT JOIN customers c ON c.id=a.customer_id LEFT JOIN vehicles v ON v.id=a.vehicle_id LEFT JOIN users u ON u.id=a.mechanic_id
     WHERE substr(a.start,1,10)=? ORDER BY a.start`, t);
