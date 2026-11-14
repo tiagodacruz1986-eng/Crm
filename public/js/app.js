@@ -17,7 +17,7 @@ const VIEWS = {
   vehicles: lazy('customers', 'VehicleList'), vehicle: lazy('customers', 'VehicleDetail'),
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
-  accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'),
+  accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'), reports: lazy('reports', 'Reports'),
   office: lazy('office', 'Office'), apps: lazy('home', 'Home'), crm: lazy('crm', 'Crm'), website: lazy('website', 'Website'), social: lazy('social', 'Social'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
@@ -34,6 +34,7 @@ const NAV = [
   { to: '/planning', icon: 'calendar-days', label: 'Planning', match: 'planning', perm: 'atelier' },
   { to: '/attendance', icon: 'user-check', label: 'Présences', match: 'attendance' },
   { to: '/timesheets', icon: 'timer', label: 'Feuilles de temps', match: 'timesheets', perm: 'presences' },
+  { to: '/reports', icon: 'file-text', label: 'Rapport du mois', match: 'reports', perm: 'presences' },
   { section: 'Ventes' },
   { to: '/documents/quote', icon: 'file-text', label: 'Devis', match: 'documents', type: 'quote', perm: 'ventes' },
   { to: '/documents/invoice', icon: 'receipt', label: 'Factures', match: 'documents', type: 'invoice', perm: 'ventes' },

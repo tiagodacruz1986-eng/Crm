@@ -34,6 +34,7 @@ import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBack
 import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, maskDashboard, createInvite, findInvite, clearInvite } from './src/access.js';
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
 import { options, cleanOptions, startAutomation, runFollowups, runAppointmentReminders } from './src/automation.js';
+import { monthlyReport, reportPlan, sendMonthlyReports } from './src/reports.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -953,6 +954,16 @@ api.get('/timesheets/stats', (req, res) => {
   const { from, to } = datePeriod(req.query.from || today(), req.query.to || today());
   res.json(workStats(from, to));
 });
+// Rapport du mois : activité de chaque mécanicien et de l'équipe (même droit que les feuilles de temps)
+api.get('/timesheets/report', wrap((req) => monthlyReport(String(req.query.month || today().slice(0, 7)))));
+// Envoi par e-mail : à chaque mécanicien le sien, aux administrateurs celui de l'équipe (réservé aux administrateurs des présences)
+api.get('/timesheets/report/plan', needManager('presences'), wrap((req) => reportPlan(String(req.query.month || today().slice(0, 7)), options().atelier.report_to)));
+api.post('/timesheets/report/send', needManager('presences'), wrap((req) => {
+  const b = req.body || {};
+  const only = b.only && typeof b.only === 'object' ? (b.only.team ? { team: true } : Number.isInteger(Number(b.only.mechanic)) ? { mechanic: Number(b.only.mechanic) } : null) : null;
+  if (b.only && !only) throw new BusinessError('Destinataire invalide');
+  return sendMonthlyReports(String(b.month || ''), { force: Boolean(b.force), only, extra: options().atelier.report_to, userId: req.user.id });
+}));
 // Corriger ou supprimer un pointage : réservé aux administrateurs des présences (comme /attendance)
 api.put('/timesheets/:id', needManager('presences'), wrap((req) => {
   const cur = get('SELECT * FROM time_entries WHERE id=?', req.params.id);
@@ -1054,7 +1065,7 @@ api.post('/users', adminOnly, wrap(async (req) => {
   if (data.role === 'office' && data.permissions === undefined) data.permissions = JSON.stringify(PRESETS.bureau.perms);
   const id = insert('users', data, USER_COLS);
   // Si l'e-mail ne part pas, le lien est quand même créé et renvoyé (le gérant peut le copier)
-  const invite = b.invite && data.email && !data.password_hash
+  const invite = b.invite && data.role !== 'mechanic' && data.email && !data.password_hash
     ? await inviteUser(req, id, b.send_invite).catch(async (e) => ({ ...(await inviteUser(req, id, false).catch(() => ({}))), error: e.message }))
     : null;
   return { id, invite };

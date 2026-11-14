@@ -143,7 +143,7 @@ export const Reports = {
     </template>
 
     <Modal v-if="plan" :title="'Envoyer les rapports de ' + plan.label" wide @close="plan = null">
-      <div v-if="!plan.mail_configured" class="notice warn">L'envoi d'e-mails n'est pas encore configuré : <a href="#/settings?tab=mail" @click="plan = null">Paramètres → E-mails</a>.</div>
+      <p v-if="!plan.mail_configured" class="warn"><b>L'envoi d'e-mails n'est pas encore configuré</b> : <a href="#/settings?tab=mail" @click="plan = null">Paramètres → E-mails</a>.</p>
       <p v-if="!plan.complete" class="small warn">Ce mois n'est pas terminé : le rapport s'arrête à aujourd'hui.</p>
       <h3>Chaque mécanicien reçoit son propre rapport</h3>
       <div v-for="m in plan.mechanics" :key="m.id" class="list-item">
@@ -160,7 +160,7 @@ export const Reports = {
       <p v-if="!plan.team.length" class="small warn">Aucun administrateur n'a d'adresse e-mail : ajoutez-la dans Paramètres → Utilisateurs.</p>
       <p class="small muted" style="margin-top:12px">Envoi automatique chaque début de mois : <b>{{ auto.monthly_report ? 'activé (à ' + (auto.monthly_report_time || '07:00') + ', pour le mois écoulé)' : 'désactivé' }}</b> — Paramètres → Configuration → Atelier.</p>
       <template #foot>
-        <label class="small" style="margin-right:auto;display:flex;gap:6px;align-items:center"><input type="checkbox" v-model="force" style="width:auto"> renvoyer même si déjà envoyé</label>
+        <label class="small" style="margin-right:auto;display:flex;flex-direction:row;gap:6px;align-items:center"><input type="checkbox" v-model="force" style="width:auto;margin:0"> renvoyer même si déjà envoyé</label>
         <button class="btn" :disabled="sending || !plan.mail_configured || !plan.team.length" @click="send({ team: true })">Rapport d'équipe seulement</button>
         <button class="btn primary" :disabled="sending || !plan.mail_configured" @click="sendAll">{{ sending ? 'Envoi…' : 'Tout envoyer' }}</button>
       </template>

@@ -8,7 +8,7 @@ export const ROUTES = [
   ['/documents/:type', 'documents'], ['/document/:id', 'document'], ['/new/:type', 'document'],
   ['/customers', 'customers'], ['/customer/:id', 'customer'], ['/vehicles', 'vehicles'], ['/vehicle/:id', 'vehicle'],
   ['/stock', 'stock'], ['/product/:id', 'product'], ['/purchases', 'purchases'], ['/purchase/:id', 'purchase'], ['/suppliers', 'suppliers'],
-  ['/accounting', 'accounting'], ['/bank', 'bank'], ['/timesheets', 'timesheets'], ['/office', 'office'], ['/activities', 'activities'], ['/copilot', 'copilot'], ['/mail', 'mail'], ['/settings', 'settings'],
+  ['/accounting', 'accounting'], ['/bank', 'bank'], ['/timesheets', 'timesheets'], ['/reports', 'reports'], ['/office', 'office'], ['/activities', 'activities'], ['/copilot', 'copilot'], ['/mail', 'mail'], ['/settings', 'settings'],
   ['/apps', 'apps'], ['/crm', 'crm'], ['/website', 'website'], ['/social', 'social'], ['/attendance', 'attendance'], ['/invite/:token', 'invite'],
 ];
 function parseRoute() {

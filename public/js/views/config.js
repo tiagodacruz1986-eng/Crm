@@ -27,7 +27,18 @@ export const ConfigPanel = {
       toast(r.done.length ? `${r.done.length} relance(s) : ${r.done.map((d) => d.number + ' (' + d.name + ')').join(', ')}` : 'Aucune facture à relancer aujourd\'hui');
     };
     const runReminders = async () => { const r = await act(() => POST('/automation/reminders')); toast(`${r.sent} rappel(s) envoyé(s) pour demain`); if (r.failed) toast(`⚠ ${r.failed} rappel(s) non envoyé(s) : ${r.errors.join(' · ')}`, 'error'); };
-    return { O, A, DAYS, toggleDay, addLevel, bgInput, uploadBg, removeBg, runFollowups, runReminders, s: props.s };
+    // Rapports mensuels : envoi immédiat pour le mois écoulé (ce qui est déjà parti n'est pas renvoyé)
+    const sendReports = async () => {
+      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+      const month = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      if (!confirm('Envoyer maintenant les rapports du mois dernier ? Chaque mécanicien reçoit le sien, les administrateurs celui de l’équipe.')) return;
+      const r = await act(() => POST('/timesheets/report/send', { month }));
+      const no = r.delivery.filter((x) => x.status === 'no_email').map((x) => x.name);
+      toast(r.sent ? r.sent + ' rapport(s) envoyé(s) pour ' + r.label : 'Aucun nouveau rapport à envoyer pour ' + r.label, r.sent ? 'ok' : 'error');
+      if (no.length) toast('Pas d’adresse e-mail : ' + no.join(', '), 'error');
+      if (r.failed) toast(r.failed + ' envoi(s) en échec', 'error');
+    };
+    return { O, A, DAYS, toggleDay, addLevel, bgInput, uploadBg, removeBg, runFollowups, runReminders, sendReports, s: props.s };
   },
   template: `
   <div class="config">
@@ -71,6 +82,17 @@ export const ConfigPanel = {
       <div class="cfg-row" v-if="O.rendez_vous.reminder"><div><b>Heure d'envoi</b></div><input type="time" v-model="O.rendez_vous.reminder_time" style="max-width:140px"></div>
       <div class="cfg-row"><div><b>Durée par défaut</b></div><div class="inline"><input type="number" min="15" step="15" v-model.number="O.rendez_vous.default_duration"> minutes</div></div>
       <div class="btns" v-if="O.rendez_vous.reminder"><button class="btn sm" @click="runReminders">▶ Envoyer les rappels de demain maintenant</button></div>
+    </section>
+
+    <section class="card cfg">
+      <h2><Icon name="wrench"/> Atelier — rapports mensuels</h2>
+      <div class="cfg-row"><div><b>Envoyer les rapports en fin de mois</b><small>Au début du mois suivant, chaque mécanicien reçoit par e-mail son propre rapport (présence, heures sur OR, temps prévu et passé, dépassements) ; les administrateurs reçoivent celui de toute l'équipe</small></div><label class="switch"><input type="checkbox" v-model="O.atelier.monthly_report"><i></i></label></div>
+      <template v-if="O.atelier.monthly_report">
+        <div class="cfg-row"><div><b>Heure d'envoi</b><small>Le 1er du mois (ou le premier jour où l'ordinateur est allumé, jusqu'au 10)</small></div><input type="time" v-model="O.atelier.monthly_report_time" style="max-width:140px"></div>
+      </template>
+      <div class="cfg-row"><div><b>Autre adresse pour le rapport d'équipe</b><small>Facultatif : en plus des administrateurs (comptable, associé…)</small></div><input v-model="O.atelier.report_to" type="email" placeholder="nom@exemple.lu" style="max-width:240px"></div>
+      <p class="muted small">L'adresse de chaque mécanicien se saisit dans Utilisateurs & accès. L'envoi demande que les e-mails soient configurés (onglet E-mails).</p>
+      <div class="btns"><a class="btn sm" href="#/reports">Voir le rapport du mois</a><button class="btn sm" @click="sendReports">▶ Envoyer maintenant les rapports du mois dernier</button></div>
     </section>
 
     <section class="card cfg">

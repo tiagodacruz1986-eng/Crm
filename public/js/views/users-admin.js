@@ -42,7 +42,7 @@ export const UsersAdmin = {
         await act(() => PUT('/users/' + e.id, body), 'Utilisateur enregistré');
         edit.value = null;
       } else {
-        const r = await act(() => POST('/users', { ...body, invite: e.invite && !e.password, send_invite: e.send_invite }), 'Utilisateur créé');
+        const r = await act(() => POST('/users', { ...body, invite: e.role !== 'mechanic' && e.invite && !e.password, send_invite: e.send_invite }), 'Utilisateur créé');
         edit.value = null;
         // l'e-mail n'est pas parti ? le lien est quand même affiché pour être copié
         if (r.invite?.error) toast('Invitation : ' + r.invite.error, 'error');
@@ -91,6 +91,7 @@ export const UsersAdmin = {
         <label>Nom<input v-model="edit.name" placeholder="Prénom Nom"></label>
         <label>Fonction<input v-model="edit.job_title" placeholder="Ex. : Réceptionnaire, Mécanicien poids lourds…"></label>
         <label v-if="edit.role !== 'mechanic'">E-mail (identifiant)<input v-model="edit.email" type="email" placeholder="prenom@garage.lu"></label>
+        <label v-else>E-mail (pour recevoir son rapport mensuel)<input v-model="edit.email" type="email" placeholder="facultatif — prenom@exemple.lu"></label>
         <label>Couleur<div class="color-dots"><button v-for="c in COLORS" :key="c" :style="{ background: c }" :class="{ on: edit.color === c }" @click="edit.color = c"></button></div></label>
       </div>
 

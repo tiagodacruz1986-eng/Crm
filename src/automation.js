@@ -5,6 +5,7 @@ import { compose, sendEmail, createActivity, isMailConfigured } from './mail.js'
 import { autoCheckout } from './attendance.js';
 import { BusinessError } from './business.js';
 import { publishDue } from './social.js';
+import { runMonthlyReports } from './reports.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS followups (
@@ -28,6 +29,8 @@ export const OPTION_DEFAULTS = {
     ],
   },
   rendez_vous: { reminder: false, reminder_time: '17:00', default_duration: 60 },
+  // Rapports mensuels de l'atelier : à chaque mécanicien le sien, au gérant celui de l'équipe (envoi au début du mois suivant)
+  atelier: { monthly_report: false, monthly_report_time: '07:00', report_to: '' },
   comptabilite: { lock_date: '', vat_period: 'quarter', fiscal_year_start: '01-01' },
   inventaire: { allow_negative: true },
   achats: { approval: false, approval_amount: 2500 },
@@ -64,6 +67,9 @@ export function cleanOptions(input = {}) {
   if (!['apps', 'dashboard'].includes(out.general.start_page)) out.general.start_page = 'apps';
   for (const k of ['run_time']) if (!/^\d{2}:\d{2}$/.test(out.relances[k])) out.relances[k] = '09:00';
   if (!/^\d{2}:\d{2}$/.test(out.rendez_vous.reminder_time)) out.rendez_vous.reminder_time = '17:00';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(out.atelier.monthly_report_time)) out.atelier.monthly_report_time = '07:00';
+  // adresses supplémentaires pour le rapport d'équipe : seules les adresses valides sont gardées
+  out.atelier.report_to = String(out.atelier.report_to || '').split(/[;,\s]+/).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 5).join(', ');
   return out;
 }
 
@@ -145,6 +151,8 @@ async function tick() {
   const due = (key, time) => hm >= time && lastRun[key] !== t && (lastRun[key] = t);
   if (o.relances.enabled && due('followups', o.relances.run_time)) runFollowups().catch((e) => console.error('Relances', e));
   if (o.rendez_vous.reminder && due('reminders', o.rendez_vous.reminder_time)) runAppointmentReminders().catch((e) => console.error('Rappels RDV', e));
+  // rapports du mois écoulé (une seule fois par mois : la fonction vérifie elle-même ce qui est déjà parti)
+  if (o.atelier.monthly_report) runMonthlyReports(o.atelier, now).catch((e) => console.error('Rapports mensuels', e));
 }
 export function startAutomation() {
   setTimeout(tick, 5000);
