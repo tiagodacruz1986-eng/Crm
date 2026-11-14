@@ -1,5 +1,5 @@
 // Nova — copilote IA : orbe flottant, voix (reconnaissance + synthèse vocale), journal, résumé de fin de journée.
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { GET, POST, PUT, DEL, act, toast, store, date as fdate, datetime } from './api.js';
@@ -7,6 +7,9 @@ import { GET, POST, PUT, DEL, act, toast, store, date as fdate, datetime } from 
 const md = (s) => DOMPurify.sanitize(marked.parse(s || ''));
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const voiceSupported = Boolean(SR);
+// Le navigateur n'écoute qu'une dictée à la fois. Quand une autre fenêtre a besoin du micro (« Écouter le client »),
+// l'écoute continue de Nova se met en attente, puis reprend toute seule.
+export const micHold = ref(false);
 
 // Lecture à voix haute (sans le Markdown). `opts` : { pitch, rate, voice (index parmi les voix françaises), onStart, onEnd, onBoundary }
 export function speak(text, opts = {}) {
@@ -109,13 +112,22 @@ export const Copilot = {
             try { await POST('/copilot/journal', { text: t, source: 'voice' }); messages.value.push({ role: 'note', content: t }); scroll(); } catch { /* hors ligne */ }
           },
           onInterim: (t) => { interim.value = t; },
-          onEnd: () => { if (ambient.value) setTimeout(() => { try { startAmbient(); } catch { /* déjà relancée */ } }, 300); },
+          onEnd: () => {
+            const again = () => {
+              if (!ambient.value) return;
+              if (micHold.value) { setTimeout(again, 1000); return; } // le micro est prêté : on réessaie plus tard
+              try { startAmbient(); } catch { /* déjà relancée */ }
+            };
+            setTimeout(again, 300);
+          },
         });
         ambientRec.start();
       };
       startAmbient();
       toast('Nova écoute : vos phrases sont notées dans le journal. Dites « Nova, … » pour lui demander quelque chose.');
     };
+    // Le micro est demandé ailleurs : Nova lâche sa dictée en cours (elle reprendra à la fin, voir onEnd ci-dessus)
+    watch(micHold, (held) => { if (held && ambient.value) { try { ambientRec?.stop(); } catch { /* déjà arrêtée */ } } });
     onUnmounted(() => { ambient.value = false; ambientRec?.stop(); rec?.stop(); });
 
     const toggleVoice = () => { voiceOn.value = !voiceOn.value; try { localStorage.setItem('nova_voice', voiceOn.value ? '1' : '0'); } catch { /* navigation privée */ } if (!voiceOn.value) speechSynthesis?.cancel(); };

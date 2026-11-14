@@ -135,16 +135,15 @@ export const DocumentEditor = {
     const showVoice = ref(false);
     const complaintBox = ref(null);
     const canVoice = computed(() => can(doc.value?.type === 'order' ? 'atelier' : 'ventes', 'user'));
-    const onVoice = async ({ text, mode }) => {
+    const onVoice = ({ text, mode }) => {
       const cur = String(doc.value.customer_complaint || '').trim();
       doc.value.customer_complaint = mode === 'append' && cur ? cur + '\n' + text : text;
       showVoice.value = false;
       toast('Demande du client mise à jour — pensez à enregistrer');
-      await nextTick();
-      // la zone s'agrandit pour montrer tout le texte
-      const el = complaintBox.value;
-      if (el) el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px';
     };
+    // La zone grandit avec le texte (jamais plus petite) : une demande sur plusieurs lignes se lit sans défiler, aussi à la réouverture
+    const fitComplaint = () => { const el = complaintBox.value; if (el && el.scrollHeight > el.clientHeight + 2) el.style.height = Math.min(el.scrollHeight + 2, 320) + 'px'; };
+    watch(() => doc.value?.customer_complaint, () => nextTick(fitComplaint));
     const showPay = ref(false);
     const dirty = ref(false);
     const s = store.settings?.workshop || { labor_rate: 85, default_tax: 17 };

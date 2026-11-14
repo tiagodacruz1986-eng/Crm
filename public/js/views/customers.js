@@ -239,7 +239,7 @@ export const VehicleDetail = {
         <div class="timeline">
           <div v-for="h in v.history" class="tl-item">
             <div><a :href="'#/document/' + h.id"><b>{{ DOC_TYPES_SHORT[h.type] }} {{ h.number || '' }}</b></a> <span class="muted small">{{ date(h.date) }} <span v-if="h.mileage">· {{ h.mileage.toLocaleString() }} km</span></span> <Badge :status="h.status"/></div>
-            <div class="small">{{ h.customer_complaint }}</div>
+            <div class="small" style="white-space:pre-line">{{ h.customer_complaint }}</div>
             <div class="muted small">{{ h.summary }}</div>
           </div>
         </div>

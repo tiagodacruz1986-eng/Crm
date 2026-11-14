@@ -54,36 +54,59 @@ function vehicleLine(vehicleId, mileage) {
   return parts.length ? parts.join(', ') : 'non précisé';
 }
 
+// Message quand l'IA n'a rien rendu d'utilisable : la fenêtre garde le texte dicté, qui peut être mis tel quel
+const FAILED = 'L\'IA n\'a pas pu résumer ce texte. Réessayez, ou mettez le texte dicté tel quel dans le document.';
+
+/** Panne du service d'IA → message en français pour l'accueil (le détail technique va dans le journal du serveur). */
+function serviceError(e) {
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return 'L\'IA met trop de temps à répondre. Réessayez, ou mettez le texte dicté tel quel dans le document.';
+  if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.RateLimitError || e instanceof Anthropic.APIConnectionError) return friendlyError(e);
+  console.error('Résumé de la demande du client :', e.status, e.message);
+  if (e.status >= 500) return 'Le service IA est momentanément indisponible. Réessayez dans un instant, ou mettez le texte dicté tel quel dans le document.';
+  return `Le résumé par l'IA ne fonctionne pas pour l'instant (erreur ${e.status ?? 'inconnue'}) : prévenez l'administrateur du logiciel. En attendant, mettez le texte dicté tel quel dans le document.`;
+}
+
 /**
  * Résume la demande dictée. Retourne { summary, questions }.
  * `transcript` : le texte dicté ; `vehicle_id`, `mileage` : véhicule du document (facultatifs) ; `lang` : langue parlée (fr, de, pt, en).
+ * `timeout` : attente maximale de la réponse de l'IA, en millisecondes (le client attend à l'accueil).
  */
-export async function summarizeRequest({ transcript, vehicle_id = null, mileage = null, lang = 'fr' } = {}) {
+export async function summarizeRequest({ transcript, vehicle_id = null, mileage = null, lang = 'fr' } = {}, { timeout = 45_000 } = {}) {
+  if (transcript != null && typeof transcript !== 'string') throw new BusinessError('Texte dicté invalide.');
   const text = cleanTranscript(transcript);
   if (!text) throw new BusinessError('Rien à résumer : dictez ou écrivez d\'abord ce que demande le client.');
   if (text.length > MAX_TRANSCRIPT) throw new BusinessError(`Texte trop long (${text.length} caractères, ${MAX_TRANSCRIPT} au plus) : raccourcissez-le, ou résumez-le en deux fois.`);
   // Sans clé, rien n'est envoyé : la fenêtre propose alors de mettre le texte dicté tel quel dans le document
   if (!aiConfigured()) throw new BusinessError('Résumé par l\'IA indisponible : aucune clé Claude n\'est configurée (voir README → Activer les agents IA). Vous pouvez mettre le texte dicté tel quel dans le document.');
 
-  const spoken = LANGS[String(lang || 'fr').slice(0, 2).toLowerCase()] || LANGS.fr;
+  const spoken = LANGS[typeof lang === 'string' ? lang.slice(0, 2).toLowerCase() : 'fr'] || LANGS.fr;
+  // Une seule tentative, avec une attente bornée : si le service ne répond pas, l'accueil réessaie d'un clic
+  const ask = (effort) => claudeClient().messages.parse({
+    model: CLAUDE_MODEL,
+    max_tokens: 8000,
+    system: SYSTEM,
+    messages: [{ role: 'user', content: `Véhicule : ${vehicleLine(vehicle_id, mileage)}\nLangue parlée à l'accueil : ${spoken}\n\n<transcription>\n${text}\n</transcription>` }],
+    output_config: { ...(effort ? { effort } : {}), format: jsonSchemaOutputFormat(SCHEMA) },
+  }, { timeout, maxRetries: 0 });
   let resp;
   try {
-    resp = await claudeClient().messages.parse({
-      model: CLAUDE_MODEL,
-      max_tokens: 8000,
-      system: SYSTEM,
-      messages: [{ role: 'user', content: `Véhicule : ${vehicleLine(vehicle_id, mileage)}\nLangue parlée à l'accueil : ${spoken}\n\n<transcription>\n${text}\n</transcription>` }],
-      output_config: { format: jsonSchemaOutputFormat(SCHEMA) },
-    }, { timeout: 45_000, maxRetries: 1 }); // le client attend à l'accueil : pas d'attente de plusieurs minutes si le service ne répond pas
+    // Tâche simple : peu de réflexion, pour répondre vite. Un modèle plus ancien qui ne connaît pas ce réglage
+    // refuse la demande : on la renvoie alors sans lui.
+    try { resp = await ask('low'); } catch (e) {
+      if (!(e instanceof Anthropic.BadRequestError)) throw e;
+      resp = await ask(null);
+    }
   } catch (e) {
-    if (e instanceof Anthropic.APIError) throw new BusinessError(friendlyError(e));
-    // réponse incomplète ou illisible (pas une panne du service)
+    if (e instanceof Anthropic.APIError) throw new BusinessError(serviceError(e));
+    // réponse illisible (pas une panne du service)
     console.error('Résumé de la demande du client :', e.message);
-    throw new BusinessError('L\'IA n\'a pas pu résumer ce texte. Réessayez, ou mettez le texte dicté tel quel dans le document.');
+    throw new BusinessError(FAILED);
   }
   if (resp.stop_reason === 'refusal') throw new BusinessError('L\'IA n\'a pas pu traiter ce texte. Vous pouvez le mettre tel quel dans le document.');
   const out = resp.parsed_output;
-  const summary = plain(out?.resume);
+  // réponse coupée ou sans texte : ce n'est pas « aucune demande trouvée »
+  if (!out || typeof out !== 'object' || resp.stop_reason === 'max_tokens') throw new BusinessError(FAILED);
+  const summary = plain(out.resume);
   if (!summary) throw new BusinessError('L\'IA n\'a trouvé aucune demande concernant un véhicule dans ce texte. Complétez-le, ou mettez-le tel quel dans le document.');
   const questions = (Array.isArray(out.a_preciser) ? out.a_preciser : []).map((q) => plain(q).replace(/\n/g, ' ').slice(0, 200)).filter(Boolean).slice(0, 3);
   return { summary, questions };

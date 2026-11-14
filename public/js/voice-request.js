@@ -5,7 +5,8 @@
 // et le texte peut être mis tel quel dans le document.
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { POST, toast, store } from './api.js';
-import { voiceSupported, createRecognizer } from './copilot.js';
+import { voiceSupported, createRecognizer, micHold } from './copilot.js';
+import { leaveGuards } from './router.js';
 
 const MAX_CHARS = 12000; // même limite que le serveur (environ un quart d'heure de parole)
 const LANGS = [['fr-FR', 'Français'], ['de-DE', 'Deutsch'], ['pt-PT', 'Português'], ['en-GB', 'English']];
@@ -46,19 +47,26 @@ export const VoiceRequest = {
         ? 'Le micro n’est autorisé que sur une adresse sécurisée (https) ou sur l’ordinateur où le logiciel est installé. Écrivez la demande ci-dessous — sur téléphone, la touche micro du clavier dicte aussi.'
         : '';
 
-    let rec = null, timer = null, restart = null, last = '', startedAt = 0, quick = 0, waiters = [];
-    const scrollDown = () => nextTick(() => { if (box.value) box.value.scrollTop = box.value.scrollHeight; });
+    // `active` : une session de dictée du navigateur est ouverte (après l'arrêt, elle livre encore la dernière phrase)
+    let rec = null, timer = null, restart = null, last = '', startedAt = 0, quick = 0, waiters = [], active = false;
+    const scrollDown = () => { if (box.value) box.value.scrollTop = box.value.scrollHeight; };
+    // Une phrase arrive pendant que l'accueil corrige un mot : le curseur reste où il est (sinon il sauterait à la fin à chaque phrase)
+    const setText = (v) => {
+      const el = box.value;
+      const sel = el && document.activeElement === el ? [el.selectionStart, el.selectionEnd] : null;
+      text.value = v;
+      nextTick(() => { if (sel && box.value) box.value.setSelectionRange(sel[0], sel[1]); else scrollDown(); });
+    };
     const append = (t) => {
       if (!t) return;
       const cur = text.value.trimEnd();
       // certains téléphones renvoient deux fois la même phrase, ou la même phrase qui s'allonge : on ne la garde qu'une fois
       if (last && cur.endsWith(last)) {
         if (t === last) return;
-        if (t.startsWith(last)) { text.value = cur.slice(0, cur.length - last.length) + t; last = t; scrollDown(); return; }
+        if (t.startsWith(last)) { setText(cur.slice(0, cur.length - last.length) + t); last = t; return; }
       }
-      text.value = cur ? cur + ' ' + t : t;
+      setText(cur ? cur + ' ' + t : t);
       last = t;
-      scrollDown();
       if (text.value.length > MAX_CHARS - 600) { problem.value = 'Le texte est très long : l’écoute est arrêtée. Résumez cette partie, puis recommencez pour la suite.'; stop(); }
     };
     const ended = () => { const w = waiters; waiters = []; w.forEach((f) => f()); };
@@ -71,8 +79,9 @@ export const VoiceRequest = {
         onInterim: (t) => { if (rec === mine) interim.value = t; },
         onError: (err) => { if (rec === mine && FATAL[err]) { problem.value = FATAL[err]; stop(); } },
         onEnd: () => {
-          ended();
           if (rec !== mine) return; // une écoute plus récente a pris le relais (arrêt puis reprise rapprochés)
+          active = false;
+          ended();
           interim.value = '';
           if (!listening.value) return;
           // Le navigateur coupe l'écoute après un silence : on la relance. S'il la coupe aussitôt, plusieurs fois de suite, on arrête.
@@ -84,6 +93,7 @@ export const VoiceRequest = {
       rec = mine;
       mine.lang = lang.value;
       mine.start();
+      active = true;
     };
     const start = () => {
       if (listening.value || !micOk) return;
@@ -100,11 +110,12 @@ export const VoiceRequest = {
       clearTimeout(restart);
       try { rec?.stop(); } catch { /* déjà arrêtée */ }
     }
-    // Arrêter, puis attendre la dernière phrase (le navigateur la livre juste après l'arrêt)
+    // Arrêter, puis attendre la dernière phrase : le navigateur la livre juste après l'arrêt, même si le micro a déjà été
+    // coupé à la main. Sans session ouverte (pause entre deux écoutes, micro jamais démarré), il n'y a rien à attendre.
     const stopAndWait = () => new Promise((resolve) => {
-      if (!listening.value) return resolve();
-      waiters.push(resolve);
       stop();
+      if (!active) return resolve();
+      waiters.push(resolve);
       setTimeout(resolve, 1500);
     });
     // Changer de langue pendant l'écoute : la dictée s'arrête et repart aussitôt dans la nouvelle langue (voir onEnd)
@@ -112,35 +123,52 @@ export const VoiceRequest = {
       try { localStorage.setItem('garage_voice_lang', l); } catch { /* stockage indisponible */ }
       if (listening.value) { try { rec?.stop(); } catch { /* déjà arrêtée */ } }
     });
-    // Le bouton s'appelle « Écouter le client » : l'écoute commence dès l'ouverture de la fenêtre
-    onMounted(() => { if (micOk) start(); });
-    onUnmounted(() => { stop(); try { rec?.abort(); } catch { /* rien à arrêter */ } });
+    // Quitter la page (bouton Retour, rechargement) avec du texte dicté : même question qu'à la fermeture de la fenêtre
+    const unsaved = () => !!(text.value.trim() || interim.value.trim());
+    const leaveOk = () => !unsaved() || confirm('Quitter sans rien mettre dans le document ? Le texte dicté sera perdu.');
+    const onUnload = (e) => { if (unsaved()) { e.preventDefault(); e.returnValue = ''; } };
+    onMounted(() => {
+      leaveGuards.add(leaveOk);
+      window.addEventListener('beforeunload', onUnload);
+      micHold.value = true; // l'écoute continue de Nova laisse le micro à cette fenêtre
+      // Le bouton s'appelle « Écouter le client » : l'écoute commence dès l'ouverture de la fenêtre
+      if (micOk) start();
+    });
+    onUnmounted(() => {
+      leaveGuards.delete(leaveOk);
+      window.removeEventListener('beforeunload', onUnload);
+      stop();
+      try { rec?.abort(); } catch { /* rien à arrêter */ }
+      micHold.value = false;
+    });
 
     const clock = computed(() => Math.floor(seconds.value / 60) + ':' + String(seconds.value % 60).padStart(2, '0'));
     const state = computed(() => (listening.value ? 'J’écoute…'
-      : text.value.trim() ? 'Écoute arrêtée — vous pouvez corriger le texte'
-        : micOk ? 'Appuyez sur le micro, puis laissez parler le client' : 'Écrivez ce que demande le client'));
+      : !micOk ? 'Écrivez ce que demande le client'
+        : text.value.trim() ? 'Écoute arrêtée — vous pouvez corriger le texte' : 'Appuyez sur le micro, puis laissez parler le client'));
 
+    // `busy` est pris avant toute attente : un second clic ne lance ni un second résumé, ni une insertion sans la dernière phrase
     const summarize = async () => {
       if (busy.value) return;
-      await stopAndWait();
-      const t = text.value.trim();
-      if (!t) { toast('Dictez ou écrivez d’abord ce que demande le client', 'error'); return; }
       busy.value = true;
       try {
+        await stopAndWait();
+        const t = text.value.trim();
+        if (!t) { toast('Dictez ou écrivez d’abord ce que demande le client', 'error'); return; }
         const r = await POST('/documents/request-summary', { type: props.type, transcript: t, vehicle_id: props.vehicleId || null, mileage: props.mileage || null, lang: lang.value.slice(0, 2) });
         summary.value = r.summary;
         questions.value = r.questions || [];
       } catch (e) { toast(e.message, 'error'); } finally { busy.value = false; }
     };
     const apply = async (raw) => {
-      if (raw) await stopAndWait();
+      if (busy.value) return;
+      if (raw) { busy.value = true; try { await stopAndWait(); } finally { busy.value = false; } }
       const value = String(raw ? text.value : summary.value || '').trim();
       if (!value) { toast(raw ? 'Dictez ou écrivez d’abord ce que demande le client' : 'Le résumé est vide', 'error'); return; }
       emit('apply', { text: value, mode: hasCurrent.value ? mode.value : 'replace' });
     };
     const close = () => {
-      if ((text.value.trim() || interim.value.trim()) && !confirm('Fermer sans rien mettre dans le document ? Le texte dicté sera perdu.')) return;
+      if (unsaved() && !confirm('Fermer sans rien mettre dans le document ? Le texte dicté sera perdu.')) return;
       stop();
       emit('close');
     };
@@ -155,7 +183,7 @@ export const VoiceRequest = {
         <label class="vr-lang">Langue parlée<select v-model="lang"><option v-for="l in LANGS" :value="l[0]">{{ l[1] }}</option></select></label>
       </div>
       <p v-if="micNote" class="vr-note"><Icon name="info" class="ti"/> <span>{{ micNote }}</span></p>
-      <p v-if="problem" class="vr-note bad"><Icon name="info" class="ti"/> <span>{{ problem }}</span></p>
+      <p v-if="problem" class="vr-note bad" role="alert"><Icon name="info" class="ti"/> <span>{{ problem }}</span></p>
       <label>Ce que dit le client
         <textarea ref="box" v-model="text" rows="7" maxlength="12000" placeholder="Le texte apparaît ici pendant que le client parle. Vous pouvez aussi l’écrire ou le corriger."></textarea>
       </label>
