@@ -7,8 +7,8 @@
   "scope": "/kiosk",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f3f5f8",
-  "theme_color": "#f3f5f8",
+  "background_color": "#f2f2f7",
+  "theme_color": "#f2f2f7",
   "lang": "fr",
   "categories": ["business", "productivity"],
   "icons": [

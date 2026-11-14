@@ -120,3 +120,49 @@ body.kiosk::before, body.kiosk::after { display: none; }
 [data-theme="light"] .k-timer { color: #15803d; }
 /* Téléphone peu haut (iPhone 13 en navigateur…) : le clavier du code PIN tient sans défiler */
 @media (max-height: 760px) { .k-pad { gap: 8px; } .k-pad button { height: 56px; font-size: 24px; } }
+
+/* =====================================================================
+   Rendu « iPhone » de la tablette : boutons en pilule brillants, pavé du
+   code PIN en touches rondes, gros bouton d'arrivée / départ en goutte.
+   ===================================================================== */
+body.kiosk { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, "Segoe UI", Roboto, sans-serif; background: #0a0a0c; }
+[data-theme="light"] body.kiosk { background: #f2f2f7; }
+.k-user, .k-att, .k-status, .k-order { border-radius: 24px; border-width: 1px; background: #1c1c1e; border-color: rgba(255, 255, 255, .1); }
+[data-theme="light"] .k-user, [data-theme="light"] .k-att, [data-theme="light"] .k-status, [data-theme="light"] .k-order { border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .05); }
+.k-order.mine { border-color: rgba(255, 255, 255, .22); } [data-theme="light"] .k-order.mine { border-color: rgba(60, 60, 67, .2); }
+.k-order.active, [data-theme="light"] .k-order.active { border: 2px solid #34c759; }
+.k-status.working { border-color: #34c759; box-shadow: 0 0 0 3px rgba(52, 199, 89, .22); }
+.k-btn { border-radius: 999px; padding: 16px 24px; border: 1px solid rgba(255, 255, 255, .14);
+  background: radial-gradient(130% 90% at 50% -20%, rgba(255, 255, 255, .18), transparent 62%), linear-gradient(180deg, #4a4a4e, #323235);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -2px 3px rgba(0, 0, 0, .3), 0 4px 12px rgba(0, 0, 0, .25); transition: transform .15s cubic-bezier(.3, .7, .4, 1), filter .15s; }
+.k-btn:active { transform: scale(.95); filter: brightness(.95); }
+.k-btn.sm { border-radius: 999px; padding: 10px 16px; }
+[data-theme="light"] .k-btn:not(.green):not(.red):not(.blue):not(.orange) { border-color: rgba(60, 60, 67, .16); color: #111114;
+  background: radial-gradient(130% 90% at 50% -20%, rgba(255, 255, 255, .95), transparent 62%), linear-gradient(180deg, #ffffff, #ececf1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 -1px 1px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .07), 0 4px 12px rgba(0, 0, 0, .06); }
+.k-btn.green, .k-btn.red, .k-btn.blue, .k-btn.orange { border-color: rgba(0, 0, 0, .12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 4px rgba(0, 0, 0, .2), 0 6px 16px rgba(0, 0, 0, .18); }
+.k-btn.green { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #34b455, #1f8a3b); }
+.k-btn.red { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #f2554a, #c9271b); }
+.k-btn.blue { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #2b84ff, #0a6ff0); }
+.k-btn.orange { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #f08a2c, #c2590c); }
+.k-go { min-width: 54px; min-height: 54px; padding: 0; border-radius: 50%; }
+.k-big.in { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #3bc45f, #1f8a3b); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -12px 20px rgba(0, 60, 20, .25), 0 16px 38px rgba(31, 138, 59, .38); }
+.k-big.out { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #ff6a5e, #d92d20); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -12px 20px rgba(110, 10, 0, .25), 0 16px 38px rgba(217, 45, 32, .38); }
+.k-big { transition: transform .18s cubic-bezier(.3, .7, .4, 1); } .k-big:active { transform: scale(.94); }
+/* pavé du code : touches rondes comme l'écran de code d'un iPhone */
+.k-pad { justify-items: center; gap: 14px 12px; }
+.k-pad button { width: 78px; height: 78px; border-radius: 50%; background: rgba(120, 120, 128, .32); font-weight: 500; transition: background .15s, transform .15s; }
+.k-pad button:active { background: rgba(160, 160, 168, .6); color: #fff; transform: scale(.94); }
+.k-pad button.ok { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #2b84ff, #0a6ff0); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 16px rgba(10, 111, 240, .35); }
+[data-theme="light"] .k-pad button { background: rgba(118, 118, 128, .16); box-shadow: none; color: #111114; }
+[data-theme="light"] .k-pad button:active { background: rgba(118, 118, 128, .36); color: #111114; }
+[data-theme="light"] .k-pad button.ok { color: #fff; background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, #2b84ff, #0a6ff0); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 16px rgba(10, 111, 240, .35); }
+.k-dots span.on { background: #0a6ff0; border-color: #0a6ff0; }
+.k-stats div { border-radius: 18px; } [data-theme="light"] .k-stats div { background: rgba(118, 118, 128, .1); }
+.k-search, .k-order textarea, .k-order input { border-radius: 14px; }
+.k-line .box { border-radius: 50%; } .k-line.done .box { background: #34c759; border-color: #34c759; }
+.k-line.running { border-radius: 16px; }
+.k-info { border-radius: 22px; background: rgba(30, 58, 138, .92); backdrop-filter: blur(20px) saturate(1.8); -webkit-backdrop-filter: blur(20px) saturate(1.8); border-color: rgba(255, 255, 255, .25); }
+[data-theme="light"] .k-info { background: rgba(30, 58, 138, .92); }
+.k-greet.in { background: linear-gradient(180deg, #2fa24f, #166534); } .k-greet.out { background: linear-gradient(180deg, #3b5fd6, #1e3a8a); }
+@media (max-height: 760px) { .k-pad { gap: 10px 8px; } .k-pad button { width: 64px; height: 64px; font-size: 24px; } }

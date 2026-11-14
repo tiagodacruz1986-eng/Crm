@@ -1,6 +1,6 @@
 /* =====================================================================
-   Garage Manager — design sobre et professionnel
-   Surfaces unies, une seule couleur d'accent, bordures fines, pas d'effets.
+   Garage Manager — design sobre, rendu « iPhone »
+   Fond uni, cartes blanches, un seul bleu ; boutons, barres et menus en verre liquide (voir plus bas).
    Thème clair par défaut, thème sombre disponible (data-theme) ;
    l'habillage « Verre » (data-skin="glass") est défini à part, en fin de fichier.
    ===================================================================== */
@@ -8,47 +8,56 @@
 @font-face { font-family: 'Space Grotesk'; font-style: normal; font-display: swap; font-weight: 300 700; src: url('/vendor/fonts/space-grotesk.woff2') format('woff2-variations'); }
 
 :root, :root[data-theme="light"] {
-  --bg: #f3f5f8; --bg-2: #e9edf2;
-  --panel: #ffffff; --panel-solid: #ffffff; --panel-2: #f6f7f9; --panel-hover: #eef1f5; --field: #ffffff; --btn-bg: #ffffff;
-  --ink: #111827; --ink-2: #374151; --muted: #667085; --line: #e2e6ec; --line-strong: #c9d0da; --soft: #f6f7f9;
-  --brand: #1d5bd6; --brand-2: #1d5bd6; --brand-3: #1d5bd6; --brand-ink: #ffffff; --brand-soft: rgba(29, 91, 214, .09);
-  --accent: #1d5bd6; --accent-hover: #174bb4; /* fond des boutons principaux (texte blanc) */
-  --link: #1a4fbd;
+  /* couleurs du système iPhone : fond gris « groupé », cartes blanches, bleu d'accent */
+  --bg: #f2f2f7; --bg-2: #e5e5ea;
+  --panel: #ffffff; --panel-solid: #ffffff; --panel-2: #f2f2f7; --panel-hover: #e9e9ee; --field: #ffffff; --btn-bg: #ffffff;
+  --ink: #111114; --ink-2: #3a3a3c; --muted: #6c6c70; --line: rgba(60, 60, 67, .14); --line-strong: rgba(60, 60, 67, .28); --soft: #f6f6f9;
+  --brand: #0a6ff0; --brand-2: #0a6ff0; --brand-3: #0a6ff0; --brand-ink: #ffffff; --brand-soft: rgba(10, 111, 240, .10);
+  --accent: #0a6ff0; --accent-hover: #0963d8; /* fond des boutons principaux (texte blanc) */
+  --link: #0066d6;
   --grad: linear-gradient(var(--accent), var(--accent));
-  --grad-soft: linear-gradient(rgba(29, 91, 214, .07), rgba(29, 91, 214, .07));
-  --ok: #15803d; --warn: #b45309; --bad: #d0213b;
-  --glow: 0 0 0 3px rgba(29, 91, 214, .16);
-  --shadow: 0 1px 2px rgba(16, 24, 40, .06);
-  --shadow-lg: 0 20px 48px rgba(16, 24, 40, .18), 0 2px 6px rgba(16, 24, 40, .08);
-  --radius: 10px; --radius-sm: 7px;
-  --side: #ffffff; --side-ink: #4b5563;
+  --grad-soft: linear-gradient(rgba(10, 111, 240, .07), rgba(10, 111, 240, .07));
+  --ok: #1f8a3b; --warn: #b45309; --bad: #d92d20;
+  --glow: 0 0 0 4px rgba(10, 111, 240, .18);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .04);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, .18), 0 2px 8px rgba(0, 0, 0, .08);
+  --radius: 20px; --radius-sm: 12px;
+  --side: #ffffff; --side-ink: #3a3a3c;
   --aurora-1: transparent; --aurora-2: transparent; --aurora-3: transparent; --grid-line: transparent;
-  --b-gray: #eef1f6; --b-gray-i: #475569; --b-blue: #e0edff; --b-blue-i: #1a4fbd; --b-green: #dcfce7; --b-green-i: #166534;
-  --b-red: #ffe4e6; --b-red-i: #be123c; --b-orange: #ffedd5; --b-orange-i: #c2410c; --b-yellow: #fef3c7; --b-yellow-i: #92400e;
+  --b-gray: #ececf1; --b-gray-i: #48484a; --b-blue: #dbeafe; --b-blue-i: #0057b8; --b-green: #dcfce7; --b-green-i: #166534;
+  --b-red: #ffe4e1; --b-red-i: #b42318; --b-orange: #ffedd5; --b-orange-i: #c2410c; --b-yellow: #fef3c7; --b-yellow-i: #92400e;
   --b-purple: #ede9fe; --b-purple-i: #6d28d9; --b-teal: #ccfbf1; --b-teal-i: #0f766e;
-  --scrim: rgba(17, 24, 39, .45);
-  --font-display: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --scrim: rgba(0, 0, 0, .32);
+  /* verre liquide : reflet du haut, bord, ombre intérieure, flou */
+  --glass-hi: rgba(255, 255, 255, .96); --glass-lo: rgba(244, 244, 248, .88); --glass-shine: rgba(255, 255, 255, .95); --glass-edge: rgba(60, 60, 67, .16); --glass-shade: rgba(0, 0, 0, .06);
+  --glass-strong: rgba(250, 250, 252, .78); --bar: rgba(246, 246, 250, .74);
+  --glass-blur: blur(22px) saturate(1.8); --glass-blur-strong: blur(34px) saturate(1.9);
+  --seg: rgba(118, 118, 128, .13); --seg-on: #ffffff; --seg-off: rgba(120, 120, 128, .28);
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #0f1216; --bg-2: #0b0d11;
-  --panel: #171b21; --panel-solid: #171b21; --panel-2: #1d222a; --panel-hover: #252b35; --field: #12161b; --btn-bg: #1d222a;
-  --ink: #e8eaee; --ink-2: #c6cbd3; --muted: #939cab; --line: #272d37; --line-strong: #3a4250; --soft: #1b2027;
-  --brand: #6ea3f7; --brand-2: #6ea3f7; --brand-3: #6ea3f7; --brand-ink: #0a1120; --brand-soft: rgba(110, 163, 247, .14);
-  --accent: #2f6bdb; --accent-hover: #3d78e6;
-  --link: #7fb0fa;
+  --bg: #0a0a0c; --bg-2: #000000;
+  --panel: #1c1c1e; --panel-solid: #1c1c1e; --panel-2: #2a2a2d; --panel-hover: #38383b; --field: #252528; --btn-bg: #2c2c2e;
+  --ink: #f5f5f7; --ink-2: #d1d1d6; --muted: #98989f; --line: rgba(255, 255, 255, .10); --line-strong: rgba(255, 255, 255, .22); --soft: #232326;
+  --brand: #4a9dff; --brand-2: #4a9dff; --brand-3: #4a9dff; --brand-ink: #04101f; --brand-soft: rgba(74, 157, 255, .16);
+  --accent: #0a6ff0; --accent-hover: #2b84ff;
+  --link: #5aa8ff;
   --grad: linear-gradient(var(--accent), var(--accent));
-  --grad-soft: linear-gradient(rgba(110, 163, 247, .10), rgba(110, 163, 247, .10));
-  --ok: #3fcf8e; --warn: #f0b64a; --bad: #f47184;
-  --glow: 0 0 0 3px rgba(110, 163, 247, .22);
-  --shadow: 0 1px 2px rgba(0, 0, 0, .4);
-  --shadow-lg: 0 24px 60px rgba(0, 0, 0, .6);
-  --side: #13171c; --side-ink: #aeb6c2;
-  --b-gray: rgba(148, 163, 184, .16); --b-gray-i: #cbd5e1; --b-blue: rgba(110, 163, 247, .16); --b-blue-i: #9cc2fb;
-  --b-green: rgba(52, 211, 153, .16); --b-green-i: #6ee7b7; --b-red: rgba(251, 113, 133, .16); --b-red-i: #fda4af;
-  --b-orange: rgba(251, 146, 60, .18); --b-orange-i: #fdba74; --b-yellow: rgba(250, 204, 21, .16); --b-yellow-i: #fde68a;
-  --b-purple: rgba(167, 139, 250, .18); --b-purple-i: #c4b5fd; --b-teal: rgba(45, 212, 191, .16); --b-teal-i: #5eead4;
-  --scrim: rgba(0, 0, 0, .6);
+  --grad-soft: linear-gradient(rgba(74, 157, 255, .10), rgba(74, 157, 255, .10));
+  --ok: #30d158; --warn: #ffb340; --bad: #ff6259;
+  --glow: 0 0 0 4px rgba(74, 157, 255, .26);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-lg: 0 30px 70px rgba(0, 0, 0, .7);
+  --side: #131315; --side-ink: #c7c7cc;
+  --b-gray: rgba(152, 152, 159, .2); --b-gray-i: #d1d1d6; --b-blue: rgba(74, 157, 255, .18); --b-blue-i: #8fc2ff;
+  --b-green: rgba(48, 209, 88, .18); --b-green-i: #6ee7a0; --b-red: rgba(255, 98, 89, .18); --b-red-i: #ffa39e;
+  --b-orange: rgba(255, 159, 10, .2); --b-orange-i: #ffc266; --b-yellow: rgba(255, 214, 10, .18); --b-yellow-i: #ffe066;
+  --b-purple: rgba(191, 90, 242, .2); --b-purple-i: #dba6f7; --b-teal: rgba(64, 200, 224, .18); --b-teal-i: #7fdcee;
+  --scrim: rgba(0, 0, 0, .55);
+  --glass-hi: rgba(72, 72, 76, .92); --glass-lo: rgba(48, 48, 51, .92); --glass-shine: rgba(255, 255, 255, .16); --glass-edge: rgba(255, 255, 255, .14); --glass-shade: rgba(0, 0, 0, .35);
+  --glass-strong: rgba(38, 38, 41, .76); --bar: rgba(22, 22, 24, .72);
+  --seg: rgba(118, 118, 128, .26); --seg-on: #636366; --seg-off: rgba(120, 120, 128, .4);
   color-scheme: dark;
 }
 :root { font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; color: var(--ink); font-feature-settings: 'cv11', 'ss01'; }
@@ -1020,17 +1029,17 @@ table.lines.no-disc .dcol { display: none; }
 .theme-check svg { width: 13px; height: 13px; }
 .theme-prev { position: relative; height: 110px; border-radius: 11px; overflow: hidden; display: flex; border: 1px solid var(--line); }
 .tp-half { position: relative; flex: 1; }
-.tp-dark { background: #0f1216; }
-.tp-light { background: #f3f5f8; }
+.tp-dark { background: #0a0a0c; }
+.tp-light { background: #f2f2f7; }
 .tpv-dark .tp-light, .tpv-light .tp-dark { display: none; }
 .tp-half i { position: absolute; display: block; border-radius: 5px; }
 .tp-bar { left: 0; right: 0; top: 0; height: 14px; border-radius: 0 !important; }
 .tp-side { left: 6px; top: 22px; bottom: 8px; width: 16%; }
 .tp-card { left: 26%; right: 8px; top: 22px; height: 34px; }
 .tp-card.b { top: 62px; height: 38px; right: 42%; }
-.tp-btn { right: 8px; top: 64px; width: 30%; height: 12px; border-radius: 4px !important; background: #1d5bd6; }
+.tp-btn { right: 8px; top: 64px; width: 30%; height: 12px; border-radius: 99px !important; background: #0a6ff0; }
 .tp-dark .tp-bar, .tp-dark .tp-side { background: rgba(255, 255, 255, .06); }
-.tp-dark .tp-card { background: #171b21; border: 1px solid #272d37; }
+.tp-dark .tp-card { background: #1c1c1e; border: 1px solid #2c2c2e; }
 .tp-light .tp-bar, .tp-light .tp-side { background: rgba(255, 255, 255, .8); }
 .tp-light .tp-card { background: #fff; box-shadow: 0 3px 10px rgba(30, 50, 100, .12); }
 @media (max-width: 700px) { .theme-picker { grid-template-columns: 1fr; } .theme-prev { height: 90px; } }
@@ -1390,6 +1399,167 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; margin: 0; font
   :root:not([data-skin]) .modal, :root:not([data-skin]) .modal.wide, :root:not([data-skin]) .search-box { border-radius: 0; }
   :root:not([data-skin]) .modal-foot { border-radius: 0; }
   :root:not([data-skin]) table.stackable tr { border-radius: 8px; }
+}
+
+/* =====================================================================
+   Rendu « iPhone » (verre liquide) : boutons en pilule brillants comme une
+   goutte d'eau, barres et menus flottants translucides, onglets en
+   segments, interrupteurs verts. S'applique aux thèmes clair et sombre
+   (le thème « Verre » garde son propre habillage).
+   Le flou d'arrière-plan n'est utilisé que sur les barres, menus et
+   éléments flottants : les nombreux boutons d'une page restent légers.
+   ===================================================================== */
+:root:not([data-skin]) { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, "Segoe UI", Roboto, sans-serif; }
+
+/* --- Boutons : pilules de verre --- */
+:root:not([data-skin]) .btn { border-radius: 999px; padding: 9px 17px; font-weight: 600; color: var(--ink); border: 1px solid var(--glass-edge);
+  background: radial-gradient(130% 90% at 50% -20%, var(--glass-shine), transparent 62%), linear-gradient(180deg, var(--glass-hi), var(--glass-lo));
+  box-shadow: inset 0 1px 0 var(--glass-shine), inset 0 -1px 1px var(--glass-shade), 0 1px 2px rgba(0, 0, 0, .07), 0 4px 12px rgba(0, 0, 0, .05);
+  transition: transform .16s cubic-bezier(.3, .7, .4, 1), box-shadow .16s, filter .16s; }
+:root:not([data-skin]) .btn:hover { background: radial-gradient(130% 90% at 50% -20%, var(--glass-shine), transparent 62%), linear-gradient(180deg, var(--glass-hi), var(--glass-lo)); filter: brightness(1.04); box-shadow: inset 0 1px 0 var(--glass-shine), inset 0 -1px 1px var(--glass-shade), 0 2px 4px rgba(0, 0, 0, .08), 0 8px 20px rgba(0, 0, 0, .08); }
+:root:not([data-skin]) .btn:active { transform: scale(.96); filter: brightness(.97); }
+:root:not([data-skin]) .btn.sm { border-radius: 999px; padding: 5px 12px; }
+:root:not([data-skin]) .btn.big { padding: 13px 22px; }
+:root:not([data-skin]) .btn.primary { color: #fff; border-color: color-mix(in srgb, var(--accent) 70%, #000 8%);
+  background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, #fff), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 30, 90, .22), 0 1px 2px rgba(0, 50, 130, .3), 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent); }
+:root:not([data-skin]) .btn.primary:hover { background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .42), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, #fff), var(--accent)); border-color: color-mix(in srgb, var(--accent) 70%, #000 8%); filter: brightness(1.06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 30, 90, .22), 0 2px 4px rgba(0, 50, 130, .3), 0 10px 24px color-mix(in srgb, var(--accent) 40%, transparent); }
+:root:not([data-skin]) .btn.success, :root:not([data-skin]) .won-btn { color: #fff; border-color: #1c7c35 !important;
+  background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .4), transparent 60%), linear-gradient(180deg, #2fa24f, #1f8a3b) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 3px rgba(0, 60, 20, .22), 0 6px 16px rgba(31, 138, 59, .28); }
+:root:not([data-skin]) .btn.success:hover { filter: brightness(1.06); }
+:root:not([data-skin]) .btn.danger { color: var(--bad); }
+:root:not([data-skin]) .btn.danger:hover { background: radial-gradient(130% 90% at 50% -20%, var(--glass-shine), transparent 62%), linear-gradient(180deg, var(--glass-hi), var(--glass-lo)); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+:root:not([data-skin]) .btn:disabled { filter: none; transform: none; }
+/* boutons ronds (une seule icône) */
+:root:not([data-skin]) .apps-btn, :root:not([data-skin]) .theme-toggle, :root:not([data-skin]) .att-sys-btn { border-radius: 50%; width: 40px; height: 40px; padding: 0; justify-content: center; }
+:root:not([data-skin]) .apps-btn { border: 1px solid var(--glass-edge); background: radial-gradient(130% 90% at 50% -20%, var(--glass-shine), transparent 62%), linear-gradient(180deg, var(--glass-hi), var(--glass-lo)); box-shadow: inset 0 1px 0 var(--glass-shine), inset 0 -1px 1px var(--glass-shade), 0 1px 2px rgba(0, 0, 0, .07), 0 4px 12px rgba(0, 0, 0, .05); }
+:root:not([data-skin]) .icon-btn { border-radius: 50%; min-width: 30px; min-height: 30px; }
+:root:not([data-skin]) .wt-go { border-radius: 50%; }
+:root:not([data-skin]) .user-btn { border-radius: 50%; }
+
+/* --- Champs --- */
+:where(:root:not([data-skin])) input, :where(:root:not([data-skin])) select, :where(:root:not([data-skin])) textarea { border-radius: 12px; }
+:where(:root:not([data-skin])) input[type=checkbox] { border-radius: 4px; }
+:root:not([data-skin]) .search-trigger { border-radius: 999px; background: var(--seg); border-color: transparent; padding: 9px 15px; }
+:root:not([data-skin]) .home-search { border-radius: 999px; background: var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-shine), 0 4px 14px rgba(0, 0, 0, .06); }
+
+/* --- Barres : verre dépoli au-dessus du contenu qui défile --- */
+:root:not([data-skin]) .topbar { background: var(--bar); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-bottom: 1px solid var(--line); }
+:root:not([data-skin]) .sidebar { background: var(--bar); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+:root:not([data-skin]) .sidebar nav a, :root:not([data-skin]) .sidebar nav a.active { border-radius: 12px; }
+/* menus d'une application : un contrôle segmenté */
+:root:not([data-skin]) .app-menus { background: var(--seg); border-radius: 999px; padding: 3px; gap: 1px; }
+:root:not([data-skin]) .app-menus a { border-radius: 999px; padding: 6px 13px; color: var(--ink-2); }
+:root:not([data-skin]) .app-menus a:hover { background: transparent; color: var(--ink); }
+:root:not([data-skin]) .app-menus a.active { background: var(--seg-on); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .14), 0 0 0 .5px rgba(0, 0, 0, .05); }
+:root:not([data-skin]) .app-mini { border-radius: 9px; background: linear-gradient(160deg, color-mix(in srgb, var(--c1) 80%, #fff), var(--c1)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
+
+/* --- Onglets, segments, puces --- */
+:root:not([data-skin]) .tabs { display: inline-flex; max-width: 100%; border-bottom: 0; background: var(--seg); border-radius: 12px; padding: 3px; gap: 2px; }
+:root:not([data-skin]) .tabs button { border: 0; border-radius: 9px; margin: 0; padding: 7px 14px; color: var(--ink-2); }
+:root:not([data-skin]) .tabs button.active { background: var(--seg-on); color: var(--ink); border: 0; border-image: none; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .14), 0 0 0 .5px rgba(0, 0, 0, .05); }
+:root:not([data-skin]) .seg { border: 0; background: var(--seg); border-radius: 10px; padding: 2px; gap: 2px; overflow: visible; }
+:root:not([data-skin]) .seg button { border-radius: 8px; color: var(--ink-2); }
+:root:not([data-skin]) .seg button.on { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .14), 0 0 0 .5px rgba(0, 0, 0, .05); }
+:root:not([data-skin]) .wt-chips { background: var(--seg); border-radius: 999px; padding: 2px; gap: 2px; }
+:root:not([data-skin]) .wt-chips button { border: 0; background: transparent; color: var(--ink-2); }
+:root:not([data-skin]) .wt-chips button.on { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .14), 0 0 0 .5px rgba(0, 0, 0, .05); }
+:root:not([data-skin]) .st-targets button { border-color: transparent; background: var(--seg); color: var(--ink-2); }
+:root:not([data-skin]) .st-targets button.on { background: var(--accent); color: #fff; }
+:root:not([data-skin]) .st-targets button.on .badge { background: rgba(255, 255, 255, .25); color: #fff; }
+:root:not([data-skin]) .stepper a, :root:not([data-skin]) .stepper span { border-color: transparent; background: var(--seg); }
+:root:not([data-skin]) .stepper .cur { background: var(--accent); color: #fff; }
+
+/* --- Interrupteurs comme sur iPhone --- */
+:root:not([data-skin]) .switch { width: 51px; height: 31px; }
+:root:not([data-skin]) .switch i { background: var(--seg-off); transition: background .25s; }
+:root:not([data-skin]) .switch i::after { top: 2px; left: 2px; width: 27px; height: 27px; box-shadow: 0 3px 8px rgba(0, 0, 0, .15), 0 1px 1px rgba(0, 0, 0, .16), 0 0 0 .5px rgba(0, 0, 0, .04); transition: transform .25s cubic-bezier(.3, .7, .4, 1); }
+:root:not([data-skin]) .switch input:checked + i { background: #34c759; }
+:root:not([data-skin]) .switch input:checked + i::after { transform: translateX(20px); }
+
+/* --- Cartes --- */
+:root:not([data-skin]) .card, :root:not([data-skin]) .kpi { border-radius: var(--radius); border-color: transparent; box-shadow: var(--shadow); }
+:root:not([data-skin]) .kcol { border-radius: 20px; border-color: transparent; }
+:root:not([data-skin]) .kcard { border-radius: 14px; }
+:root:not([data-skin]) .brief { border-left: 0; }
+:root:not([data-skin]) th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; } :root:not([data-skin]) th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+:root:not([data-skin]) th { border-bottom-color: transparent; }
+
+/* --- Menus et fenêtres : feuilles de verre flottantes --- */
+:root:not([data-skin]) .dropdown, :root:not([data-skin]) .picker-list { background: var(--glass-strong); backdrop-filter: var(--glass-blur-strong); -webkit-backdrop-filter: var(--glass-blur-strong); border: 1px solid var(--glass-edge); border-radius: 18px; padding: 6px; box-shadow: inset 0 1px 0 var(--glass-shine), 0 18px 50px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(0, 0, 0, .06); }
+:root:not([data-skin]) .dropdown a, :root:not([data-skin]) .picker-list div { border-radius: 12px; padding: 10px 12px; }
+:root:not([data-skin]) .dropdown a:hover { background: var(--seg); }
+:root:not([data-skin]) .picker-list div.hi, :root:not([data-skin]) .picker-list div:hover { background: var(--accent); color: #fff; }
+:root:not([data-skin]) .modal-bg { backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2); }
+:root:not([data-skin]) .modal { border-radius: 26px; border-color: var(--glass-edge); box-shadow: var(--shadow-lg); }
+:root:not([data-skin]) .modal-foot { border-radius: 0 0 26px 26px; background: transparent; }
+:root:not([data-skin]) .search-box { border-radius: 24px; background: var(--glass-strong); backdrop-filter: var(--glass-blur-strong); -webkit-backdrop-filter: var(--glass-blur-strong); border: 1px solid var(--glass-edge); }
+:root:not([data-skin]) .sr { border-radius: 12px; }
+:root:not([data-skin]) .toast { border-radius: 18px; border: 1px solid var(--glass-edge); border-left: 1px solid var(--glass-edge); background: var(--glass-strong); backdrop-filter: var(--glass-blur-strong); -webkit-backdrop-filter: var(--glass-blur-strong); box-shadow: inset 0 1px 0 var(--glass-shine), 0 12px 34px rgba(0, 0, 0, .18); padding: 12px 16px 12px 34px; position: relative; }
+:root:not([data-skin]) .toast::before { content: ''; position: absolute; left: 14px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; background: #34c759; }
+:root:not([data-skin]) .toast.error::before { background: #ff3b30; }
+:root:not([data-skin]) .login-card { border-radius: 28px; border-color: var(--glass-edge); }
+:root:not([data-skin]) .login-logo { border-radius: 18px; background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .45), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent); }
+:root:not([data-skin]) .brand-logo { border-radius: 11px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }
+:root:not([data-skin]) .install-hint { border-radius: 20px; }
+:root:not([data-skin]) .badge { border-radius: 999px; }
+:root:not([data-skin]) .dropzone, :root:not([data-skin]) .st-zone, :root:not([data-skin]) .st-edit, :root:not([data-skin]) .st-item { border-radius: 16px; }
+
+/* --- Assistant : une goutte de verre --- */
+:root:not([data-skin]) .copilot-orb { width: 56px; height: 56px; border: 1px solid rgba(255, 255, 255, .55);
+  background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .95), rgba(255, 255, 255, .25) 30%, transparent 55%), linear-gradient(160deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent));
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .8), inset 0 -8px 14px rgba(0, 30, 110, .28), 0 2px 4px rgba(0, 40, 120, .25), 0 12px 30px color-mix(in srgb, var(--accent) 42%, transparent); transition: transform .2s cubic-bezier(.3, .7, .4, 1); }
+:root:not([data-skin]) .copilot-orb:hover { transform: scale(1.06); background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .95), rgba(255, 255, 255, .25) 30%, transparent 55%), linear-gradient(160deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent)); }
+:root:not([data-skin]) .copilot-orb:active { transform: scale(.95); }
+:root:not([data-skin]) .copilot-orb .icon { filter: drop-shadow(0 1px 1px rgba(0, 30, 100, .4)); }
+:root:not([data-skin]) .copilot-orb.listening { background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .95), rgba(255, 255, 255, .25) 30%, transparent 55%), linear-gradient(160deg, #ff7a70, #ff3b30); }
+:root:not([data-skin]) .copilot-panel { border-radius: 26px; border-color: var(--glass-edge); }
+:root:not([data-skin]) .mini-orb { background: radial-gradient(circle at 32% 24%, rgba(255, 255, 255, .9), transparent 50%), linear-gradient(160deg, color-mix(in srgb, var(--accent) 65%, #fff), var(--accent)); color: #fff; box-shadow: inset 0 -3px 6px rgba(0, 30, 110, .25); }
+:root:not([data-skin]) .mic { box-shadow: inset 0 1px 0 var(--glass-shine); }
+
+/* --- Menu des applications : icônes comme sur l'écran d'accueil d'un iPhone --- */
+:root:not([data-skin]) .app-icon { width: 76px; height: 76px; border-radius: 22px; border: 0;
+  background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, color-mix(in srgb, var(--c1) 78%, #fff), var(--c1));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -3px 6px rgba(0, 0, 0, .1), 0 6px 16px color-mix(in srgb, var(--c1) 28%, transparent), 0 1px 2px rgba(0, 0, 0, .12); transition: transform .18s cubic-bezier(.3, .7, .4, 1), box-shadow .18s; }
+:root:not([data-skin]) .app-icon .icon, :root:not([data-skin]) .app-icon svg { color: #fff; width: 36px; height: 36px; stroke-width: 1.9; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18)); }
+:root:not([data-skin]) .app-tile:hover .app-icon { transform: scale(1.06); border: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -3px 6px rgba(0, 0, 0, .1), 0 12px 26px color-mix(in srgb, var(--c1) 36%, transparent), 0 1px 2px rgba(0, 0, 0, .12); }
+:root:not([data-skin]) .app-tile:active .app-icon { transform: scale(.94); filter: brightness(.92); }
+:root:not([data-skin]) .home.custom .app-icon { background: radial-gradient(120% 80% at 50% -20%, rgba(255, 255, 255, .38), transparent 60%), linear-gradient(165deg, color-mix(in srgb, var(--c1) 78%, #fff), var(--c1)); }
+
+/* --- Présences : gros bouton rond brillant --- */
+:root:not([data-skin]) .att-btn.in { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #3bc45f, #1f8a3b); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(0, 60, 20, .25), 0 14px 34px rgba(31, 138, 59, .35); }
+:root:not([data-skin]) .att-btn.out { background: radial-gradient(120% 80% at 50% -15%, rgba(255, 255, 255, .5), transparent 58%), linear-gradient(180deg, #ff6a5e, #d92d20); box-shadow: inset 0 2px 1px rgba(255, 255, 255, .5), inset 0 -10px 18px rgba(110, 10, 0, .25), 0 14px 34px rgba(217, 45, 32, .35); }
+:root:not([data-skin]) .att-btn:hover { transform: scale(1.03); filter: none; }
+:root:not([data-skin]) .att-btn:active { transform: scale(.96); }
+:root:not([data-skin]) .att-btn.sm { border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }
+:root:not([data-skin]) .att-stats div { border-radius: 16px; border-color: transparent; background: var(--seg); }
+
+/* --- Téléphone : barre d'onglets flottante en verre, comme sur iPhone --- */
+@media (max-width: 800px) {
+  :root:not([data-skin]) body { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  :root:not([data-skin]) .bottom-nav { left: 10px; right: 10px; bottom: calc(8px + env(safe-area-inset-bottom)); padding: 6px 6px; border-radius: 30px; border: 1px solid var(--glass-edge);
+    background: var(--glass-strong); backdrop-filter: var(--glass-blur-strong); -webkit-backdrop-filter: var(--glass-blur-strong);
+    box-shadow: inset 0 1px 0 var(--glass-shine), 0 10px 30px rgba(0, 0, 0, .16), 0 0 0 .5px rgba(0, 0, 0, .05); }
+  :root:not([data-skin]) .bottom-nav a { border-radius: 22px; padding: 5px 0 4px; }
+  :root:not([data-skin]) .bottom-nav a.active { color: var(--brand); background: var(--seg); }
+  :root:not([data-skin]) .bottom-nav a.active .icon { color: var(--brand); }
+  :root:not([data-skin]) .bottom-nav a.plus .plus-btn { margin-top: 0; width: 44px; height: 44px; border-radius: 50%;
+    background: radial-gradient(130% 90% at 50% -25%, rgba(255, 255, 255, .45), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -3px 5px rgba(0, 30, 90, .22), 0 6px 14px color-mix(in srgb, var(--accent) 36%, transparent); }
+  :root:not([data-skin]) .plus-menu { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  :root:not([data-skin]) .plus-menu > div { bottom: calc(92px + env(safe-area-inset-bottom)); border-radius: 26px; background: var(--glass-strong); backdrop-filter: var(--glass-blur-strong); -webkit-backdrop-filter: var(--glass-blur-strong); border: 1px solid var(--glass-edge); }
+  :root:not([data-skin]) .plus-menu a { border-radius: 18px; border-color: transparent; background: var(--seg); }
+  :root:not([data-skin]) .toasts { bottom: calc(96px + env(safe-area-inset-bottom)); }
+  :root:not([data-skin]) .copilot-orb { width: 52px; height: 52px; bottom: calc(96px + env(safe-area-inset-bottom)); }
+  :root:not([data-skin]) .save-fab { bottom: calc(100px + env(safe-area-inset-bottom)); border-radius: 999px; }
+  :root:not([data-skin]) .card { border-radius: 18px; }
+  :root:not([data-skin]) .modal, :root:not([data-skin]) .modal.wide, :root:not([data-skin]) .search-box { border-radius: 0; }
+  :root:not([data-skin]) .modal-foot { border-radius: 0; background: var(--panel-solid); }
+  :root:not([data-skin]) table.stackable tr { border-radius: 16px; border-color: transparent; background: var(--seg); }
+  :root:not([data-skin]) .tabs { display: flex; }
+  :root:not([data-skin]) .app-icon { width: 64px; height: 64px; border-radius: 18px; }
+  :root:not([data-skin]) .app-icon .icon, :root:not([data-skin]) .app-icon svg { width: 30px; height: 30px; }
 }
 
 /* =====================================================================

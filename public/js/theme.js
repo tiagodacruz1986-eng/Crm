@@ -15,7 +15,7 @@ function apply() {
   theme.active = resolve(theme.pref);
   document.documentElement.dataset.theme = theme.active;
   if (theme.pref === 'glass') document.documentElement.dataset.skin = 'glass'; else delete document.documentElement.dataset.skin;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.pref === 'glass' ? '#2b241f' : theme.active === 'light' ? '#f3f5f8' : '#0f1216');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.pref === 'glass' ? '#2b241f' : theme.active === 'light' ? '#f2f2f7' : '#0a0a0c');
 }
 export function setTheme(pref) {
   theme.pref = PREFS.includes(pref) ? pref : 'light';
@@ -30,8 +30,8 @@ media?.addEventListener?.('change', () => { if (theme.pref === 'auto') apply(); 
 apply();
 
 export const THEMES = [
-  { id: 'light', name: 'Clair', desc: 'Sobre et net, comme un logiciel de bureau', icon: 'sun' },
-  { id: 'dark', name: 'Sombre', desc: 'Les mêmes écrans sur fond foncé, reposant le soir', icon: 'moon' },
+  { id: 'light', name: 'Clair', desc: 'Clair et net, boutons et menus comme sur iPhone', icon: 'sun' },
+  { id: 'dark', name: 'Sombre', desc: 'Le même rendu sur fond noir, reposant le soir', icon: 'moon' },
   { id: 'glass', name: 'Verre', desc: 'Panneaux en verre dépoli sur une photo, comme visionOS', icon: 'sparkles' },
   { id: 'auto', name: 'Automatique', desc: 'Suit le réglage de votre téléphone ou ordinateur', icon: 'monitor-smartphone' },
 ];
