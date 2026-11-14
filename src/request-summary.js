@@ -80,7 +80,7 @@ export async function summarizeRequest({ transcript, vehicle_id = null, mileage 
   if (!text) throw new BusinessError('Rien à résumer : dictez ou écrivez d\'abord ce que demande le client.');
   if (text.length > MAX_TRANSCRIPT) throw new BusinessError(`Texte trop long (${text.length} caractères, ${MAX_TRANSCRIPT} au plus) : raccourcissez-le, ou résumez-le en deux fois.`);
   // Sans clé, rien n'est envoyé : la fenêtre propose alors de mettre le texte dicté tel quel dans le document
-  if (!aiConfigured()) throw new BusinessError('Résumé par l\'IA indisponible : aucune clé Claude n\'est configurée (voir README → Activer les agents IA). Vous pouvez mettre le texte dicté tel quel dans le document.');
+  if (!aiConfigured()) throw new BusinessError('Résumé par l\'IA indisponible : aucune clé Claude n\'est configurée (l\'administrateur l\'ajoute dans Paramètres → Agents IA). Vous pouvez mettre le texte dicté tel quel dans le document.');
 
   const spoken = LANGS[typeof lang === 'string' ? lang.slice(0, 2).toLowerCase() : 'fr'] || LANGS.fr;
   // Une seule tentative, avec une attente bornée : si le service ne répond pas, l'accueil réessaie d'un clic.

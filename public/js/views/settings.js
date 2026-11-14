@@ -1,5 +1,5 @@
 import { ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { GET, POST, PUT, act, toast, store, datetime } from '../api.js';
+import { GET, POST, PUT, DEL, act, toast, store, datetime } from '../api.js';
 import { route } from '../router.js';
 import { LayoutEditor } from './layout-editor.js';
 import { UsersAdmin } from './users-admin.js';
@@ -42,6 +42,29 @@ export const Settings = {
       await act(() => POST('/odoo/import', { options: odooOpts }));
       await loadOdoo();
     };
+    // Clé Claude : collée ici, essayée puis rangée par le serveur. Elle n'est jamais relue à l'écran (seulement son état).
+    const aiKey = ref(null);
+    const aiKeyInput = ref('');
+    const aiKeyBusy = ref(false);
+    const aiKeyError = ref('');
+    const loadAiKey = async () => { try { aiKey.value = await GET('/ai/key'); } catch { aiKey.value = null; } };
+    const saveAiKey = async () => {
+      const key = aiKeyInput.value.trim();
+      if (aiKeyBusy.value || !key) return;
+      aiKeyBusy.value = true;
+      aiKeyError.value = '';
+      try {
+        aiKey.value = await PUT('/ai/key', { key });
+        aiKeyInput.value = '';
+        store.ai = true;
+        toast('Clé Claude enregistrée : les fonctions IA sont actives');
+      } catch (e) { aiKeyError.value = e.message; } finally { aiKeyBusy.value = false; }
+    };
+    const removeAiKey = async () => {
+      if (aiKeyBusy.value || !confirm('Retirer la clé Claude enregistrée dans le logiciel ?')) return;
+      aiKeyError.value = '';
+      try { aiKey.value = await act(() => DEL('/ai/key'), 'Clé Claude retirée'); store.ai = aiKey.value.source !== null; } catch { /* message déjà affiché */ }
+    };
     const mail = ref(null);
     const loadMail = async () => { mail.value = { ...(await GET('/mail/config')), pass: '' }; };
     // (la fenêtre d'envoi d'e-mail relit la configuration tout de suite : « Envoyer » n'attend plus un rechargement de la page)
@@ -53,17 +76,21 @@ export const Settings = {
     const saveInbox = async () => { await act(() => PUT('/bills/inbox', inbox.value), 'Boîte « factures » enregistrée'); await loadInbox(); };
     const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
     const imapPreset = (k) => Object.assign(inbox.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
-    const load = async () => { loadOdoo(); loadMail(); loadInbox(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
+    const load = async () => { loadOdoo(); loadMail(); loadInbox(); loadAiKey(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     // Lien direct vers un onglet (ex. ?tab=mail) : sur téléphone, l'onglet actif est ramené à l'écran
     onMounted(async () => { await load(); await nextTick(); document.querySelector('.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
-    const save = async () => { store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name; };
+    const save = async () => {
+      // une clé Claude collée mais pas encore vérifiée : le bouton « Enregistrer » du haut de page la prend aussi
+      if (tab.value === 'ai' && aiKeyInput.value.trim()) await saveAiKey();
+      store.settings = await act(() => PUT('/settings', s.value), 'Paramètres enregistrés'); store.company = store.settings.company.name;
+    };
     const saveUser = async () => {
       const u = editUser.value;
       if (u.id) await act(() => PUT('/users/' + u.id, u), 'Utilisateur modifié'); else await act(() => POST('/users', u), 'Utilisateur créé');
       editUser.value = null; load();
     };
     const saveAcc = async () => { await act(() => POST('/accounting/accounts', newAcc.value), 'Compte enregistré'); newAcc.value = null; load(); };
-    return { inbox, saveInbox, testInbox, imapPreset, mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
+    return { aiKey, aiKeyInput, aiKeyBusy, aiKeyError, saveAiKey, removeAiKey, inbox, saveInbox, testInbox, imapPreset, mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
   },
   template: `
   <div v-if="s">
@@ -166,7 +193,27 @@ export const Settings = {
       <p v-else-if="odoo.last" class="muted small" style="margin-top:12px">Dernier import : {{ datetime(odoo.last.at) }}</p>
     </div>
     <div class="card" v-if="tab==='ai'">
-      <p>Statut : <b :class="store.ai ? 'pos' : 'neg'">{{ store.ai ? 'Agents IA actifs' : 'Mode démo — ajoutez ANTHROPIC_API_KEY dans le fichier .env puis redémarrez' }}</b></p>
+      <h2>Clé Claude</h2>
+      <p>Statut : <b :class="store.ai ? 'pos' : 'neg'">{{ store.ai ? 'Fonctions IA actives' : 'Mode démo — aucune clé' }}</b>
+        <span v-if="aiKey && aiKey.source === 'settings'" class="muted"> — clé enregistrée dans le logiciel ({{ aiKey.hint }})</span>
+        <span v-else-if="aiKey && aiKey.source === 'env'" class="muted"> — clé du fichier .env<template v-if="aiKey.hint"> ({{ aiKey.hint }})</template></span></p>
+      <div class="ai-key">
+        <label>{{ aiKey && aiKey.source === 'settings' ? 'Remplacer la clé' : 'Collez votre clé Claude' }}
+          <input v-model="aiKeyInput" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-ant-…" @keydown.enter="saveAiKey"></label>
+        <button class="btn primary" :disabled="aiKeyBusy || !aiKeyInput.trim()" @click="saveAiKey">{{ aiKeyBusy ? 'Vérification de la clé…' : 'Vérifier et enregistrer' }}</button>
+        <button class="btn danger" v-if="aiKey && aiKey.source === 'settings'" :disabled="aiKeyBusy" @click="removeAiKey">Retirer la clé</button>
+      </div>
+      <p v-if="aiKeyError" class="error" role="alert">{{ aiKeyError }}</p>
+      <details class="ai-key-help" :open="!store.ai">
+        <summary>Comment obtenir une clé ?</summary>
+        <ol>
+          <li>Ouvrez <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> et créez un compte. C'est un compte à part : un abonnement Claude.ai ne donne pas de clé.</li>
+          <li>Dans « Billing », ajoutez un moyen de paiement et un peu de crédit. L'IA est facturée à l'usage par Anthropic, sur ce compte.</li>
+          <li>Dans « API keys », créez une clé (« Create Key ») et copiez-la : elle commence par sk-ant- et ne s'affiche qu'une seule fois.</li>
+          <li>Collez-la ci-dessus, puis cliquez sur « Vérifier et enregistrer ».</li>
+        </ol>
+        <p class="muted small">La clé est essayée tout de suite (une très courte demande, au coût négligeable), puis gardée sur l'ordinateur du garage, dans le dossier des données. Elle n'est plus jamais affichée et ne part que vers Anthropic. Ne l'envoyez à personne, ni par e-mail ni par message.</p>
+      </details>
       <label>Contexte de votre garage (partagé avec tous les agents)
         <textarea v-model="s.ai.garage_context" rows="8" placeholder="Ex. : Garage multimarque à Esch-sur-Alzette, 4 mécaniciens, spécialisé VW/Audi et véhicules électriques. Objectif 2027 : ouvrir une carrosserie…"></textarea></label>
     </div>

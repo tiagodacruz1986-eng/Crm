@@ -316,7 +316,7 @@ export const Office = {
           <span v-if="a.unread" class="dot">{{ a.unread }}</span><span v-if="a.working" class="live-dot"></span>
         </button>
       </div>
-      <div v-if="!store.ai && !agent" class="demo-note">Mode démo : ajoutez votre clé ANTHROPIC_API_KEY dans le fichier .env pour activer les agents.</div>
+      <div v-if="!store.ai && !agent" class="demo-note">Mode démo : l'administrateur colle la clé Claude dans Paramètres → Agents IA pour activer les agents.</div>
 
       <aside v-if="agent" class="agent-panel console" :style="{'--c': agent.color}">
         <div class="agent-head">

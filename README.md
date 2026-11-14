@@ -82,9 +82,11 @@ Les données sont enregistrées dans le dossier `data/` (base SQLite `garage.db`
 
 ## 🤖 Activer les agents IA
 
-1. Créez une clé sur https://console.anthropic.com
-2. Mettez-la dans `.env` : `ANTHROPIC_API_KEY=sk-ant-...`
-3. Redémarrez (`npm start`)
+1. Créez une clé sur https://console.anthropic.com (compte à part d'un abonnement Claude.ai, avec un peu de crédit : l'IA est facturée à l'usage par Anthropic).
+2. Dans le logiciel, ouvrez **Paramètres → Agents IA**, collez la clé et cliquez sur **Vérifier et enregistrer**. La clé est essayée tout de suite ; les fonctions IA sont actives sans redémarrer.
+
+La clé est gardée sur l'ordinateur du garage (dossier des données, fichier `claude.key`), n'est plus jamais affichée (seulement ses 4 derniers caractères) et ne part que vers Anthropic. Réservé à l'administrateur.
+Autre possibilité, pour un technicien : `ANTHROPIC_API_KEY=sk-ant-...` dans le fichier `.env`, puis redémarrage. La clé saisie dans le logiciel passe avant celle du fichier `.env`.
 
 Les agents utilisent le modèle Claude `claude-opus-5` (modifiable via `CLAUDE_MODEL`), peuvent consulter les données du garage (lecture seule) et faire des recherches sur le web. Les tâches programmées tournent tant que le logiciel est allumé (fuseau `Europe/Luxembourg`).
 Dans **Paramètres → Agents IA**, décrivez votre garage : ce contexte est partagé avec toute l'équipe.

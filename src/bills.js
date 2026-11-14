@@ -3,14 +3,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { db, all, get, run, insert, getSettings, setSetting, round2, localDateTime, today } from './db.js';
 import { BusinessError, savePurchase } from './business.js';
 import { logMessage } from './mail.js';
-import { aiConfigured } from './claude.js';
+import { aiConfigured, claudeClient, CLAUDE_MODEL } from './claude.js';
 
 const FILE_DIR = path.join(process.env.DATA_DIR || path.resolve('data'), 'uploads', 'attachments');
 fs.mkdirSync(FILE_DIR, { recursive: true });
@@ -87,15 +86,14 @@ const BILL_SCHEMA = {
   },
 };
 
-let client = null;
 export async function extractBill(buffer, mime) {
   if (!SUPPORTED[mime]) throw new BusinessError('Format non pris en charge par l\'IA (PDF, JPG, PNG, WEBP)');
-  client ??= new Anthropic();
+  const client = claudeClient(); // même clé que le reste du logiciel (Paramètres → Agents IA, ou fichier .env)
   const accounts = all("SELECT code, name FROM accounts WHERE type='expense' OR code LIKE '2%' ORDER BY code").map((a) => `${a.code} ${a.name}`).join('\n');
   const source = { type: 'base64', media_type: mime, data: buffer.toString('base64') };
   const doc = mime === 'application/pdf' ? { type: 'document', source } : { type: 'image', source };
   const response = await client.messages.parse({
-    model: process.env.CLAUDE_MODEL || 'claude-opus-5',
+    model: CLAUDE_MODEL,
     max_tokens: 16000,
     messages: [{
       role: 'user',

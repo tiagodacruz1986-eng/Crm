@@ -88,7 +88,7 @@ export const Website = {
       gen.busy = true;
       try {
         const r = await POST('/website/generate', { notes: gen.notes, tone: gen.tone });
-        if (!r.ai) { toast('La rédaction par l\'IA demande une clé Claude (voir README → Activer les agents IA). Votre site n\'a pas été modifié.', 'error'); return; }
+        if (!r.ai) { toast('La rédaction par l\'IA demande une clé Claude (Paramètres → Agents IA). Votre site n\'a pas été modifié.', 'error'); return; }
         ready = false; cfg.value = r.config; nextTick(() => { ready = true; });
         await preview();
         gen.open = false;

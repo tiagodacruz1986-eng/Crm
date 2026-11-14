@@ -29,7 +29,7 @@ import {
 import { mountLive, stageFromStatus, ensureLink, publicUrl, publish as livePublish } from './src/live.js';
 import { kioskLines, isIntervention, stopLineTimers, stopOrderTimers, workStats } from './src/worktime.js';
 import { publicOdooConfig, saveOdooConfig, testConnection, runImport, importBrandLogos, job as odooJob } from './src/odoo.js';
-import { chat, meeting, clearHistory, aiConfigured } from './src/claude.js';
+import { chat, meeting, clearHistory, aiConfigured, apiKeyStatus, saveApiKey, removeApiKey } from './src/claude.js';
 import { saveLogo, deleteLogo, logoFile, cleanLayout, saveBackground, deleteBackground } from './src/branding.js';
 import { APPS, LEVELS, LEVEL_LABELS, PRESETS, accessGuard, effectivePerms, can, normalizePerms, recordApp, queryList, maskDashboard, createInvite, findInvite, clearInvite } from './src/access.js';
 import { attendanceConfig, ATTENDANCE_DEFAULTS, statusOf, checkInOut, board, listAttendance, attendanceReport, saveAttendance, validDateTime, period as datePeriod } from './src/attendance.js';
@@ -1229,6 +1229,12 @@ api.delete('/settings/home-bg', adminOnly, wrap(() => deleteBackground()));
 api.post('/automation/followups', adminOnly, wrap(() => runFollowups({ force: true })));
 api.post('/automation/reminders', adminOnly, wrap(() => runAppointmentReminders({ force: true })));
 
+// ---------- Clé Claude (Paramètres → Agents IA) ----------
+// Réservé à l'administrateur. La clé n'est jamais renvoyée : seulement son état (d'où elle vient, ses 4 derniers caractères).
+api.get('/ai/key', adminOnly, (req, res) => res.json(apiKeyStatus()));
+api.put('/ai/key', adminOnly, wrap((req) => saveApiKey(req.body?.key)));
+api.delete('/ai/key', adminOnly, wrap(() => removeApiKey()));
+
 // ---------- Import Odoo ----------
 api.get('/odoo', adminOnly, (req, res) => res.json({ config: publicOdooConfig(), job: odooJob, last: getSettings().odoo_last_import || null }));
 api.put('/odoo', adminOnly, wrap((req) => { saveOdooConfig(req.body); return { config: publicOdooConfig() }; }));
@@ -1277,7 +1283,7 @@ api.delete('/mail/:id', wrap((req) => {
 // Rédaction assistée : Sophie (secrétariat) écrit le texte du mail
 api.post('/mail/draft-ai', wrap(async (req) => {
   // Sans clé API, l'agent répond par un avertissement « mode démo » : il ne doit pas remplacer le texte de l'utilisateur
-  if (!aiConfigured()) throw new BusinessError('Rédaction par l\'IA indisponible : aucune clé Claude n\'est configurée (voir README → Activer les agents IA).');
+  if (!aiConfigured()) throw new BusinessError('Rédaction par l\'IA indisponible : aucune clé Claude n\'est configurée (l\'administrateur l\'ajoute dans Paramètres → Agents IA).');
   const info = recordInfo(checkModel(req.body.model), Number(req.body.record_id)) || {};
   const prompt = `Rédige le texte d'un e-mail professionnel à envoyer par le garage${info.name ? ` à ${info.name}` : ''}.
 Contexte : ${info.label || 'aucune fiche liée'}. Objet prévu : ${req.body.subject || '—'}.
@@ -1466,6 +1472,6 @@ app.listen(PORT, (err) => {
   startBackgroundJobs();
   console.log(`\n🚗  Garage — logiciel de gestion démarré : http://localhost:${PORT}`);
   console.log(`🔧  Pointage atelier (tablette) : http://localhost:${PORT}/kiosk.html`);
-  console.log(aiConfigured() ? '🤖  Agents IA : actifs' : '🤖  Agents IA : mode démo (ajoutez ANTHROPIC_API_KEY dans .env)');
+  console.log(aiConfigured() ? '🤖  Agents IA : actifs' : '🤖  Agents IA : mode démo (collez votre clé Claude dans Paramètres → Agents IA)');
   if (get("SELECT COUNT(*) n FROM users WHERE role='admin'").n === 0) console.log(`🔑  Code d'installation (seulement pour créer le compte du gérant depuis internet) : ${SETUP_CODE}`);
 });
