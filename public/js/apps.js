@@ -7,6 +7,8 @@ export const APPS = [
   { key: 'office', name: 'Bureau IA', icon: 'brain', c: ['#0ea5e9', '#a78bfa'], to: '/office', routes: ['office'], perm: 'ia' },
   { key: 'mail', name: 'Discussion', icon: 'mail', c: ['#f97316', '#fbbf24'], to: '/mail', routes: ['mail'], perm: 'emails' },
   { key: 'activities', name: 'To-do', icon: 'list-todo', c: ['#0f766e', '#5eead4'], to: '/activities', routes: ['activities'] },
+  { key: 'archives', name: 'Documents', icon: 'folder', c: ['#2563eb', '#f59e0b'], to: '/archives', routes: ['archives'], perm: 'archives',
+    menus: [{ label: 'Tous les documents', to: '/archives' }, { label: 'Échéances des contrats', to: '/archives?view=deadlines' }] },
   { key: 'crm', name: 'CRM', icon: 'handshake', c: ['#0d9488', '#f472b6'], to: '/crm', routes: ['crm'], perm: 'crm',
     menus: [{ label: 'Pipeline', to: '/crm' }, { label: 'Liste', to: '/crm?view=list' }, { label: 'Perdues', to: '/crm?view=lost' }, { label: 'Analyse', to: '/crm?view=stats' }] },
   { key: 'website', name: 'Site web', icon: 'globe', c: ['#0284c7', '#34d399'], to: '/website', routes: ['website'], perm: 'site' },

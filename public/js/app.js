@@ -19,7 +19,7 @@ const VIEWS = {
   stock: lazy('stock', 'ProductList'), product: lazy('stock', 'ProductDetail'),
   purchases: lazy('stock', 'PurchaseList'), purchase: lazy('stock', 'PurchaseEditor'), suppliers: lazy('stock', 'SupplierList'),
   accounting: lazy('accounting', 'Accounting'), bank: lazy('bank', 'Bank'), timesheets: lazy('timesheets', 'Timesheets'), reports: lazy('reports', 'Reports'),
-  office: lazy('office', 'Office'), apps: lazy('home', 'Home'), crm: lazy('crm', 'Crm'), website: lazy('website', 'Website'), social: lazy('social', 'Social'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
+  office: lazy('office', 'Office'), apps: lazy('home', 'Home'), archives: lazy('archives', 'Archives'), crm: lazy('crm', 'Crm'), website: lazy('website', 'Website'), social: lazy('social', 'Social'), attendance: lazy('attendance', 'Attendance'), activities: lazy('activities', 'Activities'), copilot: defineAsyncComponent(() => import('./copilot.js').then((m) => m.CopilotPage)), mail: lazy('activities', 'MailOutbox'), settings: lazy('settings', 'Settings'),
 };
 
 const NAV = [
@@ -30,6 +30,7 @@ const NAV = [
   { to: '/office', icon: 'brain', label: 'Bureau IA', match: 'office', perm: 'ia' },
   { to: '/activities', icon: 'alarm-clock', label: 'Activités', match: 'activities' },
   { to: '/mail', icon: 'mail', label: 'E-mails', match: 'mail', perm: 'emails' },
+  { to: '/archives', icon: 'folder', label: 'Documents', match: 'archives', perm: 'archives' },
   { section: 'Atelier' },
   { to: '/workshop', icon: 'wrench', label: 'Atelier (OR)', match: 'workshop', perm: 'atelier' },
   { to: '/planning', icon: 'calendar-days', label: 'Planning', match: 'planning', perm: 'atelier' },

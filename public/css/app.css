@@ -642,6 +642,52 @@ a.live { text-decoration: none; white-space: nowrap; }
 .logo-box { width: 120px; height: 70px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; overflow: hidden;
   background: repeating-conic-gradient(#e5e7eb 0 25%, #fff 0 50%) 0 0 / 14px 14px; color: #6b7280; font-size: 11px; text-align: center; }
 .logo-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* Application « Documents » : dossiers à gauche, liste, fiche d'un document, questions à l'IA, échéances */
+.arch { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 18px; align-items: start; }
+.arch-side { padding: 8px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 76px; max-height: calc(100vh - 100px); overflow-y: auto; }
+.arch-side hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+.arch-f { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; text-align: left; padding: 8px 12px; border-radius: 10px; cursor: pointer; min-width: 0; }
+.arch-f .icon { width: 17px; height: 17px; flex: 0 0 auto; color: var(--muted); }
+.arch-f span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arch-f i { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.arch-f:hover { background: var(--panel-2); }
+.arch-f.on { background: var(--brand-soft); color: var(--ink); font-weight: 600; } .arch-f.on .icon { color: var(--brand); }
+.arch-f.add { color: var(--muted); }
+.arch-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.arch-pick { display: none; }
+.arch-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.arch-search { position: relative; flex: 1 1 260px; min-width: 0; } .arch-search .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--muted); pointer-events: none; } .arch-search input { padding-left: 36px; }
+.arch-bar > select { width: auto; flex: 0 1 220px; }
+.arch-hint { margin: 0; }
+.arch-drop { position: fixed; inset: 0; z-index: 90; background: color-mix(in srgb, var(--brand) 14%, transparent); display: grid; place-items: center; pointer-events: none; }
+.arch-drop > div { background: var(--panel-solid, var(--panel)); border: 2px dashed var(--brand); border-radius: var(--radius); padding: 30px 44px; display: flex; flex-direction: column; align-items: center; gap: 6px; box-shadow: var(--shadow-lg); } .arch-drop .icon { width: 34px; height: 34px; color: var(--brand); }
+.arch-doc { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.arch-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.arch-view iframe, .arch-nopreview { width: 100%; height: 62vh; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.arch-view img { width: 100%; max-height: 62vh; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.arch-nopreview { display: grid; place-items: center; align-content: center; gap: 8px; color: var(--muted); background: var(--panel-2); } .arch-nopreview .icon { width: 40px; height: 40px; }
+.arch-file { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; } .arch-file > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.arch-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.arch-card .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.arch-ai { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--brand-soft); font-size: 13.5px; } .arch-ai b { display: flex; align-items: center; gap: 6px; } .arch-ai p { margin: 6px 0 0; white-space: pre-line; } .arch-ai ul { margin: 6px 0 0; padding-left: 20px; }
+.arch-contract { padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; } .arch-contract > b { display: flex; align-items: center; gap: 6px; }
+.arch-bill { font-size: 14px; } .arch-bill:empty { display: none; }
+.arch-talk { display: flex; flex-direction: column; gap: 14px; min-height: 220px; max-height: 56vh; overflow-y: auto; }
+.arch-ideas { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 12px; }
+.arch-qa { display: flex; flex-direction: column; gap: 8px; }
+.arch-q { align-self: flex-end; max-width: 85%; background: var(--accent, var(--brand)); color: #fff; padding: 8px 12px; border-radius: 16px 16px 4px 16px; overflow-wrap: anywhere; }
+.arch-a { background: var(--panel-2); padding: 10px 14px; border-radius: 4px 16px 16px 16px; max-width: 95%; overflow-wrap: anywhere; } .arch-a > :first-child { margin-top: 0; } .arch-a > :last-child { margin-bottom: 0; }
+.arch-cited { display: flex; flex-wrap: wrap; gap: 6px; }
+.arch-ask-in { flex: 1; min-width: 0; }
+.arch-day { cursor: default; min-height: 84px; }
+.arch-ev { cursor: pointer; display: block; text-overflow: ellipsis; } .arch-ev.cancel { border-left-color: var(--warn); } .arch-ev.end { border-left-color: var(--brand); }
+.arch-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin: 0 4px 0 10px; } .arch-dot.cancel { background: var(--warn); } .arch-dot.end { background: var(--brand); }
+@media (max-width: 800px) {
+  .arch { grid-template-columns: 1fr; } .arch-side { display: none; } .arch-pick { display: block; }
+  /* téléphone : pas d'aperçu PDF dans la page (mal pris en charge) — le bouton « Ouvrir » l'affiche en entier */
+  .arch-doc { grid-template-columns: 1fr; } .arch-view iframe, .arch-nopreview { display: none; } .arch-bar > select { flex: 1 1 100%; }
+  .arch-card .form-grid { grid-template-columns: 1fr; }
+}
 /* Paramètres → Agents IA : saisie de la clé Claude */
 .ai-key { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 10px 0; } .ai-key label { flex: 1 1 280px; min-width: 0; }
 .ai-key-help { margin: 12px 0 18px; } .ai-key-help summary { cursor: pointer; color: var(--link, var(--brand)); font-weight: 600; }
