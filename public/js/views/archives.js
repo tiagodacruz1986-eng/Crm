@@ -127,7 +127,7 @@ const DocModal = {
             <label>Fin du contrat<input v-model="f.contract_end" type="date" :disabled="!canEdit" @change="suggest"></label>
             <label>Préavis (jours)<input v-model.number="f.notice_days" type="number" min="0" max="3660" :disabled="!canEdit" placeholder="90 = 3 mois" @change="suggest"></label>
             <label>À résilier avant le<input v-model="f.cancel_by" type="date" :disabled="!canEdit"></label>
-            <label>Reconduction<select v-model="f.renewal" :disabled="!canEdit"><option value="">Non précisée</option><option value="tacit">Tacite (repart tout seul)</option><option value="none">Aucune</option></select></label>
+            <label>Reconduction<select v-model="f.renewal" :disabled="!canEdit"><option value="">Non précisée</option><option value="tacit">Tacite</option><option value="none">Aucune</option></select></label>
             <label>Me prévenir (jours avant)<input v-model.number="f.reminder_days" type="number" min="0" max="365" :disabled="!canEdit" placeholder="30"></label>
           </div>
           <p v-if="d.reminder" class="muted small" style="margin:8px 0 0"><Icon name="alarm-clock" class="ti"/> Rappel {{ d.reminder.status === 'planned' ? 'prévu' : 'déjà traité' }} le {{ fdate(d.reminder.due_date) }} dans vos activités (To-do).</p>
