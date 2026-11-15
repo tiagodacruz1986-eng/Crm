@@ -610,6 +610,18 @@ test('contrats : relecture après correction, date limite tapée à la main, fic
   // une incohérence tapée à la main reste refusée
   assert.equal((await A('PUT', `/archives/docs/${d.id}`, { contract_end: day(400) })).status, 400);
   assert.equal((await A('PUT', `/archives/docs/${d.id}`, { contract_start: day(700) })).status, 400);
+  // début fixé à la main, puis l'IA relit une fin plus tôt que ce début : la fin n'est pas reprise non plus
+  await A('PUT', `/archives/docs/${d.id}`, { cancel_by: null });
+  await A('PUT', `/archives/docs/${d.id}`, { contract_start: day(450) });
+  x = await reread({ debut: day(-100), fin: day(300) });
+  assert.equal(x.contract_start, day(450));
+  assert.equal(x.contract_end, day(600));
+  // préavis effacé (l'écran efface alors aussi la date qu'il proposait) : plus de date limite ; un nouveau préavis la recalcule
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: null, cancel_by: null });
+  assert.equal((await one()).cancel_by, null);
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: 90, cancel_by: day(510) });
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: 120 });
+  assert.equal((await one()).cancel_by, day(480), 'date calculée : elle suit le préavis');
 });
 test('dépôt dans « À classer » : rangé quand même ; document supprimé pendant sa lecture : rien n\'est écrit ailleurs', async () => {
   const inbox = await folderId('À classer');

@@ -424,6 +424,8 @@ async function analyzeDoc(id, allowEncode = false) {
   let end = mine.has('contract_end') ? cur.contract_end : dateIn(c.fin);
   // (une date limite fixée à la main passe avant une fin de contrat que l'IA lirait plus tôt : la fin reste alors telle quelle)
   if (!mine.has('contract_end') && mine.has('cancel_by') && cur.cancel_by && end && cur.cancel_by > end) end = cur.contract_end;
+  // (de même pour une fin lue avant un début fixé à la main)
+  if (!mine.has('contract_end') && mine.has('contract_start') && cur.contract_start && end && end < cur.contract_start) end = cur.contract_end;
   const notice = mine.has('notice_days') ? cur.notice_days : Number.isInteger(c.preavis_jours) && c.preavis_jours >= 0 && c.preavis_jours <= 3660 ? c.preavis_jours : null;
   let cancel = dateIn(c.date_limite_resiliation);
   if (cancel && end && cancel > end) cancel = null;

@@ -58,9 +58,9 @@ parseRoute();
 window.addEventListener('popstate', () => {
   const i = history.state?.i;
   if (location.hash !== shown || !Number.isInteger(i) || i === index) return;
-  const step = i < index ? -1 : 1;
+  const step = i - index;
   index = i;
-  history.go(step);
+  if (Math.abs(step) === 1) history.go(step);
 });
 /**
  * Remplace l'adresse de la page affichée sans ajouter d'entrée à l'historique : le bouton Retour du navigateur ne

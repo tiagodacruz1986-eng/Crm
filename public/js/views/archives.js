@@ -79,9 +79,9 @@ const DocModal = {
     const showContract = ref(false);
     // Date limite de résiliation proposée quand la fin ou le préavis changent — seulement si le champ est vide ou contient
     // encore la proposition précédente : une date tapée à la main (celle du contrat) n'est jamais remplacée
+    // (fin ou préavis effacés : la proposition s'efface avec eux)
     const suggest = () => {
       const next = derive(f.value.contract_end, f.value.notice_days);
-      if (!next) return;
       if (!f.value.cancel_by || f.value.cancel_by === last) f.value.cancel_by = next;
       last = next;
     };
