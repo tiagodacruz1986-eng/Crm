@@ -4,10 +4,15 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { GET, POST, PUT, DEL, act, toast, store, money, date as fdate, datetime, today } from '../api.js';
-import { route, go } from '../router.js';
+import { route, go, leaveGuards } from '../router.js';
 import { can } from '../apps.js';
 
-const md = (s) => DOMPurify.sanitize(marked.parse(s || ''));
+// Réponse de l'IA : mise en forme simple et liens vers les documents seulement. Ni image, ni style, ni lien extérieur :
+// un document piégé ne peut pas faire partir des informations vers un autre site par ce biais.
+const md = (s) => DOMPurify.sanitize(marked.parse(s || ''), {
+  ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+  ALLOWED_ATTR: ['href'], ALLOWED_URI_REGEXP: /^#\/archives\?doc=\d+$/,
+});
 async function uploadFile(url, file) {
   const r = await fetch('/api' + url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) }, body: file });
   const d = await r.json().catch(() => ({}));
@@ -36,34 +41,53 @@ const DocModal = {
     const canDelete = can('archives', 'manager');
     const canBill = can('achats', 'user') && canEdit;
     const FIELDS = ['title', 'folder_id', 'kind', 'doc_date', 'correspondent', 'reference', 'amount', 'notes', 'contract_start', 'contract_end', 'notice_days', 'cancel_by', 'renewal', 'reminder_days'];
-    let timer = null;
-    const take = (x) => { d.value = x; f.value = Object.fromEntries(FIELDS.map((k) => [k, x[k] ?? (k === 'renewal' ? '' : null)])); };
+    let timer = null, closing = false, last = null;
+    const base = ref(null); // valeurs chargées : ce qui en diffère est une modification de l'utilisateur
+    const pick = (x) => Object.fromEntries(FIELDS.map((k) => [k, x[k] ?? (k === 'renewal' ? '' : null)]));
+    const blank = (v) => (v === '' || v === undefined ? null : v);
+    const same = (a, b) => blank(a) === blank(b);
+    const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    // date limite de résiliation = fin du contrat − préavis
+    const derive = (end, n) => { if (!end || blank(n) === null || !Number.isInteger(Number(n)) || Number(n) < 0) return null; const x = new Date(end + 'T12:00:00'); x.setDate(x.getDate() - Number(n)); return iso(x); };
+    const take = (x) => { d.value = x; base.value = pick(x); f.value = pick(x); last = derive(x.contract_end, x.notice_days); };
+    const changed = computed(() => (f.value && base.value ? FIELDS.filter((k) => !same(f.value[k], base.value[k])) : []));
+    const dirty = computed(() => changed.value.length > 0);
     const load = async () => {
       const x = await GET('/archives/docs/' + props.id);
-      // pendant que l'IA lit, on rafraîchit sans effacer ce que l'utilisateur est en train de taper
-      if (!d.value || !dirty.value) take(x); else d.value = { ...x };
+      if (!d.value || !dirty.value) take(x);
+      else {
+        // L'IA a fini de lire pendant que l'utilisateur tapait : les champs qu'il n'a pas touchés prennent les nouvelles
+        // valeurs, les siens restent — et seuls les siens seront enregistrés
+        const fresh = pick(x);
+        for (const k of FIELDS) { if (same(f.value[k], base.value[k])) f.value[k] = fresh[k]; base.value[k] = fresh[k]; }
+        d.value = x;
+      }
       clearTimeout(timer);
       if (['queued', 'analyzing'].includes(x.status)) timer = setTimeout(() => load().catch(() => {}), 2000);
     };
-    const dirty = computed(() => !!d.value && !!f.value && FIELDS.some((k) => (f.value[k] ?? null) !== (d.value[k] ?? (k === 'renewal' ? '' : null)) && !((f.value[k] === '' || f.value[k] === null) && (d.value[k] ?? null) === null)));
-    onMounted(() => load().catch((e) => { toast(e.message, 'error'); emit('close'); }));
-    onUnmounted(() => clearTimeout(timer));
+    // document introuvable (supprimé, lien ancien) : on ferme sans ajouter de page à l'historique du navigateur
+    onMounted(() => load().catch((e) => { toast(e.message, 'error'); emit('close', true); }));
+    // Bouton Retour du navigateur ou lien vers une autre page : même question qu'à la fermeture
+    const leaveOk = () => closing || !dirty.value || confirm('Les modifications ne sont pas enregistrées. Fermer quand même ?');
+    onMounted(() => leaveGuards.add(leaveOk));
+    onUnmounted(() => { clearTimeout(timer); leaveGuards.delete(leaveOk); });
     const reading = computed(() => ['queued', 'analyzing'].includes(d.value?.status));
     const isImage = computed(() => String(d.value?.mime || '').startsWith('image/'));
     const isContract = computed(() => ['contract', 'insurance'].includes(f.value?.kind) || !!(f.value?.contract_end || f.value?.cancel_by || f.value?.contract_start || d.value?.contract_end));
     const showContract = ref(false);
-    // Date limite de résiliation proposée dès que la fin et le préavis sont connus (elle reste modifiable)
+    // Date limite de résiliation proposée quand la fin ou le préavis changent — seulement si le champ est vide ou contient
+    // encore la proposition précédente : une date tapée à la main (celle du contrat) n'est jamais remplacée
     const suggest = () => {
-      const { contract_end: end, notice_days: n } = f.value;
-      if (!end || n === null || n === '' || !Number.isInteger(Number(n)) || Number(n) < 0) return;
-      const x = new Date(end + 'T12:00:00'); x.setDate(x.getDate() - Number(n));
-      f.value.cancel_by = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+      const next = derive(f.value.contract_end, f.value.notice_days);
+      if (!next) return;
+      if (!f.value.cancel_by || f.value.cancel_by === last) f.value.cancel_by = next;
+      last = next;
     };
     const save = async () => {
       if (busy.value) return;
       busy.value = true;
       try {
-        const body = Object.fromEntries(FIELDS.map((k) => [k, f.value[k] === '' ? null : f.value[k]]));
+        const body = Object.fromEntries(changed.value.map((k) => [k, blank(f.value[k])]));
         await act(() => PUT('/archives/docs/' + props.id, body), 'Document enregistré');
         take(await GET('/archives/docs/' + props.id));
         emit('changed');
@@ -84,9 +108,9 @@ const DocModal = {
     };
     const remove = async () => {
       if (!confirm(`Supprimer définitivement « ${d.value.title} » et son fichier ?`)) return;
-      try { await act(() => DEL('/archives/docs/' + props.id), 'Document supprimé'); emit('changed'); emit('close', true); } catch { /* message déjà affiché */ }
+      try { await act(() => DEL('/archives/docs/' + props.id), 'Document supprimé'); closing = true; emit('changed'); emit('close', true); } catch { /* message déjà affiché */ }
     };
-    const close = () => { if (dirty.value && !confirm('Les modifications ne sont pas enregistrées. Fermer quand même ?')) return; emit('close'); };
+    const close = () => { if (dirty.value && !confirm('Les modifications ne sont pas enregistrées. Fermer quand même ?')) return; closing = true; emit('close'); };
     return { d, f, busy, dirty, reading, isImage, isContract, showContract, canEdit, canDelete, canBill, suggest, save, reread, bill, remove, close, STATUS, size, due, fdate, money };
   },
   template: `
@@ -178,7 +202,7 @@ const AskModal = {
       } catch (e) { item.error = e.message; } finally { busy.value = false; nextTick(() => { if (box.value) box.value.scrollTop = box.value.scrollHeight; }); }
     };
     // un lien vers un document, dans la réponse, ferme la fenêtre pour montrer ce document
-    const follow = (e) => { if (e.target.closest('a')) emit('close'); };
+    const follow = (e) => { if ((e.target.closest('a')?.getAttribute('href') || '').startsWith('#/archives')) emit('close'); };
     return { q, busy, talk, box, IDEAS, ask, follow };
   },
   template: `
@@ -244,7 +268,7 @@ const SettingsModal = {
       <label>Ranger les e-mails traités dans<input v-model="box.processed_folder" placeholder="(facultatif) Traités"></label>
       <label>Relever toutes les (minutes)<input v-model.number="box.interval" type="number" min="1" max="1440"></label>
       <label class="full">Expéditeurs acceptés (vide = tout le monde)<input v-model="box.allowed_senders" placeholder="vous@votre-garage.lu, @votre-fiduciaire.lu">
-        <span class="muted small">Recommandé : sans cette liste, toute personne qui connaît l'adresse peut y déposer des documents.</span></label>
+        <span class="muted small">Recommandé : sans cette liste, tout message reçu à cette adresse est importé. La liste compare l'adresse affichée par le message (un message que votre hébergeur signale comme falsifié est refusé) : c'est un filtre, pas une preuve de qui écrit.</span></label>
       <p v-if="box.status" class="full muted small" style="margin:0">Dernier relevé : {{ datetime(box.status.at) }} — {{ box.status.error ? 'erreur : ' + box.status.error : box.status.emails + ' e-mail(s), ' + box.status.documents + ' document(s)' }}</p>
     </div>
     <template #foot>
@@ -293,13 +317,15 @@ export const Archives = {
       if (meta.value.reading > 0) poll = setTimeout(() => load().catch(() => {}), 2500);
     };
     onMounted(() => load().catch((e) => toast(e.message, 'error')));
-    onUnmounted(() => { clearTimeout(poll); clearTimeout(typing); });
+    onUnmounted(() => { clearTimeout(poll); clearTimeout(typing); clearTimeout(dragOff); });
     watch(() => route.query.doc, (v) => { open.value = Number(v) || null; });
     watch(() => route.query.view, (v) => { view.value = v === 'deadlines' ? 'deadlines' : 'docs'; });
     watch([folder, kind], () => loadDocs().catch(() => {}));
     watch(q, () => { clearTimeout(typing); typing = setTimeout(() => loadDocs().catch(() => {}), 250); });
     const pick = (id) => { folder.value = id; if (view.value !== 'docs') go('/archives'); };
     const current = computed(() => meta.value?.folders.find((f) => f.id === folder.value) || null);
+    // dossier où arrive un dépôt : celui qui est ouvert, sauf « À classer » (là, l'IA range le document elle-même)
+    const target = computed(() => (current.value && current.value.system !== 'inbox' ? current.value : null));
     const pathOf = (id) => meta.value?.folders.find((f) => f.id === id)?.path || '';
     const total = computed(() => (meta.value?.folders || []).filter((f) => f.depth === 0).reduce((s, f) => s + f.count, 0));
     const upcoming = computed(() => deadlines.value.filter((d) => daysTo(d.deadline) !== null && daysTo(d.deadline) >= 0));
@@ -312,14 +338,23 @@ export const Archives = {
       try {
         for (const [i, f] of files.entries()) {
           sending.text = `Envoi de ${f.name} (${i + 1}/${files.length})…`;
-          try { lastId = (await uploadFile('/archives/upload' + (folder.value ? '?folder=' + folder.value : ''), f)).id; ok += 1; } catch (e) { toast(`${f.name} : ${e.message}`, 'error'); }
+          try { lastId = (await uploadFile('/archives/upload' + (target.value ? '?folder=' + target.value.id : ''), f)).id; ok += 1; } catch (e) { toast(`${f.name} : ${e.message}`, 'error'); }
         }
       } finally { sending.on = false; }
       if (ok) toast(ok === 1 ? 'Document reçu' + (meta.value.ai ? ' : l’IA le lit et le range' : '') : `${ok} documents reçus` + (meta.value.ai ? ' : l’IA les lit et les range' : ''));
       await load();
       if (ok === 1 && files.length === 1 && lastId) go('/archives?doc=' + lastId);
     };
-    const drop = (e) => { drag.value = false; if (canEdit) send(e.dataTransfer.files); };
+    // Voile « déposez ici » : seulement pour des fichiers ; il s'efface tout seul dès que le glissement s'arrête
+    // (abandon, sortie de la fenêtre), l'événement « dragover » se répétant tant que le fichier survole la page
+    let dragOff = null;
+    const over = (e) => {
+      if (!canEdit || !e.dataTransfer?.types?.includes('Files')) return;
+      drag.value = true;
+      clearTimeout(dragOff);
+      dragOff = setTimeout(() => { drag.value = false; }, 700);
+    };
+    const drop = (e) => { clearTimeout(dragOff); drag.value = false; if (canEdit && e.dataTransfer?.files?.length) send(e.dataTransfer.files); };
     const readPending = async () => { try { const r = await act(() => POST('/archives/analyze-pending')); toast(`${r.queued} document(s) envoyé(s) en lecture`); await load(); } catch { /* message déjà affiché */ } };
     const newFolder = async () => {
       const name = prompt(current.value ? `Nom du nouveau dossier, dans « ${current.value.path} » :` : 'Nom du nouveau dossier :');
@@ -335,7 +370,15 @@ export const Archives = {
       if (!confirm(`Supprimer le dossier « ${current.value.path} » ?`)) return;
       try { await act(() => DEL('/archives/folders/' + current.value.id), 'Dossier supprimé'); folder.value = null; await load(); } catch { /* message déjà affiché */ }
     };
-    const closeDoc = () => { const p = new URLSearchParams(route.query); p.delete('doc'); go('/archives' + (p.size ? '?' + p : '')); open.value = null; };
+    // `gone` : le document n'existe plus (supprimé, lien ancien) — on ne change pas d'adresse, pour que le bouton Retour
+    // du navigateur ne ramène pas sans fin sur un document introuvable
+    const closeDoc = (gone) => {
+      open.value = null;
+      if (gone === true) return;
+      const p = new URLSearchParams(route.query); p.delete('doc');
+      const qs = p.toString();
+      go('/archives' + (qs ? '?' + qs : ''));
+    };
 
     // Calendrier des échéances (mois affiché)
     const month = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -352,10 +395,10 @@ export const Archives = {
       return Array.from({ length: 42 }, (_, i) => { const x = new Date(start); x.setDate(start.getDate() + i); const key = iso(x); return { key, day: x.getDate(), other: x.getMonth() !== first.getMonth(), today: key === today(), events: events[key] || [] }; });
     });
     return { meta, docs, deadlines, upcoming, folder, view, q, kind, open, asking, settings, drag, sending, canEdit, canManage, admin, current, pathOf, total, month, days,
-      load, pick, send, drop, readPending, newFolder, rename, removeFolder, closeDoc, shift, go, STATUS, due, fdate, money, datetime };
+      load, pick, send, over, drop, readPending, target, newFolder, rename, removeFolder, closeDoc, shift, go, STATUS, due, fdate, money, datetime };
   },
   template: `
-  <div v-if="meta" class="arch-page" @dragover.prevent="drag = canEdit" @dragleave.self="drag = false" @drop.prevent="drop">
+  <div v-if="meta" class="arch-page" @dragover.prevent="over" @drop.prevent="drop">
     <div class="page-head">
       <div><h1>Documents</h1><div class="sub">L'IA lit vos papiers, les range et vous prévient avant la fin d'un contrat.</div></div>
       <div class="btns">
@@ -408,7 +451,7 @@ export const Archives = {
             </table></div>
             <Empty v-if="!docs.length" icon="file-text" :text="q || kind ? 'Aucun document ne correspond' : current ? 'Ce dossier est vide' : 'Aucun document pour l’instant'"/>
           </div>
-          <p v-if="canEdit" class="muted small arch-hint"><Icon name="upload" class="ti"/> Glissez des fichiers n'importe où sur cette page pour les déposer{{ current ? ' dans « ' + current.path + ' »' : '' }}.
+          <p v-if="canEdit" class="muted small arch-hint"><Icon name="upload" class="ti"/> Glissez des fichiers n'importe où sur cette page pour les déposer{{ target ? ' dans « ' + target.path + ' »' : '' }}.
             <template v-if="meta.inbox.address"> <Icon name="mail" class="ti"/> Ou transférez-les à <b>{{ meta.inbox.address }}</b>{{ meta.inbox.enabled ? '' : ' (relevé automatique coupé)' }}.</template>
             <template v-else-if="admin"> <Icon name="mail" class="ti"/> <a href="#" @click.prevent="settings = true">Régler la réception par e-mail</a>.</template></p>
         </template>
@@ -441,7 +484,7 @@ export const Archives = {
         </template>
       </section>
     </div>
-    <div v-if="drag && canEdit" class="arch-drop"><div><Icon name="upload"/><b>Déposez vos documents ici</b><span v-if="current">dans « {{ current.path }} »</span></div></div>
+    <div v-if="drag && canEdit" class="arch-drop"><div><Icon name="upload"/><b>Déposez vos documents ici</b><span v-if="target">dans « {{ target.path }} »</span></div></div>
     <DocModal v-if="open" :key="open" :id="open" :folders="meta.folders" :kinds="meta.kinds" :ai="meta.ai" @close="closeDoc" @changed="load"/>
     <AskModal v-if="asking" :ai="meta.ai" @close="asking = false"/>
     <SettingsModal v-if="settings" :config="meta.config" @close="settings = false" @changed="load"/>

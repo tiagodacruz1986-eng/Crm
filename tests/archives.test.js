@@ -25,9 +25,12 @@ const claude = http.createServer((req, res) => {
     seen.push(JSON.parse(b));
     const next = queue.shift() ?? { text: 'ok' };
     if (next.http) { res.writeHead(next.http, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Detail' } })); return; }
-    const content = next.tool ? [{ type: 'tool_use', id: 'tu_' + seen.length, name: next.tool, input: next.input || {} }] : [{ type: 'text', text: next.text ?? JSON.stringify(next) }];
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'test', usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: next.tool ? 'tool_use' : 'end_turn', content }));
+    const { delay = 0, ...card } = next;
+    const content = next.tool ? [{ type: 'tool_use', id: 'tu_' + seen.length, name: next.tool, input: next.input || {} }] : [{ type: 'text', text: next.text ?? JSON.stringify(card) }];
+    setTimeout(() => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'test', usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: next.tool ? 'tool_use' : 'end_turn', content }));
+    }, delay);
   });
 });
 
@@ -422,6 +425,170 @@ test('suppression : le fichier et le rappel partent avec le document ; mot de pa
   assert.equal((await A('GET', `/archives/docs/${inv.id}`)).data.purchase, null);
 });
 
+const BILL = (n, name = 'Autodis SA', vat = 'LU12345678') => ({ is_invoice: true, is_credit_note: false, supplier: { name, vat_number: vat, iban: null, email: null, phone: null, address: null, zip: null, city: 'Luxembourg', country: 'LU' },
+  invoice_number: n, invoice_date: `${YEAR}-05-02`, due_date: null, currency: 'EUR', lines: [{ description: 'Pièces', reference: null, quantity: 1, unit_price_ht: 100, tax_rate: 17, total_ht: 100, account_code: '6061' }], total_ht: 100, total_tax: 17, total_ttc: 117, remarks: '' });
+const purchases = async () => (await A('GET', '/purchases')).data;
+
+test('factures : jamais encodées deux fois, ni par quelqu\'un qui n\'a pas le droit Achats ; lien défait si l\'achat est supprimé', async () => {
+  await A('PUT', '/archives/config', { auto_bills: true, reminder_days: 30 });
+  // l'encodage automatique est encore en cours : le document reste « en lecture », et un second encodage est refusé
+  queue.push({ ...CARD, type: 'invoice', titre: 'Facture en double ?', date_document: `${YEAR}-05-02` }, { ...BILL('DBL-1'), delay: 500 });
+  const before = (await purchases()).length;
+  const up = await upload('double.pdf', pdf('facture double'));
+  let d;
+  for (let i = 0; i < 100; i++) { d = (await A('GET', `/archives/docs/${up.data.id}`)).data; if (d.kind === 'invoice') break; await new Promise((r) => setTimeout(r, 20)); }
+  assert.equal(d.status, 'analyzing', 'la fiche n\'annonce pas « prêt » avant la fin de l\'encodage');
+  const second = await A('POST', `/archives/docs/${d.id}/bill`);
+  assert.equal(second.status, 400);
+  assert.match(second.data.error, /déjà en cours/);
+  d = await ready(d.id);
+  assert.ok(d.purchase?.id);
+  assert.equal((await purchases()).length, before + 1, 'une seule facture fournisseur');
+  // deux demandes d'encodage en même temps sur un document pas encore encodé : une seule passe
+  queue.push({ ...CARD, type: 'letter', titre: 'Lettre avec facture', date_document: `${YEAR}-05-03` });
+  const l = await ready((await upload('lettre-facture.pdf', pdf('lettre facture'))).data.id);
+  queue.push({ ...BILL('DBL-2'), delay: 300 });
+  const both = await Promise.all([A('POST', `/archives/docs/${l.id}/bill`), A('POST', `/archives/docs/${l.id}/bill`)]);
+  assert.deepEqual(both.map((r) => r.status).sort(), [200, 400]);
+  assert.equal((await purchases()).length, before + 2);
+
+  // l'achat est supprimé dans les Achats : le document ne pointe plus vers lui et peut être encodé de nouveau
+  const pid = (await A('GET', `/archives/docs/${l.id}`)).data.purchase.id;
+  assert.equal((await A('DELETE', `/purchases/${pid}`)).status, 200);
+  const freed = (await A('GET', `/archives/docs/${l.id}`)).data;
+  assert.equal(freed.purchase_id, null);
+  assert.equal(freed.purchase, null);
+  queue.push(BILL('DBL-3'));
+  assert.equal((await A('POST', `/archives/docs/${l.id}/bill`)).status, 200);
+
+  // un utilisateur sans le droit Achats : ses dépôts et ses relectures ne créent rien dans les Achats
+  const user = (await call('POST', '/auth/login', { email: 'utilisateur@t.lu', password: 'secret123' })).data.token;
+  const n = (await purchases()).length;
+  const calls = seen.length;
+  queue.push({ ...CARD, type: 'invoice', titre: 'Facture déposée sans droit Achats', date_document: `${YEAR}-05-04` });
+  const u = await ready((await upload('sans-droit.pdf', pdf('sans droit achats'), { tok: user })).data.id, user);
+  assert.equal(u.kind, 'invoice');
+  assert.equal(u.purchase, null);
+  assert.equal(seen.length, calls + 1, 'la facture n\'est pas envoyée une seconde fois à l\'IA pour l\'encoder');
+  queue.push({ ...CARD, type: 'letter', titre: 'Avertissement — confidentiel' });
+  const hr = await ready((await upload('rh.pdf', pdf('avertissement'), { tok: user })).data.id, user);
+  assert.equal((await call('PUT', `/archives/docs/${hr.id}`, { kind: 'invoice' }, user)).status, 200);
+  queue.push({ ...CARD, type: 'letter', titre: 'Avertissement — confidentiel' });
+  assert.equal((await call('POST', `/archives/docs/${hr.id}/analyze`, {}, user)).status, 200);
+  assert.equal((await ready(hr.id, user)).purchase, null);
+  assert.equal((await purchases()).length, n, 'aucun achat créé');
+  // relu par le gérant, le même document est encodé
+  queue.push({ ...CARD, type: 'invoice', titre: 'Facture déposée sans droit Achats', date_document: `${YEAR}-05-04` }, BILL('DBL-4'));
+  await A('POST', `/archives/docs/${u.id}/analyze`);
+  assert.ok((await ready(u.id)).purchase?.id);
+});
+
+test('contrats : dates corrigées respectées par la relecture, échéance dépassée, délai de rappel changé', async () => {
+  // l'utilisateur corrige la fin ; l'IA relit et trouve un préavis : la date limite part de la fin corrigée
+  queue.push({ ...CARD, type: 'contract', titre: 'Contrat de maintenance', contrat: { debut: null, fin: day(600), preavis_jours: null, date_limite_resiliation: null, reconduction_tacite: null } });
+  const c = await ready((await upload('maintenance.pdf', pdf('maintenance'))).data.id);
+  await A('PUT', `/archives/docs/${c.id}`, { contract_end: day(235) });
+  queue.push({ ...CARD, type: 'contract', titre: 'Contrat de maintenance', contrat: { debut: null, fin: day(600), preavis_jours: 90, date_limite_resiliation: null, reconduction_tacite: null } });
+  await A('POST', `/archives/docs/${c.id}/analyze`);
+  let x = await ready(c.id);
+  assert.equal(x.contract_end, day(235));
+  assert.equal(x.notice_days, 90);
+  assert.equal(x.cancel_by, day(145), 'fin corrigée − préavis relu, jamais après la fin');
+  assert.equal(x.reminder.due_date, day(115));
+  // le préavis change : la date limite calculée suit toute seule…
+  await A('PUT', `/archives/docs/${c.id}`, { notice_days: 30 });
+  assert.equal((await A('GET', `/archives/docs/${c.id}`)).data.cancel_by, day(205));
+  // …mais une date limite fixée à la main ne bouge plus, et une incohérence est refusée
+  await A('PUT', `/archives/docs/${c.id}`, { cancel_by: day(150) });
+  await A('PUT', `/archives/docs/${c.id}`, { notice_days: 60 });
+  assert.equal((await A('GET', `/archives/docs/${c.id}`)).data.cancel_by, day(150));
+  assert.equal((await A('PUT', `/archives/docs/${c.id}`, { contract_end: day(100) })).status, 400);
+
+  // date limite de résiliation dépassée, fin du contrat à venir : le rappel annonce la fin, et une simple note ne l'annule pas
+  await A('PUT', `/archives/docs/${c.id}`, { contract_end: day(40), cancel_by: day(-50) });
+  x = (await A('GET', `/archives/docs/${c.id}`)).data;
+  assert.equal(x.reminder.status, 'planned');
+  assert.equal(x.reminder.due_date, day(10));
+  assert.match(x.reminder.summary, /se termine le .*date limite de résiliation dépassée/);
+  await A('PUT', `/archives/docs/${c.id}`, { notes: 'À renégocier' });
+  x = (await A('GET', `/archives/docs/${c.id}`)).data;
+  assert.equal(x.reminder.status, 'planned');
+  assert.ok((await A('GET', '/archives/deadlines')).data.some((r) => r.id === c.id));
+
+  // délai de rappel changé dans les réglages : les rappels en attente suivent ; un rappel déjà traité n'est pas recréé
+  await A('PUT', `/archives/docs/${c.id}`, { contract_end: day(300), cancel_by: day(200) });
+  assert.equal((await A('GET', `/archives/docs/${c.id}`)).data.reminder.due_date, day(170));
+  await A('PUT', '/archives/config', { reminder_days: 90 });
+  x = (await A('GET', `/archives/docs/${c.id}`)).data;
+  assert.equal(x.reminder.due_date, day(110));
+  await A('POST', `/activities/${x.reminder.id}/done`, {});
+  await A('PUT', '/archives/config', { reminder_days: 45 });
+  await A('PUT', `/archives/docs/${c.id}`, { notes: 'Vu avec le fournisseur' });
+  x = (await A('GET', `/archives/docs/${c.id}`)).data;
+  assert.equal(x.reminder.status, 'done', 'même échéance : pas de second rappel');
+  await A('PUT', '/archives/config', { reminder_days: 30 });
+});
+
+test('confidentialité : le rappel d\'un contrat ne sort ni par Nova, ni après le retrait du droit ; rien ne reste d\'un document supprimé', async () => {
+  // un utilisateur dépose un contrat : le rappel est pour lui
+  const user = (await call('POST', '/auth/login', { email: 'utilisateur@t.lu', password: 'secret123' })).data.token;
+  queue.push({ ...CARD, type: 'hr', titre: 'Contrat de travail CDD — Marie Dupont', correspondant: 'Marie Dupont', reference: 'RH-2026-07', contrat: { debut: null, fin: day(20), preavis_jours: 15, date_limite_resiliation: null, reconduction_tacite: false } });
+  const d = await ready((await upload('cdd.pdf', pdf('cdd marie'), { tok: user })).data.id, user);
+  const users = (await A('GET', '/users')).data;
+  const uid = users.find((u) => u.email === 'utilisateur@t.lu').id;
+  assert.equal((await A('GET', '/activities')).data.find((a) => a.id === d.reminder.id).user_id, uid);
+
+  // quelqu'un qui a Nova mais pas les Documents ne lit ce rappel nulle part
+  const nova = await userWith({ ia: 'manager', ventes: 'user' }, 'nova');
+  const stats = await call('GET', '/copilot/stats?date=2099-12-31', undefined, nova);
+  assert.equal(stats.status, 200);
+  assert.ok(!stats.text.includes('Marie Dupont') && !stats.text.includes('RH-2026-07'), 'bilan de la journée');
+  assert.ok(!(await call('GET', '/activities', undefined, nova)).text.includes('Marie Dupont'));
+  assert.ok((await A('GET', '/copilot/stats?date=2099-12-31')).text.includes('Marie Dupont'), 'le gérant, lui, le voit');
+
+  // droit retiré à celui qui a déposé : à la prochaine modification, le rappel passe au gérant
+  await A('PUT', `/users/${uid}`, { permissions: { ventes: 'user' } });
+  assert.equal((await call('GET', '/archives', undefined, user)).status, 403);
+  await A('PUT', `/archives/docs/${d.id}`, { notes: 'Dossier repris par le gérant' });
+  const act = (await A('GET', '/activities?mine=1')).data.find((a) => a.id === d.reminder.id);
+  assert.ok(act, 'le rappel est maintenant dans les activités du gérant');
+  assert.ok(!(await call('GET', '/activities', undefined, user)).text.includes('Marie Dupont'));
+  await A('PUT', `/users/${uid}`, { permissions: { archives: 'user' } });
+
+  // suppression : historique, activités et rappel disparaissent, et le numéro n'est jamais réutilisé
+  await A('POST', '/activities', { model: 'archive', record_id: d.id, summary: 'Appeler l\'avocat pour le dossier Marie Dupont', due_date: day(3) });
+  assert.ok((await A('GET', `/chatter/archive/${d.id}`)).text.includes('Marie Dupont'));
+  assert.equal((await A('DELETE', `/archives/docs/${d.id}`)).status, 200);
+  for (const url of ['/activities', '/activities?status=cancelled', '/activities?status=done', `/chatter/archive/${d.id}`]) assert.ok(!(await A('GET', url)).text.includes('Marie Dupont'), url);
+  queue.push({ ...CARD, type: 'other', titre: 'Publicité pneus hiver' });
+  const next = await ready((await upload('pub.pdf', pdf('pub pneus'))).data.id);
+  assert.ok(next.id > d.id, 'nouveau numéro');
+  assert.ok(!(await A('GET', `/chatter/archive/${next.id}`)).text.includes('Marie Dupont'));
+});
+
+test('dépôt dans « À classer » : rangé quand même ; document supprimé pendant sa lecture : rien n\'est écrit ailleurs', async () => {
+  const inbox = await folderId('À classer');
+  queue.push({ ...CARD, type: 'vehicle', titre: 'Contrôle technique XY 9876' });
+  const v = await ready((await upload('ct.pdf', pdf('controle technique'), { folder: inbox })).data.id);
+  assert.equal(v.folder_name, 'Véhicules');
+
+  // le mauvais fichier est supprimé pendant que l'IA le lit, le bon est déposé aussitôt
+  queue.push({ ...CARD, type: 'invoice', titre: 'Facture du mauvais fichier', delay: 400 }, { ...CARD, type: 'letter', titre: 'La bonne lettre', date_document: `${YEAR}-06-01` });
+  const n = (await purchases()).length;
+  const wrong = await upload('mauvais.pdf', pdf('mauvais fichier'));
+  for (let i = 0; i < 50 && (await A('GET', `/archives/docs/${wrong.data.id}`)).data.status !== 'analyzing'; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal((await A('DELETE', `/archives/docs/${wrong.data.id}`)).status, 200);
+  const right = await upload('bonne-lettre.pdf', pdf('bonne lettre'));
+  assert.ok(right.data.id > wrong.data.id);
+  const r = await ready(right.data.id);
+  assert.equal(r.title, 'La bonne lettre');
+  assert.equal(r.kind, 'letter');
+  assert.equal(r.purchase, null);
+  await new Promise((res) => setTimeout(res, 300));
+  assert.equal((await purchases()).length, n);
+  assert.equal((await A('GET', `/archives/docs/${wrong.data.id}`)).status, 404);
+});
+
 test('sans clé IA : le document est gardé dans « À classer », la recherche marche, les questions sont refusées', async () => {
   const tok = await start(PORT + 100, dirs[1], { ANTHROPIC_API_KEY: '' });
   const n = seen.length;
@@ -494,6 +661,31 @@ test('réception par e-mail : pièces jointes rangées, signature et invitations
   await idle();
   assert.equal(seen.length, n + 1);
   assert.equal(D.getDoc(yes.created[0]).folder_name, '2026');
+  // un message dont l'adresse est dans la liste, mais que l'hébergeur signale comme falsifié : refusé
+  const forged = await D.processRawEmail(await mail({ subject: 'Urgent', messageId: '<m6@x>', from: 'scan@garage.lu', headers: { 'Authentication-Results': 'mx.hebergeur.lu; spf=fail smtp.mailfrom=spam.com; dkim=none; dmarc=fail header.from=garage.lu' },
+    attachments: [{ filename: 'faux.pdf', content: pdf('faux'), contentType: 'application/pdf' }] }));
+  assert.equal(forged.result, 'expéditeur non autorisé');
+  // factures transférées par le scanner du garage : son adresse ne devient pas celle du fournisseur, et chaque
+  // fournisseur garde ses factures
+  const bill = (num, name, vat) => ({ is_invoice: true, is_credit_note: false, supplier: { name, vat_number: vat, iban: null, email: null, phone: null, address: null, zip: null, city: null, country: 'LU' }, invoice_number: num, invoice_date: '2026-05-02', due_date: null, currency: 'EUR',
+    lines: [{ description: 'Pièces', reference: null, quantity: 1, unit_price_ht: 100, tax_rate: 17, total_ht: 100, account_code: '6061' }], total_ht: 100, total_tax: 17, total_ttc: 117, remarks: '' });
+  for (const [i, [num, name, vat]] of [['AD-1', 'Autodis SA', 'LU11111111'], ['PE-7', 'Pneus Express SARL', 'LU22222222']].entries()) {
+    queue.push({ ...CARD, type: 'invoice', titre: `Facture ${num}`, date_document: '2026-05-02' }, bill(num, name, vat));
+    const got = await D.processRawEmail(await mail({ subject: 'Scan', messageId: `<scan${i}@garage.lu>`, from: 'scan@garage.lu', headers: { 'Authentication-Results': 'mx.hebergeur.lu; spf=pass; dkim=pass; dmarc=pass' },
+      attachments: [{ filename: `${num}.pdf`, content: pdf('facture ' + num), contentType: 'application/pdf' }] }));
+    assert.equal(got.created.length, 1);
+    await idle();
+  }
+  const sup = db.all('SELECT s.name, s.email, p.supplier_ref FROM purchases p JOIN suppliers s ON s.id=p.supplier_id ORDER BY p.id');
+  assert.deepEqual(sup.map((x) => [x.name, x.supplier_ref]), [['Autodis SA', 'AD-1'], ['Pneus Express SARL', 'PE-7']]);
+  assert.ok(sup.every((x) => x.email !== 'scan@garage.lu'), 'l\'adresse du scanner n\'est pas celle d\'un fournisseur');
+
+  // les agents IA (Nova) ne donnent pas le texte d'un rappel de contrat à qui n'a pas l'application Documents
+  const { runTool } = await import('../src/agents.js');
+  const uid = db.insert('users', { name: 'Accueil', email: 'a@t.lu', role: 'office', permissions: JSON.stringify({ ia: 'user', ventes: 'user' }) }, ['name', 'email', 'role', 'permissions']);
+  const office = db.get('SELECT * FROM users WHERE id=?', uid);
+  assert.ok(!JSON.stringify(runTool('activites', { periode: 'all' }, office)).includes('Foyer'));
+  assert.ok(JSON.stringify(runTool('activites', { periode: 'all' }, db.get("SELECT * FROM users WHERE role='admin'"))).includes('Foyer'));
   // boîte non réglée : message clair
   D.saveInboxConfig({ host: '', user: '' });
   await assert.rejects(D.testInbox(), /Renseignez le serveur IMAP/);

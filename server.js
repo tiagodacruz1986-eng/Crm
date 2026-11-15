@@ -801,7 +801,12 @@ api.delete('/purchases/:id', wrap((req) => {
   const p = get('SELECT * FROM purchases WHERE id=?', req.params.id);
   if (p?.posted) throw new BusinessError('Achat comptabilisé : suppression impossible');
   if (get('SELECT 1 FROM purchase_lines WHERE purchase_id=? AND received_qty>0', req.params.id)) throw new BusinessError('Marchandise déjà réceptionnée');
-  tx(() => { run('DELETE FROM purchases WHERE id=?', req.params.id); forgetRecord('purchase', Number(req.params.id)); });
+  tx(() => {
+    run('DELETE FROM purchases WHERE id=?', req.params.id);
+    forgetRecord('purchase', Number(req.params.id));
+    // le document de l'application Documents d'où vient cette facture ne pointe plus vers elle (son numéro sera réutilisé)
+    run('UPDATE archive_docs SET purchase_id=NULL WHERE purchase_id=?', Number(req.params.id));
+  });
   return { ok: true };
 }));
 // Option « validation des achats » : au-delà du seuil, un achat encore en brouillon doit passer par un administrateur des achats
@@ -861,7 +866,7 @@ api.delete('/attachment/:id', wrap((req) => {
 api.get('/archives', (req, res) => res.json({
   folders: archives.listFolders(), kinds: Object.fromEntries(Object.entries(archives.KINDS).map(([k, v]) => [k, v.label])), config: archives.archivesConfig(), ai: aiConfigured(),
   reading: get("SELECT COUNT(*) n FROM archive_docs WHERE status IN ('queued','analyzing')").n,
-  unread: get("SELECT COUNT(*) n FROM archive_docs WHERE status IN ('manual','error') AND mime IN ('application/pdf','image/jpeg','image/png','image/webp','image/gif')").n,
+  unread: archives.pendingCount(),
   inbox: (({ enabled, user, status }) => ({ enabled: Boolean(enabled), address: user || '', status }))(archives.publicInboxConfig()),
 }));
 api.get('/archives/docs', (req, res) => res.json(archives.listDocs({ folder: req.query.folder, q: req.query.q, kind: req.query.kind, status: req.query.status })));
@@ -869,9 +874,9 @@ api.get('/archives/docs/:id', wrap((req) => archives.getDoc(req.params.id)));
 api.post('/archives/upload', rawBody, wrap((req) => archives.addDocument({ ...fileMeta(req), source: 'upload', folderId: Number(req.query.folder) || null, userId: req.user.id })));
 api.put('/archives/docs/:id', wrap((req) => archives.updateDoc(req.params.id, req.body, req.user.id)));
 api.delete('/archives/docs/:id', wrap((req) => archives.deleteDoc(req.params.id)));
-api.post('/archives/docs/:id/analyze', wrap((req) => archives.requeue(req.params.id)));
+api.post('/archives/docs/:id/analyze', wrap((req) => archives.requeue(req.params.id, req.user)));
 api.post('/archives/docs/:id/bill', wrap((req) => archives.encodeBill(req.params.id)));
-api.post('/archives/analyze-pending', wrap(() => archives.requeuePending()));
+api.post('/archives/analyze-pending', wrap((req) => archives.requeuePending(req.user)));
 api.post('/archives/folders', wrap((req) => archives.createFolder(req.body)));
 api.put('/archives/folders/:id', wrap((req) => archives.renameFolder(req.params.id, req.body?.name)));
 api.delete('/archives/folders/:id', wrap((req) => archives.deleteFolder(req.params.id)));

@@ -9,6 +9,7 @@ import { simpleParser } from 'mailparser';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import { db, all, get, run, insert, update, tx, getSettings, setSetting, fold, likeFold, isDate, today, localDate, localDateTime } from './db.js';
 import { BusinessError } from './business.js';
+import { can } from './access.js';
 import { saveAttachment, attachmentFile, deleteAttachment, createBillFromFile } from './bills.js';
 import { createActivity, logMessage } from './mail.js';
 import { aiConfigured, claudeClient, CLAUDE_MODEL, friendlyError, runLoop } from './claude.js';
@@ -19,7 +20,7 @@ CREATE TABLE IF NOT EXISTS archive_folders (
   system TEXT, position INTEGER DEFAULT 100, created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS archive_docs (
-  id INTEGER PRIMARY KEY, folder_id INTEGER REFERENCES archive_folders(id) ON DELETE SET NULL, filed_by TEXT DEFAULT 'ai',
+  id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER REFERENCES archive_folders(id) ON DELETE SET NULL, filed_by TEXT DEFAULT 'ai',
   title TEXT NOT NULL, filename TEXT, mime TEXT, size INTEGER, sha1 TEXT, attachment_id INTEGER,
   kind TEXT DEFAULT 'other', doc_date TEXT, correspondent TEXT, reference TEXT, amount REAL, currency TEXT,
   summary TEXT, facts TEXT, keywords TEXT, content TEXT, notes TEXT,
@@ -118,6 +119,10 @@ export function saveArchivesConfig(c = {}) {
   const days = c.reminder_days === undefined ? cur.reminder_days : Number(c.reminder_days);
   if (!Number.isInteger(days) || days < 0 || days > 365) throw new BusinessError('Rappel : indiquez un nombre de jours entre 0 et 365');
   setSetting('archives', { auto_bills: c.auto_bills === undefined ? cur.auto_bills : Boolean(c.auto_bills), reminder_days: days });
+  // Délai changé : les rappels encore en attente (sans délai propre au document) suivent tout de suite
+  if (days !== cur.reminder_days) {
+    for (const r of all("SELECT d.id FROM archive_docs d JOIN activities a ON a.id=d.reminder_activity_id WHERE a.status='planned' AND d.reminder_days IS NULL")) syncReminder(r.id);
+  }
   return archivesConfig();
 }
 
@@ -134,6 +139,9 @@ function sniff(buf) {
   return null;
 }
 const firstAdmin = () => get("SELECT id FROM users WHERE role='admin' AND active=1 ORDER BY id LIMIT 1")?.id || null;
+const activeUser = (id) => (id ? get('SELECT * FROM users WHERE id=? AND active=1', id) : null);
+// Cette personne peut-elle encoder une facture fournisseur ? (droit « Achats », niveau Utilisateur)
+const mayEncode = (userId) => { const u = activeUser(userId); return Boolean(u) && can(u, 'achats', 'user'); };
 const DOC_LIST = `d.id, d.folder_id, d.title, d.filename, d.mime, d.size, d.kind, d.doc_date, d.correspondent, d.reference, d.amount, d.currency,
   d.contract_start, d.contract_end, d.notice_days, d.cancel_by, d.renewal, d.purchase_id, d.status, d.ai_error, d.source, d.email_from, d.attachment_id, d.created_at`;
 
@@ -151,6 +159,8 @@ export function addDocument({ buffer, mime, filename, source = 'upload', emailFr
   }
   const folder = folderId ? get('SELECT id FROM archive_folders WHERE id=?', Number(folderId)) : null;
   if (folderId && !folder) throw new BusinessError('Dossier introuvable', 404);
+  // Déposer dans « À classer » n'est pas choisir un rangement : l'IA range alors le document comme les autres
+  const chosen = folder && folder.id !== systemFolder(INBOX) ? folder.id : null;
   const name = cleanFileName(filename);
   // Type gardé : celui que montre le contenu. Un fichier qui se dit PDF ou image sans l'être n'est jamais affiché comme tel.
   const real = sniff(buffer);
@@ -159,12 +169,13 @@ export function addDocument({ buffer, mime, filename, source = 'upload', emailFr
   const now = localDateTime();
   return tx(() => {
     const id = insert('archive_docs', {
-      folder_id: folder?.id || systemFolder(INBOX), filed_by: folder ? 'user' : 'ai', title: name.replace(/\.[A-Za-z0-9]{1,5}$/, '') || 'Document', filename: name, mime: kept, size: buffer.length, sha1,
+      folder_id: chosen || systemFolder(INBOX), filed_by: chosen ? 'user' : 'ai', title: name.replace(/\.[A-Za-z0-9]{1,5}$/, '') || 'Document', filename: name, mime: kept, size: buffer.length, sha1,
       status: 'queued', source, email_from: emailFrom, email_subject: emailSubject, created_by: userId, created_at: now, updated_at: now,
     }, ['folder_id', 'filed_by', 'title', 'filename', 'mime', 'size', 'sha1', 'status', 'source', 'email_from', 'email_subject', 'created_by', 'created_at', 'updated_at']);
     const att = saveAttachment('archive', id, { buffer, mime: kept, filename: name, source });
     run('UPDATE archive_docs SET attachment_id=? WHERE id=?', att, id);
-    enqueue(id);
+    // Une facture n'est encodée toute seule dans les Achats que si celui qui la dépose en a le droit (ou si elle arrive par e-mail)
+    enqueue(id, source === 'email' || mayEncode(userId));
     return { id };
   });
 }
@@ -210,10 +221,12 @@ const fr = (d) => (isDate(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 
 export function syncReminder(docId, userId = null) {
   const d = get('SELECT * FROM archive_docs WHERE id=?', docId);
   if (!d) return;
-  const target = d.cancel_by || d.contract_end;
-  const act = d.reminder_activity_id ? get('SELECT id, status FROM activities WHERE id=?', d.reminder_activity_id) : null;
+  // Date limite de résiliation dépassée : c'est la fin du contrat qu'on annonce encore
+  const byCancel = Boolean(d.cancel_by && d.cancel_by >= today());
+  const target = byCancel ? d.cancel_by : d.contract_end;
+  const act = d.reminder_activity_id ? get('SELECT id, status, user_id FROM activities WHERE id=?', d.reminder_activity_id) : null;
   const days = d.reminder_days ?? archivesConfig().reminder_days;
-  const key = target && target >= today() ? `${target}|${d.cancel_by ? 'r' : 'f'}|${days}` : null;
+  const key = target && target >= today() ? `${target}|${byCancel ? 'r' : 'f'}` : null;
   if (!key) { // plus d'échéance à venir : un rappel encore en attente n'a plus lieu d'être
     if (act?.status === 'planned') run("UPDATE activities SET status='cancelled' WHERE id=?", act.id);
     run('UPDATE archive_docs SET reminder_activity_id=NULL, reminder_key=NULL WHERE id=?', d.id);
@@ -221,14 +234,19 @@ export function syncReminder(docId, userId = null) {
   }
   let due = addDays(target, -days);
   if (due < today()) due = today();
-  const summary = d.cancel_by
+  const summary = byCancel
     ? `Contrat « ${d.title} » : à résilier avant le ${fr(d.cancel_by)}${d.contract_end ? ` (fin le ${fr(d.contract_end)})` : ''}`
-    : `Contrat « ${d.title} » : se termine le ${fr(d.contract_end)}`;
+    : `Contrat « ${d.title} » : se termine le ${fr(d.contract_end)}${d.cancel_by ? ` (date limite de résiliation dépassée depuis le ${fr(d.cancel_by)})` : ''}`;
   const note = [d.correspondent && `Avec : ${d.correspondent}`, d.reference && `Référence : ${d.reference}`, d.notice_days != null && `Préavis : ${d.notice_days} jours`,
     d.renewal === 'tacit' && 'Reconduction tacite : sans résiliation, le contrat repart.', 'Ouvrez le document dans l\'application Documents pour relire les conditions.'].filter(Boolean).join('\n');
-  if (act?.status === 'planned') run('UPDATE activities SET due_date=?, summary=?, note=? WHERE id=?', due, summary.slice(0, 250), note, act.id);
-  else if (!act || d.reminder_key !== key) {
-    const owner = userId || d.created_by || firstAdmin();
+  // Le rappel va à quelqu'un qui peut encore ouvrir le document : celui qui agit, sinon celui qui l'a déposé, sinon le gérant
+  const reads = (id) => { const u = activeUser(id); return Boolean(u) && can(u, 'archives', 'read'); };
+  const owner = [userId, d.created_by].find(reads) || firstAdmin();
+  if (act?.status === 'planned') {
+    run('UPDATE activities SET due_date=?, summary=?, note=? WHERE id=?', due, summary.slice(0, 250), note, act.id);
+    // droit retiré ou compte désactivé : le rappel change de mains (et n'est plus visible de l'ancien destinataire)
+    if (!reads(act.user_id) && owner) run('UPDATE activities SET user_id=?, created_by=? WHERE id=?', owner, owner, act.id);
+  } else if (!act || d.reminder_key !== key) {
     if (!owner) return;
     const id = createActivity({ model: 'archive', record_id: d.id, module: 'documents', type: 'reminder', summary: summary.slice(0, 250), note, due_date: due }, owner);
     run('UPDATE archive_docs SET reminder_activity_id=? WHERE id=?', id, d.id);
@@ -269,16 +287,22 @@ export function updateDoc(id, body = {}, userId = null) {
   const end = data.contract_end !== undefined ? data.contract_end : d.contract_end;
   const start = data.contract_start !== undefined ? data.contract_start : d.contract_start;
   if (start && end && end < start) throw new BusinessError('La fin du contrat est avant son début');
-  // Date limite de résiliation laissée vide : elle se déduit de la fin du contrat et du préavis
+  const mine = new Set(safeJson(d.user_fields, []));
+  // Date limite de résiliation : donnée, elle est gardée ; laissée vide, ou jamais fixée à la main alors que la fin ou le
+  // préavis changent, elle se déduit de la fin du contrat et du préavis
   const notice = data.notice_days !== undefined ? data.notice_days : d.notice_days;
+  const moved = ['contract_end', 'notice_days'].some((k) => data[k] !== undefined && (data[k] ?? null) !== (d[k] ?? null));
+  const derived = end && notice != null ? addDays(end, -notice) : null;
+  // (une date limite lue telle quelle dans le contrat, différente du calcul, n'est pas recalculée)
+  const wasDerived = !d.cancel_by || (d.contract_end && d.notice_days != null && d.cancel_by === addDays(d.contract_end, -d.notice_days));
+  if (data.cancel_by === undefined ? moved && wasDerived && !mine.has('cancel_by') : data.cancel_by === null) data.cancel_by = derived;
   const cancel = data.cancel_by !== undefined ? data.cancel_by : d.cancel_by;
-  if ((data.contract_end !== undefined || data.notice_days !== undefined || data.cancel_by !== undefined) && !cancel && end && notice != null) data.cancel_by = addDays(end, -notice);
-  if (data.cancel_by && end && data.cancel_by > end) throw new BusinessError('La date limite de résiliation est après la fin du contrat');
+  if (cancel && end && cancel > end) throw new BusinessError('La date limite de résiliation est après la fin du contrat');
   // Ce que l'utilisateur a corrigé lui-même n'est plus écrasé par une nouvelle lecture de l'IA
   const changed = Object.keys(data).filter((k) => (data[k] ?? null) !== (d[k] ?? null));
   if (!changed.length) return { id: d.id };
-  const mine = new Set(safeJson(d.user_fields, []));
-  for (const k of changed) if (k !== 'folder_id' && k !== 'notes' && k !== 'reminder_days') mine.add(k);
+  // (une date limite que le logiciel vient de déduire n'est pas une correction de l'utilisateur)
+  for (const k of changed) if (k !== 'folder_id' && k !== 'notes' && k !== 'reminder_days' && !(k === 'cancel_by' && data.cancel_by === derived)) mine.add(k);
   if (changed.includes('folder_id')) data.filed_by = 'user';
   update('archive_docs', d.id, { ...data, user_fields: JSON.stringify([...mine]), updated_at: localDateTime() }, [...EDITABLE, 'filed_by', 'user_fields', 'updated_at']);
   syncReminder(d.id, userId);
@@ -290,9 +314,15 @@ export function deleteDoc(id) {
   if (!d) throw new BusinessError('Document introuvable', 404);
   const i = queue.indexOf(d.id);
   if (i >= 0) queue.splice(i, 1);
-  for (const a of all("SELECT id FROM attachments WHERE model='archive' AND record_id=?", d.id)) deleteAttachment(a.id);
-  if (d.reminder_activity_id) run("UPDATE activities SET status='cancelled' WHERE id=? AND status='planned'", d.reminder_activity_id);
-  run('DELETE FROM archive_docs WHERE id=?', d.id);
+  tx(() => {
+    for (const a of all("SELECT id FROM attachments WHERE model='archive' AND record_id=?", d.id)) deleteAttachment(a.id);
+    // historique, notes, rappels et e-mails programmés partent avec le document
+    run("DELETE FROM messages WHERE model='archive' AND record_id=?", d.id);
+    run("DELETE FROM activities WHERE model='archive' AND record_id=?", d.id);
+    run("UPDATE emails SET status='cancelled' WHERE model='archive' AND record_id=? AND status='scheduled'", d.id);
+    run("UPDATE emails SET model=NULL, record_id=NULL WHERE model='archive' AND record_id=?", d.id);
+    run('DELETE FROM archive_docs WHERE id=?', d.id);
+  });
   return { ok: true };
 }
 
@@ -343,7 +373,7 @@ const str = (v, max) => (typeof v === 'string' && v.trim() ? v.replace(/\r/g, ''
 const dateIn = (v) => (isDate(v) ? v : null);
 
 /** Lit un document avec l'IA et range la fiche. Appelé par la file d'attente ; ne lève pas d'erreur (l'état du document la porte). */
-async function analyzeDoc(id) {
+async function analyzeDoc(id, allowEncode = false) {
   const d = get('SELECT * FROM archive_docs WHERE id=?', id);
   if (!d) return;
   const file = d.attachment_id ? attachmentFile(d.attachment_id) : null;
@@ -365,16 +395,18 @@ async function analyzeDoc(id) {
     out = resp.parsed_output;
     if (resp.stop_reason === 'refusal' || !out || typeof out !== 'object' || resp.stop_reason === 'max_tokens') throw new Error('L\'IA n\'a pas pu lire ce document. Relancez la lecture, ou complétez la fiche à la main.');
   } catch (e) {
-    if (!get('SELECT 1 FROM archive_docs WHERE id=?', id)) return; // supprimé pendant la lecture
+    if (get('SELECT sha1 FROM archive_docs WHERE id=?', id)?.sha1 !== d.sha1) return; // supprimé pendant la lecture
     return give('error', friendlyError(e).slice(0, 500));
   }
   const cur = get('SELECT * FROM archive_docs WHERE id=?', id);
-  if (!cur) return; // supprimé pendant la lecture
+  if (!cur || cur.sha1 !== d.sha1) return; // supprimé pendant la lecture
   const mine = new Set(safeJson(cur.user_fields, [])); // ce que l'utilisateur a corrigé lui-même reste tel quel
   const kind = mine.has('kind') ? cur.kind : KINDS[out.type] ? out.type : 'other';
   const c = out.contrat && typeof out.contrat === 'object' ? out.contrat : {};
-  const end = dateIn(c.fin);
-  const notice = Number.isInteger(c.preavis_jours) && c.preavis_jours >= 0 && c.preavis_jours <= 3660 ? c.preavis_jours : null;
+  // La date limite de résiliation se calcule avec les valeurs qui seront gardées : une fin ou un préavis corrigés à la
+  // main passent avant ce que l'IA relit
+  const end = mine.has('contract_end') ? cur.contract_end : dateIn(c.fin);
+  const notice = mine.has('notice_days') ? cur.notice_days : Number.isInteger(c.preavis_jours) && c.preavis_jours >= 0 && c.preavis_jours <= 3660 ? c.preavis_jours : null;
   let cancel = dateIn(c.date_limite_resiliation);
   if (cancel && end && cancel > end) cancel = null;
   if (!cancel && end && notice != null) cancel = addDays(end, -notice);
@@ -384,40 +416,56 @@ async function analyzeDoc(id) {
     contract_start: dateIn(c.debut), contract_end: end, notice_days: notice, cancel_by: cancel, renewal: c.reconduction_tacite === true ? 'tacit' : c.reconduction_tacite === false ? 'none' : null,
   };
   const data = Object.fromEntries(Object.entries(fresh).filter(([k]) => !mine.has(k)));
+  // Facture fournisseur : encodée dans les Achats comme une facture déposée là-bas (brouillon à vérifier), si le réglage
+  // le demande et si celui qui a déposé ou relancé la lecture a le droit d'encoder. Le document reste « en lecture »
+  // jusqu'à la fin de l'encodage : l'écran continue de se mettre à jour, et le bouton d'encodage n'est pas proposé entre-temps.
+  const encode = kind === 'invoice' && allowEncode && archivesConfig().auto_bills && !(cur.purchase_id && get('SELECT 1 FROM purchases WHERE id=?', cur.purchase_id));
   Object.assign(data, {
     summary: str(out.resume, 3000), facts: JSON.stringify((Array.isArray(out.points_cles) ? out.points_cles : []).map((x) => str(x, 400)).filter(Boolean).slice(0, 8)),
     keywords: (Array.isArray(out.mots_cles) ? out.mots_cles : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 12).join(', '), content: str(out.texte, 20000),
-    status: 'ready', ai_error: null, updated_at: localDateTime(),
+    status: encode ? 'analyzing' : 'ready', ai_error: null, updated_at: localDateTime(),
   });
   // Rangement automatique, sauf si quelqu'un a déjà choisi le dossier
   if (cur.filed_by !== 'user') data.folder_id = folderFor(kind, data.doc_date ?? cur.doc_date) || cur.folder_id;
   update('archive_docs', id, data, Object.keys(data));
   syncReminder(id);
   logMessage('archive', id, `Document lu par l'IA : ${KINDS[kind].label}${data.title ? ` — ${data.title}` : ''}`, null, 'system');
-  // Facture fournisseur : encodée dans les Achats comme une facture déposée là-bas (brouillon à vérifier)
-  if (kind === 'invoice' && archivesConfig().auto_bills && !cur.purchase_id) {
-    try { await encodeBill(id); } catch (e) { run('UPDATE archive_docs SET ai_error=? WHERE id=?', `Facture non encodée dans les Achats : ${e.message}`.slice(0, 500), id); }
+  if (encode) {
+    let note = null;
+    try { await encodeBill(id); } catch (e) { note = `Facture non encodée dans les Achats : ${e.message}`.slice(0, 500); }
+    run("UPDATE archive_docs SET status='ready', ai_error=? WHERE id=? AND sha1=?", note, id, d.sha1);
   }
 }
 
 /** Encode le document comme facture fournisseur dans les Achats (une copie du fichier y est jointe). */
+const encoding = new Set();
 export async function encodeBill(id) {
   const d = get('SELECT * FROM archive_docs WHERE id=?', Number(id));
   if (!d) throw new BusinessError('Document introuvable', 404);
   if (d.purchase_id && get('SELECT 1 FROM purchases WHERE id=?', d.purchase_id)) throw new BusinessError('Ce document est déjà encodé comme facture fournisseur');
+  if (encoding.has(d.id)) throw new BusinessError('L\'encodage de ce document dans les Achats est déjà en cours');
   const file = d.attachment_id ? attachmentFile(d.attachment_id) : null;
   if (!file) throw new BusinessError('Fichier introuvable sur le disque');
-  const r = await createBillFromFile({ buffer: fs.readFileSync(file.full), mime: file.mime, filename: d.filename, source: d.source === 'email' ? 'email' : 'upload', emailFrom: d.email_from, emailSubject: d.email_subject });
-  run('UPDATE archive_docs SET purchase_id=?, updated_at=? WHERE id=?', r.id, localDateTime(), d.id);
-  logMessage('archive', d.id, 'Encodé comme facture fournisseur dans les Achats', null, 'system');
-  return { purchase_id: r.id, warnings: r.warnings };
+  encoding.add(d.id);
+  try {
+    // La boîte « documents » reçoit des transferts (scanner, fiduciaire, gérant) : l'expéditeur n'est pas le fournisseur
+    // et ne doit servir ni à le reconnaître ni à le créer
+    const r = await createBillFromFile({ buffer: fs.readFileSync(file.full), mime: file.mime, filename: d.filename, source: d.source === 'email' ? 'email' : 'upload', emailFrom: null, emailSubject: d.email_subject });
+    if (get('SELECT sha1 FROM archive_docs WHERE id=?', d.id)?.sha1 === d.sha1) {
+      run('UPDATE archive_docs SET purchase_id=?, updated_at=? WHERE id=?', r.id, localDateTime(), d.id);
+      logMessage('archive', d.id, 'Encodé comme facture fournisseur dans les Achats', null, 'system');
+    }
+    return { purchase_id: r.id, warnings: r.warnings };
+  } finally { encoding.delete(d.id); }
 }
 
 // File d'attente : un document à la fois, en arrière-plan (le dépôt répond tout de suite)
 const queue = [];
+const encodeOk = new Map(); // document → la lecture peut-elle encoder une facture dans les Achats ?
 let working = false;
-function enqueue(id) {
+function enqueue(id, allowEncode = false) {
   if (!queue.includes(id)) queue.push(id);
+  encodeOk.set(id, allowEncode);
   setImmediate(pump);
 }
 async function pump() {
@@ -426,31 +474,38 @@ async function pump() {
   try {
     while (queue.length) {
       const id = queue.shift();
-      try { await analyzeDoc(id); } catch (e) { console.error('Documents — lecture par l\'IA :', e.message); try { run("UPDATE archive_docs SET status='error', ai_error=? WHERE id=?", 'Lecture interrompue : relancez-la.', id); } catch { /* base indisponible */ } }
+      const allow = encodeOk.get(id) === true;
+      encodeOk.delete(id);
+      try { await analyzeDoc(id, allow); } catch (e) { console.error('Documents — lecture par l\'IA :', e.message); try { run("UPDATE archive_docs SET status='error', ai_error=? WHERE id=?", 'Lecture interrompue : relancez-la.', id); } catch { /* base indisponible */ } }
     }
   } finally { working = false; }
 }
 /** La file est-elle vide ? (tests) */
 export const queueIdle = () => !working && !queue.length;
-/** Relance la lecture d'un document (bouton « Relire avec l'IA »). */
-export function requeue(id) {
+const NO_KEY = 'Lecture par l\'IA indisponible : aucune clé Claude n\'est configurée (l\'administrateur l\'ajoute dans Paramètres → Agents IA).';
+// Documents que l'IA pourrait lire et n'a pas lus (clé ajoutée après coup, lecture en échec)
+const PENDING = `status IN ('manual','error') AND mime IN ('application/pdf','image/jpeg','image/png','image/webp','image/gif') AND size<=${AI_MAX_BYTES}`;
+export const pendingCount = () => get(`SELECT COUNT(*) n FROM archive_docs WHERE ${PENDING}`).n;
+/** Relance la lecture d'un document (bouton « Relire avec l'IA »). `user` : celui qui la demande. */
+export function requeue(id, user = null) {
   const d = get('SELECT id FROM archive_docs WHERE id=?', Number(id));
   if (!d) throw new BusinessError('Document introuvable', 404);
-  if (!aiConfigured()) throw new BusinessError('Lecture par l\'IA indisponible : aucune clé Claude n\'est configurée (l\'administrateur l\'ajoute dans Paramètres → Agents IA).');
+  if (!aiConfigured()) throw new BusinessError(NO_KEY);
   run("UPDATE archive_docs SET status='queued', ai_error=NULL WHERE id=?", d.id);
-  enqueue(d.id);
+  enqueue(d.id, mayEncode(user?.id));
   return { id: d.id };
 }
-/** Lit tous les documents restés sans lecture (clé ajoutée après coup, lecture en échec). */
-export function requeuePending() {
-  if (!aiConfigured()) throw new BusinessError('Lecture par l\'IA indisponible : aucune clé Claude n\'est configurée (l\'administrateur l\'ajoute dans Paramètres → Agents IA).');
-  const ids = all("SELECT id FROM archive_docs WHERE status IN ('manual','error') AND mime IN ('application/pdf','image/jpeg','image/png','image/webp','image/gif') AND size<=?", AI_MAX_BYTES).map((r) => r.id);
-  for (const id of ids) { run("UPDATE archive_docs SET status='queued', ai_error=NULL WHERE id=?", id); enqueue(id); }
+/** Lit tous les documents restés sans lecture. */
+export function requeuePending(user = null) {
+  if (!aiConfigured()) throw new BusinessError(NO_KEY);
+  const ids = all(`SELECT id FROM archive_docs WHERE ${PENDING}`).map((r) => r.id);
+  const allow = mayEncode(user?.id);
+  for (const id of ids) { run("UPDATE archive_docs SET status='queued', ai_error=NULL WHERE id=?", id); enqueue(id, allow); }
   return { queued: ids.length };
 }
 /** Au démarrage : les lectures interrompues par un arrêt du logiciel reprennent. */
 export function resumeQueue() {
-  for (const r of all("SELECT id FROM archive_docs WHERE status IN ('queued','analyzing') ORDER BY id")) enqueue(r.id);
+  for (const r of all("SELECT id, source, created_by FROM archive_docs WHERE status IN ('queued','analyzing') ORDER BY id")) enqueue(r.id, r.source === 'email' || mayEncode(r.created_by));
 }
 
 // ---------- Interroger les documents ----------
@@ -552,11 +607,17 @@ export async function testInbox() {
 }
 const MAIL_EXT = /\.(pdf|jpe?g|png|webp|gif|docx?|xlsx?|odt|ods|rtf|txt|csv)$/i;
 // L'expéditeur est-il accepté ? (liste vide = tout le monde ; une entrée « @domaine.lu » accepte tout le domaine)
-function senderAllowed(from) {
+// L'adresse affichée d'un e-mail peut être imitée : quand l'hébergeur de la boîte a noté que l'authentification du
+// message échoue (en-tête Authentication-Results), le message est refusé même si l'adresse est dans la liste.
+function senderAllowed(from, mail) {
   const list = String(inboxConfig().allowed_senders || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   if (!list.length) return true;
   const a = String(from || '').toLowerCase();
-  return list.some((x) => (x.startsWith('@') ? a.endsWith(x) : a === x));
+  if (!list.some((x) => (x.startsWith('@') ? a.endsWith(x) : a === x))) return false;
+  const auth = [].concat(mail?.headers?.get('authentication-results') ?? []).map((h) => (typeof h === 'string' ? h : h?.value || h?.text || '')).join(' ; ').toLowerCase();
+  if (/\bdmarc=fail\b/.test(auth)) return false;
+  if (/\bspf=(fail|softfail)\b/.test(auth) && !/\bdkim=pass\b/.test(auth)) return false;
+  return true;
 }
 /** Traite un e-mail brut : chaque pièce jointe devient un document (les petites images de signature sont ignorées). */
 export async function processRawEmail(raw) {
@@ -566,7 +627,7 @@ export async function processRawEmail(raw) {
   const from = mail.from?.value?.[0]?.address || null;
   const created = [];
   let result;
-  if (!senderAllowed(from)) result = 'expéditeur non autorisé';
+  if (!senderAllowed(from, mail)) result = 'expéditeur non autorisé';
   else {
     // pièces jointes gardées : PDF, images (sauf les petits logos de signature) et documents de bureau ; le reste
     // (invitations d'agenda, signatures électroniques, cartes de visite…) n'est pas un document à classer

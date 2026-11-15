@@ -213,8 +213,10 @@ export function runTool(name, input = {}, user = null) {
         ORDER BY COALESCE(v.next_inspection, v.next_service_date)`, t, t, input.jours, t, t, input.jours);
     }
     case 'activites':
+      // Comme l'écran des activités : une activité liée à une fiche que l'utilisateur ne peut pas lire (un rappel de
+      // contrat de l'application Documents, par exemple) ne lui est pas montrée, sauf si elle lui est confiée ou vient de lui
       return listActivities({ scope: input.periode === 'all' ? undefined : input.periode })
-        .map((a) => { const app = user && user.role !== 'admin' ? recordApp(a.model, a.record_id) : null; return app && !can(user, app, 'read') ? { ...a, record: null } : a; })
+        .filter((a) => { if (!user || user.role === 'admin' || a.user_id === user.id || a.created_by === user.id) return true; const app = recordApp(a.model, a.record_id); return !app || can(user, app, 'read'); })
         .map((a) => ({ type: a.type, resume: a.summary, note: a.note, echeance: a.due_date, assigne: a.user_name, fiche: a.record?.label, module: a.module }));
     default:
       throw new Error(`Outil inconnu : ${name}`);

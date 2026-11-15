@@ -2,7 +2,7 @@
 // agit (activités, rendez-vous), fait le résumé de fin de journée et planifie les priorités.
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import { db, all, get, run, insert, getSettings, setSetting, round2, today, localDate, localDateTime, isDate, fold, likeFold } from './db.js';
-import { can } from './access.js';
+import { can, recordApp } from './access.js';
 import { BusinessError, durationHours } from './business.js';
 import { TOOLS, runTool } from './agents.js';
 import { runLoop, aiConfigured, claudeClient, CLAUDE_MODEL, friendlyError } from './claude.js';
@@ -40,9 +40,16 @@ const STAT_APP = {
 /** Bilan de la journée. Avec `user` (non gérant), seules les rubriques auxquelles il a droit sont renvoyées. */
 export function dayStats(date = today(), user = null) {
   const st = fullDayStats(date);
-  if (!user || user.role === 'admin') return st;
-  for (const [k, app] of Object.entries(STAT_APP)) if (!can(user, app, 'read')) delete st[k];
-  st.journal = journalOf(date).filter((j) => j.user_id === user.id).map((j) => `${j.created_at.slice(11, 16)} ${j.text}`); // ses propres notes seulement
+  const admin = !user || user.role === 'admin';
+  if (!admin) {
+    for (const [k, app] of Object.entries(STAT_APP)) if (!can(user, app, 'read')) delete st[k];
+    st.journal = journalOf(date).filter((j) => j.user_id === user.id).map((j) => `${j.created_at.slice(11, 16)} ${j.text}`); // ses propres notes seulement
+  }
+  // Activités : un utilisateur ne voit que celles qu'il verrait à l'écran (les siennes, ou liées à une fiche qu'il a le
+  // droit de lire) — le texte d'un rappel de contrat de l'application Documents ne sort pas par ce chemin
+  const visible = (a) => { if (admin || a.user_id === user.id || a.created_by === user.id) return true; const app = recordApp(a.model, a.record_id); return Boolean(a.model) && (!app || can(user, app, 'read')); };
+  st.activites_faites = st.activites_faites.filter(visible).map(({ summary }) => ({ summary }));
+  st.activites_en_retard = st.activites_en_retard.filter(visible).map(({ summary, due_date }) => ({ summary, due_date }));
   return st;
 }
 // Bornes d'une journée du garage, exprimées comme la base enregistre ses horodatages (en temps universel) :
@@ -82,8 +89,8 @@ function fullDayStats(date) {
     messages_clients_du_jour: all(`SELECT p.body, d.number FROM order_posts p JOIN documents d ON d.id=p.document_id WHERE p.author_role='customer' AND p.created_at>=? AND p.created_at<?`, B.sqlLo, B.sqlHi).slice(0, 10),
     stock_bas: all('SELECT ref, name, qty_on_hand, qty_min FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min LIMIT 15'),
     factures_fournisseurs_a_verifier: get(`SELECT COUNT(*) n FROM purchases WHERE review='to_review' AND posted=0`).n,
-    activites_faites: all(`SELECT summary FROM activities WHERE status='done' AND substr(done_at,1,10)=?`, date),
-    activites_en_retard: all(`SELECT summary, due_date FROM activities WHERE status='planned' AND due_date<=?`, date).slice(0, 15),
+    activites_faites: all(`SELECT summary, model, record_id, user_id, created_by FROM activities WHERE status='done' AND substr(done_at,1,10)=?`, date),
+    activites_en_retard: all(`SELECT summary, due_date, model, record_id, user_id, created_by FROM activities WHERE status='planned' AND due_date<=?`, date).slice(0, 15),
     controles_techniques_7j: all(`SELECT v.plate, c.name AS client, v.next_inspection FROM vehicles v LEFT JOIN customers c ON c.id=v.customer_id WHERE v.next_inspection BETWEEN ? AND date(?, '+7 days')`, date, date).slice(0, 15),
     journal: journalOf(date).map((j) => `${j.created_at.slice(11, 16)} ${j.text}`),
   };
