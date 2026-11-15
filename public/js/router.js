@@ -11,7 +11,9 @@ export const ROUTES = [
   ['/accounting', 'accounting'], ['/bank', 'bank'], ['/timesheets', 'timesheets'], ['/reports', 'reports'], ['/office', 'office'], ['/activities', 'activities'], ['/copilot', 'copilot'], ['/mail', 'mail'], ['/settings', 'settings'],
   ['/apps', 'apps'], ['/archives', 'archives'], ['/crm', 'crm'], ['/website', 'website'], ['/social', 'social'], ['/attendance', 'attendance'], ['/invite/:token', 'invite'],
 ];
+let shown = location.hash; // adresse de la page affichée
 function parseRoute() {
+  shown = location.hash;
   const [path, qs] = (location.hash.slice(1) || '/').split('?');
   route.query = Object.fromEntries(new URLSearchParams(qs || ''));
   for (const [pattern, name] of ROUTES) {
@@ -50,4 +52,18 @@ window.addEventListener('hashchange', () => {
   parseRoute();
 });
 parseRoute();
-
+// Deux entrées voisines de l'historique peuvent porter la même adresse (voir `replace`) : passer de l'une à l'autre ne
+// déclenche pas « hashchange » et ne change rien à l'écran. Pour que le bouton Retour (ou Avance) ne semble pas sans
+// effet, on continue d'un cran dans le même sens — en gardant le numéro de l'entrée à jour.
+window.addEventListener('popstate', () => {
+  const i = history.state?.i;
+  if (location.hash !== shown || !Number.isInteger(i) || i === index) return;
+  const step = i < index ? -1 : 1;
+  index = i;
+  history.go(step);
+});
+/**
+ * Remplace l'adresse de la page affichée sans ajouter d'entrée à l'historique : le bouton Retour du navigateur ne
+ * repasse pas par l'ancienne adresse (celle d'une fiche supprimée, par exemple).
+ */
+export const replace = (p) => { history.replaceState(history.state, '', '#' + p); parseRoute(); };

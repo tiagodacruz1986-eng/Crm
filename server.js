@@ -1166,6 +1166,8 @@ api.put('/users/:id', adminOnly, wrap((req) => {
   // Il doit toujours rester un gérant actif (sinon plus personne ne peut administrer le logiciel)
   if (cur.role === 'admin' && (off || demoted) && !get("SELECT 1 FROM users WHERE role='admin' AND active=1 AND id!=?", id)) throw new BusinessError('Il doit rester au moins un administrateur actif');
   update('users', id, data, USER_COLS);
+  // Droits retirés ou compte désactivé : ses rappels de fin de contrat passent à quelqu'un qui peut encore ouvrir les documents
+  archives.resyncRemindersOf(id);
   // Un ancien lien d'invitation ne doit plus servir après un changement de mot de passe, d'e-mail ou de statut
   if (data.password_hash || off || (data.email !== undefined && data.email !== cur.email) || (data.role !== undefined && data.role !== cur.role)) clearInvite(id);
   // Déconnexion des autres appareils (la session du gérant qui modifie son propre mot de passe est gardée)

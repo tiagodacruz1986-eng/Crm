@@ -226,7 +226,8 @@ export function syncReminder(docId, userId = null) {
   const target = byCancel ? d.cancel_by : d.contract_end;
   const act = d.reminder_activity_id ? get('SELECT id, status, user_id FROM activities WHERE id=?', d.reminder_activity_id) : null;
   const days = d.reminder_days ?? archivesConfig().reminder_days;
-  const key = target && target >= today() ? `${target}|${byCancel ? 'r' : 'f'}` : null;
+  // (la clé ne dépend que des dates enregistrées : un rappel déjà traité n'est pas recréé parce que le temps a passé)
+  const key = target && target >= today() ? `${d.cancel_by || ''}|${d.contract_end || ''}` : null;
   if (!key) { // plus d'échéance à venir : un rappel encore en attente n'a plus lieu d'être
     if (act?.status === 'planned') run("UPDATE activities SET status='cancelled' WHERE id=?", act.id);
     run('UPDATE archive_docs SET reminder_activity_id=NULL, reminder_key=NULL WHERE id=?', d.id);
@@ -252,6 +253,16 @@ export function syncReminder(docId, userId = null) {
     run('UPDATE archive_docs SET reminder_activity_id=? WHERE id=?', id, d.id);
   }
   run('UPDATE archive_docs SET reminder_key=? WHERE id=?', key, d.id);
+}
+
+/**
+ * Droits modifiés ou compte désactivé : les rappels de contrat encore en attente de cette personne sont revus tout de
+ * suite — si elle ne peut plus ouvrir les documents, ils passent à quelqu'un qui le peut (sans attendre qu'un document
+ * soit modifié).
+ */
+export function resyncRemindersOf(userId) {
+  const rows = all("SELECT d.id FROM archive_docs d JOIN activities a ON a.id=d.reminder_activity_id WHERE a.status='planned' AND a.user_id=?", Number(userId) || 0);
+  for (const r of rows) syncReminder(r.id);
 }
 
 /** Contrats avec une échéance (fin ou date limite de résiliation), les plus proches d'abord. */
@@ -286,8 +297,11 @@ export function updateDoc(id, body = {}, userId = null) {
   for (const k of ['correspondent', 'reference', 'currency', 'notes']) if (data[k] !== undefined) data[k] = String(data[k] ?? '').trim().slice(0, k === 'notes' ? 4000 : 200) || null;
   const end = data.contract_end !== undefined ? data.contract_end : d.contract_end;
   const start = data.contract_start !== undefined ? data.contract_start : d.contract_start;
-  if (start && end && end < start) throw new BusinessError('La fin du contrat est avant son début');
+  // (contrôles faits seulement quand la demande touche ces dates : une fiche dont les dates se contredisent déjà doit
+  // rester modifiable — renommer, déplacer, annoter)
+  if ((data.contract_start !== undefined || data.contract_end !== undefined) && start && end && end < start) throw new BusinessError('La fin du contrat est avant son début');
   const mine = new Set(safeJson(d.user_fields, []));
+  const was = new Set(mine);
   // Date limite de résiliation : donnée, elle est gardée ; laissée vide, ou jamais fixée à la main alors que la fin ou le
   // préavis changent, elle se déduit de la fin du contrat et du préavis
   const notice = data.notice_days !== undefined ? data.notice_days : d.notice_days;
@@ -297,12 +311,14 @@ export function updateDoc(id, body = {}, userId = null) {
   const wasDerived = !d.cancel_by || (d.contract_end && d.notice_days != null && d.cancel_by === addDays(d.contract_end, -d.notice_days));
   if (data.cancel_by === undefined ? moved && wasDerived && !mine.has('cancel_by') : data.cancel_by === null) data.cancel_by = derived;
   const cancel = data.cancel_by !== undefined ? data.cancel_by : d.cancel_by;
-  if (cancel && end && cancel > end) throw new BusinessError('La date limite de résiliation est après la fin du contrat');
+  if ((data.contract_end !== undefined || data.cancel_by !== undefined) && cancel && end && cancel > end) throw new BusinessError('La date limite de résiliation est après la fin du contrat');
   // Ce que l'utilisateur a corrigé lui-même n'est plus écrasé par une nouvelle lecture de l'IA
   const changed = Object.keys(data).filter((k) => (data[k] ?? null) !== (d[k] ?? null));
-  if (!changed.length) return { id: d.id };
-  // (une date limite que le logiciel vient de déduire n'est pas une correction de l'utilisateur)
-  for (const k of changed) if (k !== 'folder_id' && k !== 'notes' && k !== 'reminder_days' && !(k === 'cancel_by' && data.cancel_by === derived)) mine.add(k);
+  for (const k of changed) if (k !== 'folder_id' && k !== 'notes' && k !== 'reminder_days' && k !== 'cancel_by') mine.add(k);
+  // Date limite de résiliation : donnée et différente du calcul, c'est celle de l'utilisateur (elle sera gardée) ; égale
+  // au calcul, ou laissée vide, ce n'est plus une correction de sa part
+  if (data.cancel_by !== undefined) { if (data.cancel_by && data.cancel_by !== derived) mine.add('cancel_by'); else mine.delete('cancel_by'); }
+  if (!changed.length && was.size === mine.size && [...was].every((k) => mine.has(k))) return { id: d.id };
   if (changed.includes('folder_id')) data.filed_by = 'user';
   update('archive_docs', d.id, { ...data, user_fields: JSON.stringify([...mine]), updated_at: localDateTime() }, [...EDITABLE, 'filed_by', 'user_fields', 'updated_at']);
   syncReminder(d.id, userId);
@@ -405,15 +421,20 @@ async function analyzeDoc(id, allowEncode = false) {
   const c = out.contrat && typeof out.contrat === 'object' ? out.contrat : {};
   // La date limite de résiliation se calcule avec les valeurs qui seront gardées : une fin ou un préavis corrigés à la
   // main passent avant ce que l'IA relit
-  const end = mine.has('contract_end') ? cur.contract_end : dateIn(c.fin);
+  let end = mine.has('contract_end') ? cur.contract_end : dateIn(c.fin);
+  // (une date limite fixée à la main passe avant une fin de contrat que l'IA lirait plus tôt : la fin reste alors telle quelle)
+  if (!mine.has('contract_end') && mine.has('cancel_by') && cur.cancel_by && end && cur.cancel_by > end) end = cur.contract_end;
   const notice = mine.has('notice_days') ? cur.notice_days : Number.isInteger(c.preavis_jours) && c.preavis_jours >= 0 && c.preavis_jours <= 3660 ? c.preavis_jours : null;
   let cancel = dateIn(c.date_limite_resiliation);
   if (cancel && end && cancel > end) cancel = null;
-  if (!cancel && end && notice != null) cancel = addDays(end, -notice);
+  // Fin ou préavis corrigés à la main : la date limite suit ces valeurs-là, pas celle que l'IA a calculée avec les siennes
+  if ((!cancel || mine.has('contract_end') || mine.has('notice_days')) && end && notice != null) cancel = addDays(end, -notice);
+  let start = dateIn(c.debut);
+  if (start && end && end < start) start = null; // début lu après la fin : lecture douteuse, on ne le garde pas
   const fresh = {
     kind, title: str(out.titre, 200) || cur.title, doc_date: dateIn(out.date_document), correspondent: str(out.correspondant, 200), reference: str(out.reference, 200),
     amount: Number.isFinite(out.montant) ? out.montant : null, currency: str(out.devise, 10),
-    contract_start: dateIn(c.debut), contract_end: end, notice_days: notice, cancel_by: cancel, renewal: c.reconduction_tacite === true ? 'tacit' : c.reconduction_tacite === false ? 'none' : null,
+    contract_start: start, contract_end: end, notice_days: notice, cancel_by: cancel, renewal: c.reconduction_tacite === true ? 'tacit' : c.reconduction_tacite === false ? 'none' : null,
   };
   const data = Object.fromEntries(Object.entries(fresh).filter(([k]) => !mine.has(k)));
   // Facture fournisseur : encodée dans les Achats comme une facture déposée là-bas (brouillon à vérifier), si le réglage

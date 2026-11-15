@@ -4,14 +4,15 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { GET, POST, PUT, DEL, act, toast, store, money, date as fdate, datetime, today } from '../api.js';
-import { route, go, leaveGuards } from '../router.js';
+import { route, go, replace, leaveGuards } from '../router.js';
 import { can } from '../apps.js';
 
 // Réponse de l'IA : mise en forme simple et liens vers les documents seulement. Ni image, ni style, ni lien extérieur :
 // un document piégé ne peut pas faire partir des informations vers un autre site par ce biais.
 const md = (s) => DOMPurify.sanitize(marked.parse(s || ''), {
   ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-  ALLOWED_ATTR: ['href'], ALLOWED_URI_REGEXP: /^#\/archives\?doc=\d+$/,
+  // (« start » : le numéro où reprend une liste numérotée ; ce n'est pas une adresse, il n'a pas à ressembler à un lien)
+  ALLOWED_ATTR: ['href', 'start'], ADD_URI_SAFE_ATTR: ['start'], ALLOWED_URI_REGEXP: /^#\/archives\?doc=\d+$/,
 });
 async function uploadFile(url, file) {
   const r = await fetch('/api' + url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) }, body: file });
@@ -59,6 +60,7 @@ const DocModal = {
         // L'IA a fini de lire pendant que l'utilisateur tapait : les champs qu'il n'a pas touchés prennent les nouvelles
         // valeurs, les siens restent — et seuls les siens seront enregistrés
         const fresh = pick(x);
+        if (same(f.value.cancel_by, base.value.cancel_by)) last = derive(x.contract_end, x.notice_days);
         for (const k of FIELDS) { if (same(f.value[k], base.value[k])) f.value[k] = fresh[k]; base.value[k] = fresh[k]; }
         d.value = x;
       }
@@ -88,6 +90,9 @@ const DocModal = {
       busy.value = true;
       try {
         const body = Object.fromEntries(changed.value.map((k) => [k, blank(f.value[k])]));
+        // Fin ou préavis modifiés : la date limite affichée part avec eux, pour que le logiciel garde celle que
+        // l'utilisateur a sous les yeux (tapée à la main ou proposée) au lieu d'en recalculer une autre
+        if ('contract_end' in body || 'notice_days' in body) body.cancel_by = blank(f.value.cancel_by);
         await act(() => PUT('/archives/docs/' + props.id, body), 'Document enregistré');
         take(await GET('/archives/docs/' + props.id));
         emit('changed');
@@ -325,7 +330,8 @@ export const Archives = {
     const pick = (id) => { folder.value = id; if (view.value !== 'docs') go('/archives'); };
     const current = computed(() => meta.value?.folders.find((f) => f.id === folder.value) || null);
     // dossier où arrive un dépôt : celui qui est ouvert, sauf « À classer » (là, l'IA range le document elle-même)
-    const target = computed(() => (current.value && current.value.system !== 'inbox' ? current.value : null));
+    // (depuis la vue des échéances, aucun dossier n'est affiché : l'IA range aussi)
+    const target = computed(() => (view.value === 'docs' && current.value && current.value.system !== 'inbox' ? current.value : null));
     const pathOf = (id) => meta.value?.folders.find((f) => f.id === id)?.path || '';
     const total = computed(() => (meta.value?.folders || []).filter((f) => f.depth === 0).reduce((s, f) => s + f.count, 0));
     const upcoming = computed(() => deadlines.value.filter((d) => daysTo(d.deadline) !== null && daysTo(d.deadline) >= 0));
@@ -370,14 +376,14 @@ export const Archives = {
       if (!confirm(`Supprimer le dossier « ${current.value.path} » ?`)) return;
       try { await act(() => DEL('/archives/folders/' + current.value.id), 'Dossier supprimé'); folder.value = null; await load(); } catch { /* message déjà affiché */ }
     };
-    // `gone` : le document n'existe plus (supprimé, lien ancien) — on ne change pas d'adresse, pour que le bouton Retour
-    // du navigateur ne ramène pas sans fin sur un document introuvable
+    // `gone` : le document n'existe plus (supprimé, lien ancien) ou n'a pas pu être chargé — son adresse est remplacée
+    // sur place, sans nouvelle page dans l'historique : le bouton Retour du navigateur ne ramène pas sans fin sur un
+    // document introuvable, et un nouveau clic sur la même ligne rouvre bien la fiche
     const closeDoc = (gone) => {
       open.value = null;
-      if (gone === true) return;
       const p = new URLSearchParams(route.query); p.delete('doc');
       const qs = p.toString();
-      go('/archives' + (qs ? '?' + qs : ''));
+      (gone === true ? replace : go)('/archives' + (qs ? '?' + qs : ''));
     };
 
     // Calendrier des échéances (mois affiché)

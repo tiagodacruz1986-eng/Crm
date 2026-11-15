@@ -546,14 +546,21 @@ test('confidentialité : le rappel d\'un contrat ne sort ni par Nova, ni après 
   assert.ok(!(await call('GET', '/activities', undefined, nova)).text.includes('Marie Dupont'));
   assert.ok((await A('GET', '/copilot/stats?date=2099-12-31')).text.includes('Marie Dupont'), 'le gérant, lui, le voit');
 
-  // droit retiré à celui qui a déposé : à la prochaine modification, le rappel passe au gérant
+  // droit retiré à celui qui a déposé : le rappel passe au gérant tout de suite, sans attendre qu'on modifie le document
   await A('PUT', `/users/${uid}`, { permissions: { ventes: 'user' } });
   assert.equal((await call('GET', '/archives', undefined, user)).status, 403);
-  await A('PUT', `/archives/docs/${d.id}`, { notes: 'Dossier repris par le gérant' });
   const act = (await A('GET', '/activities?mine=1')).data.find((a) => a.id === d.reminder.id);
   assert.ok(act, 'le rappel est maintenant dans les activités du gérant');
   assert.ok(!(await call('GET', '/activities', undefined, user)).text.includes('Marie Dupont'));
   await A('PUT', `/users/${uid}`, { permissions: { archives: 'user' } });
+  // compte désactivé : le rappel qu'il portait ne reste pas sans personne
+  queue.push({ ...CARD, type: 'contract', titre: 'Contrat de nettoyage — Propreté Lux', contrat: { debut: null, fin: day(90), preavis_jours: 30, date_limite_resiliation: null, reconduction_tacite: true } });
+  const n = await ready((await upload('nettoyage.pdf', pdf('nettoyage'), { tok: user })).data.id, user);
+  assert.equal((await A('GET', '/activities')).data.find((a) => a.id === n.reminder.id).user_id, uid);
+  await A('PUT', `/users/${uid}`, { active: 0 });
+  assert.ok((await A('GET', '/activities?mine=1')).data.some((a) => a.id === n.reminder.id), 'rappel repris par le gérant');
+  await A('PUT', `/users/${uid}`, { active: 1 });
+  await A('DELETE', `/archives/docs/${n.id}`);
 
   // suppression : historique, activités et rappel disparaissent, et le numéro n'est jamais réutilisé
   await A('POST', '/activities', { model: 'archive', record_id: d.id, summary: 'Appeler l\'avocat pour le dossier Marie Dupont', due_date: day(3) });
@@ -566,6 +573,44 @@ test('confidentialité : le rappel d\'un contrat ne sort ni par Nova, ni après 
   assert.ok(!(await A('GET', `/chatter/archive/${next.id}`)).text.includes('Marie Dupont'));
 });
 
+test('contrats : relecture après correction, date limite tapée à la main, fiche aux dates contradictoires', async () => {
+  const card = (c) => ({ ...CARD, type: 'contract', titre: 'Contrat de téléphonie', contrat: { debut: null, fin: day(600), preavis_jours: 30, date_limite_resiliation: day(570), reconduction_tacite: true, ...c } });
+  queue.push(card());
+  const d = await ready((await upload('telephonie.pdf', pdf('telephonie'))).data.id);
+  assert.equal(d.cancel_by, day(570));
+  const one = async () => (await A('GET', `/archives/docs/${d.id}`)).data;
+  const reread = async (c) => { queue.push(card(c)); await A('POST', `/archives/docs/${d.id}/analyze`); return ready(d.id); };
+
+  // préavis corrigé (l'écran envoie aussi la date qu'il propose) : la relecture ne remet pas la date calculée par l'IA
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: 180, cancel_by: day(420) });
+  let x = await reread();
+  assert.equal(x.notice_days, 180);
+  assert.equal(x.cancel_by, day(420), 'fin − préavis corrigé, pas la date de l\'IA');
+  assert.equal(x.reminder.due_date, day(390));
+
+  // date limite tapée à la main puis effacée : elle redevient un calcul, qui suit le préavis
+  await A('PUT', `/archives/docs/${d.id}`, { cancel_by: day(250) });
+  await A('PUT', `/archives/docs/${d.id}`, { cancel_by: null });
+  assert.equal((await one()).cancel_by, day(420));
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: 90 });
+  assert.equal((await one()).cancel_by, day(510));
+
+  // préavis changé avec la date du contrat retapée à l'identique : elle est gardée, et la relecture n'y touche plus
+  await A('PUT', `/archives/docs/${d.id}`, { notice_days: 60, cancel_by: day(510) });
+  assert.equal((await one()).cancel_by, day(510));
+  x = await reread();
+  assert.equal(x.cancel_by, day(510), 'date tapée à la main gardée');
+  assert.equal(x.notice_days, 60);
+
+  // l'IA relit une fin plus tôt que cette date : la fin n'est pas reprise, et la fiche reste modifiable
+  x = await reread({ fin: day(300) });
+  assert.equal(x.cancel_by, day(510));
+  assert.equal(x.contract_end, day(600));
+  assert.equal((await A('PUT', `/archives/docs/${d.id}`, { notes: 'Vu' })).status, 200);
+  // une incohérence tapée à la main reste refusée
+  assert.equal((await A('PUT', `/archives/docs/${d.id}`, { contract_end: day(400) })).status, 400);
+  assert.equal((await A('PUT', `/archives/docs/${d.id}`, { contract_start: day(700) })).status, 400);
+});
 test('dépôt dans « À classer » : rangé quand même ; document supprimé pendant sa lecture : rien n\'est écrit ailleurs', async () => {
   const inbox = await folderId('À classer');
   queue.push({ ...CARD, type: 'vehicle', titre: 'Contrôle technique XY 9876' });
@@ -686,6 +731,22 @@ test('réception par e-mail : pièces jointes rangées, signature et invitations
   const office = db.get('SELECT * FROM users WHERE id=?', uid);
   assert.ok(!JSON.stringify(runTool('activites', { periode: 'all' }, office)).includes('Foyer'));
   assert.ok(JSON.stringify(runTool('activites', { periode: 'all' }, db.get("SELECT * FROM users WHERE role='admin'"))).includes('Foyer'));
+  // une activité personnelle du gérant, sans fiche liée, ne sort pas non plus par les agents
+  const boss = db.get("SELECT * FROM users WHERE role='admin'");
+  const { createActivity } = await import('../src/mail.js');
+  createActivity({ summary: 'Décider de la résiliation du CDD de Marie Dupont', due_date: day(2) }, boss.id);
+  assert.ok(!JSON.stringify(runTool('activites', { periode: 'all' }, office)).includes('Marie Dupont'));
+  assert.ok(JSON.stringify(runTool('activites', { periode: 'all' }, boss)).includes('Marie Dupont'));
+  // rappel traité, puis la date limite de résiliation passe : une simple note ne crée pas un second rappel
+  const k = D.getDoc(r.created[0]);
+  db.run("UPDATE activities SET status='done' WHERE id=?", k.reminder.id);
+  db.run('UPDATE archive_docs SET cancel_by=?, reminder_key=? WHERE id=?', day(-3), `${day(-3)}|${k.contract_end}`, k.id);
+  D.updateDoc(k.id, { notes: 'Résiliation envoyée' }, boss.id);
+  assert.equal(D.getDoc(k.id).reminder.id, k.reminder.id);
+  assert.equal(db.get("SELECT COUNT(*) AS n FROM activities WHERE model='archive' AND record_id=?", k.id).n, 1);
+  // …mais une date corrigée relance bien un rappel
+  D.updateDoc(k.id, { contract_end: day(200), cancel_by: day(150) }, boss.id);
+  assert.equal(D.getDoc(k.id).reminder.status, 'planned');
   // boîte non réglée : message clair
   D.saveInboxConfig({ host: '', user: '' });
   await assert.rejects(D.testInbox(), /Renseignez le serveur IMAP/);
