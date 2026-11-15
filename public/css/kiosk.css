@@ -175,3 +175,38 @@ body.kiosk { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Int
 
 /* logo de la marque sur les cartes des OR */
 .k-muted.brand-line { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+
+/* ---------- Gardiennage des roues : panneau plein écran ouvert depuis un OR ---------- */
+.k-wheels { position: fixed; inset: 0; z-index: 60; background: #0a0a0c; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.k-wh-box { max-width: 860px; margin: 0 auto; padding: 18px 16px calc(40px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; }
+.k-wh-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.k-wh-tabs, .k-wh-toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.k-wh-tabs .k-btn small { font-size: 12px; font-weight: 500; opacity: .85; }
+.k-wh-dot { width: 12px; height: 12px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, .3); flex: none; }
+.k-wh-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.k-wheels label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #94a3b8; font-weight: 600; min-width: 0; }
+.k-wheels input, .k-wheels textarea { background: #12161b; border: 1px solid #3a4250; color: #fff; font-size: 18px; border-radius: 12px; padding: 12px 14px; width: 100%; font-family: inherit; }
+.k-wh-row { display: flex; gap: 8px; align-items: center; } .k-wh-row input { flex: 1; min-width: 0; }
+.k-wh-q { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.k-wh-toggles .box { width: 26px; height: 26px; border-radius: 7px; border: 2px solid currentColor; display: grid; place-items: center; font-size: 16px; flex: none; }
+.k-wheels .k-muted { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.k-wh-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.k-wh-shot { position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: 16px; border: 2px dashed #3a4250; background: #171b21; color: #cbd5e1; cursor: pointer; overflow: hidden; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px; font: inherit; padding: 8px; }
+.k-wh-shot.has { border-style: solid; }
+.k-wh-shot:disabled { opacity: .7; cursor: default; }
+.k-wh-shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.k-wh-shot > .ti { width: 34px; height: 34px; }
+.k-wh-label { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; font-weight: 700; font-size: 16px; text-align: center; }
+.k-wh-shot.has .k-wh-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 8px 8px; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .78)); }
+.k-wh-label small { font-weight: 500; font-size: 13px; opacity: .88; }
+.k-ok { color: #4ade80; font-weight: 600; display: flex; align-items: center; gap: 6px; margin: 0; }
+.k-wheels .k-err { margin: 0; font-weight: 600; }
+.k-btn:disabled { opacity: .5; cursor: default; }
+[data-theme="light"] .k-wheels { background: #f2f2f7; }
+[data-theme="light"] .k-wheels label { color: #475569; }
+[data-theme="light"] .k-wheels input, [data-theme="light"] .k-wheels textarea { background: #fff; border-color: #cbd5e1; color: #0b1224; }
+[data-theme="light"] .k-wh-shot { background: #fff; border-color: #cbd5e1; color: #334155; }
+[data-theme="light"] .k-ok { color: #15803d; }
+[data-theme="light"] .k-wheels .k-err { color: #b91c1c; }
+@media (max-width: 560px) { .k-wh-form { grid-template-columns: 1fr; } }

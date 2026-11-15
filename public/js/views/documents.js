@@ -151,7 +151,9 @@ export const DocumentEditor = {
 
     const load = async () => {
       if (isNew) {
-        doc.value = { type: route.params.type, status: 'draft', date: today(), lines: [], customer_id: Number(route.query.customer_id) || null, vehicle_id: Number(route.query.vehicle_id) || null, customer_name: '', payments: [], children: [] };
+        doc.value = { type: route.params.type, status: 'draft', date: today(), lines: [], customer_id: Number(route.query.customer_id) || null, vehicle_id: Number(route.query.vehicle_id) || null, customer_name: '', payments: [], children: [],
+          // (demande préremplie depuis une autre fiche, par exemple « Remplacement des pneus hiver avant » depuis le gardiennage des roues)
+          customer_complaint: String(route.query.complaint || '').slice(0, 500) };
         if (doc.value.customer_id) {
           const c = await GET('/customers/' + doc.value.customer_id);
           doc.value.customer_name = c.name;

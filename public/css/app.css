@@ -688,6 +688,34 @@ a.live { text-decoration: none; white-space: nowrap; }
   .arch-doc { grid-template-columns: 1fr; } .arch-view iframe, .arch-nopreview { display: none; } .arch-bar > select { flex: 1 1 100%; }
   .arch-card .form-grid { grid-template-columns: 1fr; }
 }
+/* ---------- Gardiennage des roues : carte de la fiche véhicule (jeu été / jeu hiver) et vue d'ensemble ---------- */
+.wh-card { margin-top: 16px; }
+.wh-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.wh-set { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: var(--panel-2); display: flex; flex-direction: column; gap: 12px; min-width: 0; container-type: inline-size; }
+.wh-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 26px; }
+.wh-title { font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+.wh-set.summer .wh-title .ti { color: #d97706; } .wh-set.winter .wh-title .ti { color: #0284c7; }
+.wh-form.form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.wh-date { display: flex; gap: 6px; align-items: center; } .wh-date input { flex: 1; min-width: 0; }
+.wh-replace { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); } .wh-replace > span { font-weight: 600; margin-right: auto; }
+.wh-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+/* assez de place : les quatre roues sur une ligne (sinon deux par deux) */
+@container (min-width: 540px) { .wh-photos { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.wh-photo { display: flex; flex-direction: column; min-width: 0; }
+.wh-photo a { display: block; aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: #0b0f14; border: 1px solid var(--line); }
+.wh-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wh-cap { display: flex; align-items: center; justify-content: space-between; gap: 2px 6px; flex-wrap: wrap; padding: 2px 0 0 4px; font-size: 12px; color: var(--ink-2); min-height: 34px; }
+.wh-tools { display: inline-flex; gap: 2px; flex: none; } .wh-tools .icon-btn { width: 30px; height: 30px; }
+.wh-add { flex: 1; aspect-ratio: 4 / 3; width: 100%; border: 1.5px dashed var(--line-strong); border-radius: 12px; background: transparent; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; font: inherit; padding: 8px; text-align: center; }
+.wh-add b { color: var(--ink-2); font-size: 13px; font-weight: 650; } .wh-add small { font-size: 12px; } .wh-add .ti { width: 22px; height: 22px; }
+.wh-add:not(:disabled):hover { border-color: var(--brand); color: var(--brand); } .wh-add:disabled { cursor: default; }
+.wh-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: auto; }
+.wh-foot .muted { display: inline-flex; align-items: center; gap: 5px; }
+.wh-season { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+@media (max-width: 800px) {
+  .wh-grid { grid-template-columns: 1fr; } .wh-form.form-grid { grid-template-columns: 1fr; } .wh-list .seg { flex: 1 1 100%; } .wh-list .seg button { flex: 1; }
+}
 /* Paramètres → Agents IA : saisie de la clé Claude */
 .ai-key { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 10px 0; } .ai-key label { flex: 1 1 280px; min-width: 0; }
 .ai-key-help { margin: 12px 0 18px; } .ai-key-help summary { cursor: pointer; color: var(--link, var(--brand)); font-weight: 600; }

@@ -1,8 +1,9 @@
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, DOC_TYPES_SHORT } from '../api.js';
 import { route, go } from '../router.js';
 import { can } from '../apps.js';
 import { BrandManager } from '../brand-manager.js';
+import { WheelStorage, WheelList } from '../wheels.js';
 
 const CUSTOMER_FIELDS = ['type', 'name', 'company', 'vat_number', 'email', 'phone', 'mobile', 'address', 'zip', 'city', 'country', 'payment_terms', 'notes', 'marketing_ok'];
 
@@ -169,21 +170,26 @@ export const CustomerDetail = {
 };
 
 export const VehicleList = {
-  components: { BrandManager },
+  components: { BrandManager, WheelList },
   setup() {
+    // deux vues : les véhicules, ou les roues en gardiennage (adresse /vehicles?view=wheels)
+    const view = computed(() => (route.query.view === 'wheels' ? 'wheels' : 'list'));
     const rows = ref([]);
     const q = ref('');
     const brands = ref(false);
     const canBrands = can('vehicules', 'manager');
     const load = async () => { rows.value = await GET('/vehicles?q=' + encodeURIComponent(q.value)); };
     onMounted(load);
-    return { rows, q, load, go, date, brands, canBrands, today: new Date().toISOString().slice(0, 10) };
+    return { view, rows, q, load, go, date, brands, canBrands, today: new Date().toISOString().slice(0, 10) };
   },
   template: `
   <div>
-    <div class="page-head"><h1>Véhicules</h1><div class="btns"><button v-if="canBrands" class="btn" @click="brands = true"><Icon name="image" class="ti"/> Logos des marques</button><ModuleTools module="vehicules"/></div></div>
+    <div class="page-head"><h1>{{ view === 'wheels' ? 'Gardiennage des roues' : 'Véhicules' }}</h1><div class="btns">
+      <div class="seg"><button :class="{ on: view === 'list' }" @click="go('/vehicles')">Véhicules</button><button :class="{ on: view === 'wheels' }" @click="go('/vehicles?view=wheels')">Gardiennage des roues</button></div>
+      <button v-if="canBrands && view === 'list'" class="btn" @click="brands = true"><Icon name="image" class="ti"/> Logos des marques</button><ModuleTools v-if="view === 'list'" module="vehicules"/></div></div>
     <BrandManager v-if="brands" @close="brands = false"/>
-    <div class="card">
+    <WheelList v-if="view === 'wheels'"/>
+    <div v-else class="card">
       <div class="toolbar"><input v-model="q" @input="load" placeholder="Plaque, VIN, marque, client…"><span class="muted" style="margin-left:auto">{{ rows.length }} véhicules</span></div>
       <div class="table-wrap"><table>
         <thead><tr><th>Plaque</th><th>Véhicule</th><th>Client</th><th class="num">Km</th><th>Contrôle technique</th><th>Entretien</th></tr></thead>
@@ -199,6 +205,7 @@ export const VehicleList = {
 };
 
 export const VehicleDetail = {
+  components: { WheelStorage },
   setup() {
     const v = ref(null);
     const load = async () => { v.value = await GET('/vehicles/' + route.params.id); };
@@ -246,6 +253,7 @@ export const VehicleDetail = {
         <Empty v-if="!v.history.length" icon="hammer" text="Aucune intervention enregistrée"/>
       </div>
     </div>
+    <WheelStorage :key="v.id" :vehicle-id="v.id" :tyre-size="v.tyre_size" :customer-id="v.customer_id"/>
     <Chatter model="vehicle" :record-id="v.id" style="margin-top:16px"/>
   </div>`,
 };

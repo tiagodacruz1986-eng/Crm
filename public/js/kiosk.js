@@ -4,8 +4,11 @@
 import { createApp, ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { Icon } from './icon.js';
 import { BrandLogo } from './brands.js';
+import { SEASONS, POSITIONS, replaceLabel, formOf, changes, shrinkPhoto, seasonToStore, localToday } from './wheels-common.js';
 
 const IDLE_LOGOUT_MS = 90_000;
+// Fiche des roues ouverte : le mécanicien va et vient entre les roues et la tablette, on lui laisse plus de temps
+const IDLE_WHEELS_MS = 300_000;
 
 const App = {
   setup() {
@@ -42,10 +45,15 @@ const App = {
       if (!r.ok) throw new Error(d.error || 'Erreur');
       return d;
     };
-    const bump = () => { clearTimeout(idle); if (token.value || who.value) idle = setTimeout(logout, IDLE_LOGOUT_MS); };
+    // (suspendue pendant qu'on prend une photo : l'appareil photo occupe l'écran, sans aucun toucher sur la page)
+    let held = false, heldT;
+    const bump = () => { clearTimeout(idle); if (!held && (token.value || who.value)) idle = setTimeout(logout, wh.value ? IDLE_WHEELS_MS : IDLE_LOGOUT_MS); };
+    const holdIdle = () => { held = true; clearTimeout(idle); clearTimeout(heldT); heldT = setTimeout(releaseIdle, 600_000); };
+    const releaseIdle = () => { clearTimeout(heldT); if (!held) return; held = false; bump(); };
     const logout = () => {
       // la session est aussi fermée sur le serveur (elle ne reste pas valable après « Terminer »)
       if (token.value) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token.value } }).catch(() => {});
+      closeWheels(true);
       rank.clear(); token.value = null; who.value = null; st.value = null; pin.value = ''; open.value = null; notice.value = ''; err.value = ''; q.value = ''; loadUsers();
     };
     const offline = ref(false);
@@ -71,6 +79,7 @@ const App = {
       clock = setInterval(() => { now.value = Date.now(); }, 1000);
       ['pointerdown', 'keydown'].forEach((e) => window.addEventListener(e, bump));
       window.addEventListener('keydown', onKey);
+      window.addEventListener('focus', () => setTimeout(() => { if (!wh.value?.sending) releaseIdle(); }, 1500));
       setInterval(() => { if (!who.value) loadUsers(); }, 30_000);
       setInterval(async () => {
         if (!token.value || !st.value) return;
@@ -176,8 +185,81 @@ const App = {
     const hm = (x) => { const m = Math.round((x || 0) * 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
     const h = hm;
     const since = (s) => (s ? s.slice(11, 16) : '');
+    // ---------- Gardiennage des roues : fiche été / hiver du véhicule de l'OR ----------
+    const wh = ref(null);          // { order, data, season, f, base, busy, sending, msg, err }
+    const whUrls = reactive({});   // photo → image chargée avec la session de la tablette
+    const whPicker = ref(null);
+    let whTarget = null;
+    const authed = (extra = {}) => ({ ...(token.value ? { Authorization: 'Bearer ' + token.value } : {}), ...extra });
+    const whLoadPhotos = async () => {
+      const d = wh.value;
+      if (!d) return;
+      for (const s of SEASONS) for (const p of POSITIONS) {
+        const a = d.data[s.key].photos[p.key];
+        if (!a || whUrls[a.id]) continue;
+        try { const r = await fetch(`/api/kiosk/orders/${d.order.id}/wheels/photo/${a.id}`, { headers: authed() }); if (r.ok && wh.value === d) whUrls[a.id] = URL.createObjectURL(await r.blob()); } catch { /* la photo s'affichera à la prochaine ouverture */ }
+      }
+    };
+    const openWheels = async (o) => {
+      try {
+        const data = await call('GET', `/kiosk/orders/${o.id}/wheels`);
+        wh.value = { order: { id: o.id, number: o.number, plate: o.plate, make: o.make, model: o.model }, data, season: seasonToStore(),
+          f: { summer: formOf(data.summer), winter: formOf(data.winter) }, base: { summer: formOf(data.summer), winter: formOf(data.winter) }, busy: false, sending: '', msg: '', err: '' };
+        whLoadPhotos();
+        bump();
+      } catch (e) { notice.value = e.message; clearTimeout(noticeT); noticeT = setTimeout(() => { notice.value = ''; }, 9000); }
+    };
+    const whDirty = (k) => !!wh.value && Object.keys(changes(wh.value.f[k], wh.value.base[k])).length > 0;
+    const whAnyDirty = computed(() => SEASONS.some((s) => whDirty(s.key)));
+    const wf = computed(() => wh.value?.f[wh.value.season]);
+    const whPhoto = (p) => wh.value?.data[wh.value.season].photos[p];
+    // « Enregistrer » envoie ce qui a changé dans les deux jeux (été et hiver)
+    const whSave = async () => {
+      const d = wh.value;
+      if (!d || d.busy) return;
+      d.busy = true; d.err = ''; d.msg = '';
+      let warned = false;
+      try {
+        for (const s of SEASONS) {
+          const body = changes(d.f[s.key], d.base[s.key]);
+          if (!Object.keys(body).length) continue;
+          const had = d.data[s.key].quote?.status === 'planned';
+          const data = await call('POST', `/kiosk/orders/${d.order.id}/wheels/${s.key}`, body);
+          d.data = data; d.f[s.key] = formOf(data[s.key]); d.base[s.key] = formOf(data[s.key]);
+          if (!had && data[s.key].quote?.status === 'planned') warned = true;
+        }
+        d.msg = warned ? 'Enregistré. Le bureau est prévenu : devis pneus à faire.' : 'Enregistré.';
+      } catch (e) { d.err = e.message; } finally { d.busy = false; }
+    };
+    const whPick = (p) => { const d = wh.value; if (!d || d.sending) return; whTarget = { k: d.season, p }; holdIdle(); whPicker.value.click(); };
+    const whFile = async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      const d = wh.value;
+      if (!file || !whTarget || !d) { releaseIdle(); return; }
+      const { k, p } = whTarget;
+      d.sending = `${k}-${p}`; d.err = ''; d.msg = '';
+      try {
+        const blob = await shrinkPhoto(file);
+        const r = await fetch(`/api/kiosk/orders/${d.order.id}/wheels/${k}/photo/${p}`, { method: 'POST', headers: authed({ 'Content-Type': blob.type || 'image/jpeg' }), body: blob })
+          .catch(() => { throw new Error('Pas de connexion au serveur du garage — reprenez la photo dans un instant'); });
+        const data = await r.json().catch(() => ({}));
+        if (r.status === 401) { logout(); return; }
+        if (!r.ok) throw new Error(data.error || 'Envoi de la photo impossible');
+        if (wh.value === d) { d.data = data; whLoadPhotos(); }
+      } catch (ex) { d.err = ex.message; } finally { d.sending = ''; releaseIdle(); }
+    };
+    function closeWheels(force) {
+      if (!wh.value) return;
+      if (force !== true && whAnyDirty.value && !confirm('La fiche des roues n’est pas enregistrée. Fermer quand même ?')) return;
+      wh.value = null;
+      for (const id of Object.keys(whUrls)) { URL.revokeObjectURL(whUrls[id]); delete whUrls[id]; }
+      releaseIdle();
+    }
+    const whToday = () => { wf.value.stored_at = localToday(); };
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
-    return { info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startLine, notice, lSpent, oSpent, lOver, oOver, isMine, cur, others,
+    return { wh, wf, whUrls, whPicker, whPhoto, whDirty, whAnyDirty, openWheels, closeWheels, whSave, whPick, whFile, whToday, releaseIdle, replaceLabel, SEASONS, POSITIONS,
+      info, offline, people, q, pick, greet, openLive, who, pin, err, token, st, press, logout, attend, clockAction, startLine, notice, lSpent, oSpent, lOver, oOver, isMine, cur, others,
       updateOrder, toggleLine, saveNotes, draft, open, elapsed, presentFor, timeStr, dateStr, h, since };
   },
   template: `
@@ -266,6 +348,7 @@ const App = {
             <button v-if="st.work && st.work.document_id === o.id" class="k-btn orange sm" @click="clockAction('stop')"><Icon name="pause" class="ti"/> Pause</button>
             <button v-else-if="!o.lines.some(l => l.timed)" class="k-btn green sm" @click="clockAction('start', o.id)"><Icon name="play" class="ti"/> Démarrer le chrono</button>
             <button class="k-btn blue sm" @click="openLive(o)"><Icon name="camera" class="ti"/> Photos & messages</button>
+            <button v-if="o.plate || o.make || o.model" class="k-btn sm" @click="openWheels(o)"><Icon name="circle-dot" class="ti"/> Roues</button>
             <button class="k-btn sm" @click="open = open === o.id ? null : o.id">{{ open === o.id ? '▲ Fermer' : '▼ Détails' }}</button>
           </div>
           <template v-if="open === o.id">
@@ -289,6 +372,52 @@ const App = {
       <p v-if="!st.orders.length" class="k-muted">Aucun ordre de réparation ouvert.</p>
       </template>
     </template>
+
+    <!-- Gardiennage des roues : fiche été / hiver du véhicule de l'OR, remplie par le mécanicien -->
+    <div v-if="wh" class="k-wheels" role="dialog" aria-label="Gardiennage des roues">
+      <div class="k-wh-box">
+        <div class="k-wh-top">
+          <div>
+            <div class="k-title" style="margin:0 0 4px"><Icon name="circle-dot" class="ti"/> Roues — gardiennage</div>
+            <div class="k-muted">{{ wh.order.number }} · <span class="plate">{{ wh.order.plate }}</span> {{ wh.order.make }} {{ wh.order.model }}</div>
+          </div>
+          <button class="k-btn sm" @click="closeWheels()">✕ Fermer</button>
+        </div>
+        <div class="k-wh-tabs">
+          <button v-for="s in SEASONS" :key="s.key" class="k-btn" :class="{ blue: wh.season === s.key }" :aria-pressed="wh.season === s.key" @click="wh.season = s.key">
+            <Icon :name="s.icon" class="ti"/> Roues {{ s.label.toLowerCase() }}<span v-if="replaceLabel(wh.f[s.key])" class="k-wh-dot" title="Pneus à remplacer"></span><small v-if="whDirty(s.key)">non enregistré</small>
+          </button>
+        </div>
+        <div class="k-wh-form">
+          <label>Marque des pneus<input v-model="wf.brand" maxlength="80" placeholder="Michelin, Continental…"></label>
+          <label>Dimension<input v-model="wf.size" maxlength="80" :placeholder="wh.data.vehicle.tyre_size || '205/55 R16 91V'"></label>
+          <label>Date du gardiennage<span class="k-wh-row"><input v-model="wf.stored_at" type="date"><button type="button" class="k-btn sm" @click="whToday">Aujourd'hui</button></span></label>
+          <label>Emplacement<input v-model="wf.location" maxlength="80" placeholder="Rack, étagère…"></label>
+        </div>
+        <div class="k-wh-q">Pneus à remplacer pour la saison prochaine ?</div>
+        <div class="k-wh-toggles">
+          <button class="k-btn" :class="{ red: wf.replace_front }" :aria-pressed="wf.replace_front" @click="wf.replace_front = !wf.replace_front"><span class="box">{{ wf.replace_front ? '✓' : '' }}</span> Avant</button>
+          <button class="k-btn" :class="{ red: wf.replace_rear }" :aria-pressed="wf.replace_rear" @click="wf.replace_rear = !wf.replace_rear"><span class="box">{{ wf.replace_rear ? '✓' : '' }}</span> Arrière</button>
+        </div>
+        <div v-if="wf.replace_front || wf.replace_rear" class="k-muted"><Icon name="bell" class="ti"/> À l'enregistrement, le bureau reçoit un rappel pour faire un devis au client.</div>
+        <textarea v-model="wf.notes" maxlength="1000" rows="2" placeholder="Remarque (usure, jantes, vis antivol…)" aria-label="Remarque"></textarea>
+        <div class="k-wh-q">Photos des roues {{ wh.season === 'winter' ? 'hiver' : 'été' }}</div>
+        <div class="k-wh-photos">
+          <button v-for="p in POSITIONS" :key="p.key" type="button" class="k-wh-shot" :class="{ has: whPhoto(p.key) }" :disabled="!!wh.sending" @click="whPick(p.key)">
+            <img v-if="whPhoto(p.key) && whUrls[whPhoto(p.key).id]" :src="whUrls[whPhoto(p.key).id]" :alt="'Roue ' + p.label.toLowerCase()">
+            <Icon v-else-if="!whPhoto(p.key)" name="camera" class="ti"/>
+            <span class="k-wh-label">{{ p.label }}<small>{{ wh.sending === wh.season + '-' + p.key ? 'Envoi…' : whPhoto(p.key) ? 'Reprendre la photo' : 'Prendre la photo' }}</small></span>
+          </button>
+        </div>
+        <p v-if="wh.err" class="k-err" role="alert">{{ wh.err }}</p>
+        <p v-if="wh.msg" class="k-ok" role="status"><Icon name="circle-check" class="ti"/> {{ wh.msg }}</p>
+        <div class="k-actions">
+          <button class="k-btn green" :disabled="wh.busy || !whAnyDirty" @click="whSave"><Icon name="save" class="ti"/> Enregistrer</button>
+          <button class="k-btn" @click="closeWheels()">Fermer</button>
+        </div>
+      </div>
+      <input ref="whPicker" class="k-wh-picker" type="file" accept="image/*" capture="environment" hidden @change="whFile" @cancel="releaseIdle">
+    </div>
 
     <transition name="k-fade"><div v-if="greet" class="k-greet" :class="greet.cls" @click="greet = null">
       <div class="k-greet-ico"><Icon :name="greet.cls === 'in' ? 'sun' : 'moon'" class="ti"/></div><h1>{{ greet.title }}</h1><p>{{ greet.sub }}</p><p class="k-muted">{{ greet.extra }}</p>

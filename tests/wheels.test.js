@@ -198,7 +198,7 @@ test('tablette de l\'atelier : le mécanicien remplit la fiche depuis l\'OR, et 
   assert.equal(img.status, 200);
   assert.ok(img.buf.equals(jpeg('tablette')));
   assert.equal((await call('POST', `/kiosk/orders/${or}/wheels/winter/photo/rr`, Buffer.from('pas une image'), paulo.tok)).status, 400);
-  assert.equal((await call('DELETE', `/kiosk/orders/${or}/wheels/winter/photo/rr`, undefined, paulo.tok)).data.winter.photos.rr, undefined);
+  await A('DELETE', `/wheels/vehicle/${car}/winter/photo/rr`);
 
   // la session de la tablette n'ouvre ni les routes du bureau, ni les autres pièces jointes
   assert.equal((await call('GET', `/wheels/vehicle/${car}`, undefined, paulo.tok)).status, 403);

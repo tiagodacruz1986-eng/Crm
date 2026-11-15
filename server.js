@@ -490,7 +490,6 @@ const photoBody = express.raw({ type: () => true, limit: '15mb' });
 api.get('/kiosk/orders/:id/wheels', mech, worksOrders, wrap((req) => kioskWheels(wheels.getWheels(orderVehicle(req)))));
 api.post('/kiosk/orders/:id/wheels/:season', mech, worksOrders, wrap((req) => kioskWheels(wheels.saveWheels(orderVehicle(req), req.params.season, req.body, req.user.id))));
 api.post('/kiosk/orders/:id/wheels/:season/photo/:pos', mech, worksOrders, photoBody, wrap((req) => kioskWheels(wheels.savePhoto(orderVehicle(req), req.params.season, req.params.pos, { buffer: req.body }, req.user.id))));
-api.delete('/kiosk/orders/:id/wheels/:season/photo/:pos', mech, worksOrders, wrap((req) => kioskWheels(wheels.deletePhoto(orderVehicle(req), req.params.season, req.params.pos))));
 api.get('/kiosk/orders/:id/wheels/photo/:att', mech, worksOrders, (req, res) => {
   let a = null;
   try { a = wheels.photoFile(orderVehicle(req), req.params.att); } catch { /* OR clôturé ou sans véhicule : pas de photo */ }
