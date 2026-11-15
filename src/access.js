@@ -29,17 +29,19 @@ export const APPS = [
   { key: 'social', name: 'Marketing social', desc: 'Publications Facebook, Instagram…' },
   { key: 'ia', name: 'IA', desc: 'Nova, bureau IA, agents' },
   { key: 'emails', name: 'Discussion & e-mails', desc: 'Envoyer des e-mails, boîte d\'envoi' },
+  { key: 'archives', name: 'Documents', desc: 'Contrats, assurances, courriers : classement, échéances, questions à l\'IA' },
 ];
 
 // Modèles de droits prêts à l'emploi
 const all_ = (lvl) => Object.fromEntries(APPS.map((a) => [a.key, lvl]));
 export const PRESETS = {
-  bureau: { name: 'Bureau / accueil', perms: { ...all_('user'), comptabilite: 'read', banque: 'read', presences: 'read' } },
+  // (l'application Documents peut contenir des papiers sensibles — contrats, banque, personnel : elle n'est donnée par aucun modèle, le gérant l'accorde lui-même)
+  bureau: { name: 'Bureau / accueil', perms: { ...all_('user'), comptabilite: 'read', banque: 'read', presences: 'read', archives: 'none' } },
   marketing: { name: 'Commercial / marketing', perms: { ...all_('none'), crm: 'manager', site: 'manager', social: 'manager', contacts: 'user', vehicules: 'read', ventes: 'user', emails: 'user', ia: 'user' } },
   chef_atelier: { name: 'Chef d\'atelier', perms: { ...all_('none'), atelier: 'manager', contacts: 'user', vehicules: 'user', inventaire: 'user', achats: 'user', presences: 'manager', ventes: 'read', ia: 'user', emails: 'user' } },
-  comptable: { name: 'Comptable / fiduciaire', perms: { ...all_('read'), comptabilite: 'manager', banque: 'user', achats: 'user', atelier: 'none', ia: 'none', emails: 'user' } },
+  comptable: { name: 'Comptable / fiduciaire', perms: { ...all_('read'), comptabilite: 'manager', banque: 'user', achats: 'user', atelier: 'none', ia: 'none', emails: 'user', archives: 'none' } },
   magasinier: { name: 'Magasinier', perms: { ...all_('none'), inventaire: 'manager', achats: 'user', contacts: 'read', vehicules: 'read', atelier: 'read' } },
-  lecture: { name: 'Lecture seule (associé, conseiller)', perms: { ...all_('read'), ia: 'none', emails: 'none' } },
+  lecture: { name: 'Lecture seule (associé, conseiller)', perms: { ...all_('read'), ia: 'none', emails: 'none', archives: 'none' } },
   admin: { name: 'Administrateur de tout', perms: all_('manager') },
 };
 
@@ -84,14 +86,14 @@ const PREFIXES = [
   ['/timesheets', 'presences'], ['/attendance', 'presences'],
   ['/agents', 'ia'], ['/agent-', 'ia'], ['/copilot', 'ia'],
   ['/mail', 'emails'],
-  ['/crm', 'crm'], ['/website', 'site'], ['/social', 'social'],
+  ['/crm', 'crm'], ['/website', 'site'], ['/social', 'social'], ['/archives', 'archives'],
 ];
 // Routes accessibles à tout utilisateur connecté (lecture de son propre pointage, notes du journal…)
 const OPEN = [/^\/attendance\/me$/, /^\/attendance\/check$/, /^\/copilot\/journal/];
 // Composer ou prévisualiser un e-mail ne demande pas l'application E-mails (mais bien le droit de lire la fiche liée)
 const MAIL_OPEN = /^\/mail\/(compose|preview)$/;
 const MAIL_RECORD = /^\/mail\/(compose|preview|send|draft-ai)$/;
-const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/];
+const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/, /^\/archives\/ask$/];
 // Suppressions courantes (annuler son e-mail programmé, effacer une conversation IA, retirer une pièce jointe) :
 // le niveau « Utilisateur » suffit ; les autres suppressions restent réservées aux administrateurs de l'application.
 const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/];
@@ -110,6 +112,7 @@ export function recordApp(model, id) {
     case 'purchase': return 'achats';
     case 'appointment': return 'atelier';
     case 'lead': return 'crm';
+    case 'archive': return 'archives';
     default: return null;
   }
 }
@@ -176,6 +179,8 @@ export function requiredAccess(req) {
   if (/^\/documents\/\d+\/convert$/.test(path) && req.body?.type) need.push([typeApp(req.body.type), 'user']);
   // (Encaisser une facture relève des Ventes, payer un fournisseur des Achats : le niveau « Utilisateur » suffit.
   //  Annuler un paiement, en revanche, est réservé aux administrateurs de la Banque — voir DELETE /payments/:id.)
+  // Encoder un document comme facture fournisseur crée un achat
+  if (/^\/archives\/docs\/\d+\/bill$/.test(path)) need.push(['achats', 'user']);
   // « Commander le stock bas » crée des commandes fournisseurs
   if (path === '/stock/reorder') need.push(['achats', 'user']);
   return need.length ? need : null;

@@ -38,6 +38,7 @@ import { monthlyReport, reportPlan, sendMonthlyReports } from './src/reports.js'
 import * as studio from './src/studio.js';
 import { brandIndex, brandFile, saveBrandLogo, deleteBrandLogo, listBrands } from './src/brands.js';
 import { summarizeRequest } from './src/request-summary.js';
+import * as archives from './src/archives.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -57,7 +58,7 @@ app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], expr
 app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
 // Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
 // sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
-const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|attachments\/|studio\/files\/|brands\/logo|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
+const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|archives\/upload|attachments\/|studio\/files\/|brands\/logo|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
 const jsonBody = express.json({ limit: '20mb' });
 const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
 app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
@@ -847,7 +848,41 @@ api.get('/attachment/:id', (req, res) => {
   res.setHeader('Content-Disposition', `${req.query.download || !safe ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(a.filename)}`);
   res.sendFile(a.full);
 });
-api.delete('/attachment/:id', wrap((req) => { deleteAttachment(Number(req.params.id)); return { ok: true }; }));
+api.delete('/attachment/:id', wrap((req) => {
+  // Le fichier d'un document de l'application Documents part avec le document (suppression réservée à ses administrateurs)
+  if (get('SELECT model FROM attachments WHERE id=?', Number(req.params.id))?.model === 'archive') throw new BusinessError('Ce fichier appartient à un document : supprimez le document dans l\'application Documents.');
+  deleteAttachment(Number(req.params.id));
+  return { ok: true };
+}));
+
+// ---------- Documents : classement, lecture par l'IA, contrats, questions ----------
+// Droits : application « Documents » (lecture pour consulter et interroger, utilisateur pour déposer et modifier,
+// administrateur pour supprimer et régler). Les fichiers passent par /attachment/:id, avec les mêmes droits.
+api.get('/archives', (req, res) => res.json({
+  folders: archives.listFolders(), kinds: Object.fromEntries(Object.entries(archives.KINDS).map(([k, v]) => [k, v.label])), config: archives.archivesConfig(), ai: aiConfigured(),
+  reading: get("SELECT COUNT(*) n FROM archive_docs WHERE status IN ('queued','analyzing')").n,
+  unread: get("SELECT COUNT(*) n FROM archive_docs WHERE status IN ('manual','error') AND mime IN ('application/pdf','image/jpeg','image/png','image/webp','image/gif')").n,
+  inbox: (({ enabled, user, status }) => ({ enabled: Boolean(enabled), address: user || '', status }))(archives.publicInboxConfig()),
+}));
+api.get('/archives/docs', (req, res) => res.json(archives.listDocs({ folder: req.query.folder, q: req.query.q, kind: req.query.kind, status: req.query.status })));
+api.get('/archives/docs/:id', wrap((req) => archives.getDoc(req.params.id)));
+api.post('/archives/upload', rawBody, wrap((req) => archives.addDocument({ ...fileMeta(req), source: 'upload', folderId: Number(req.query.folder) || null, userId: req.user.id })));
+api.put('/archives/docs/:id', wrap((req) => archives.updateDoc(req.params.id, req.body, req.user.id)));
+api.delete('/archives/docs/:id', wrap((req) => archives.deleteDoc(req.params.id)));
+api.post('/archives/docs/:id/analyze', wrap((req) => archives.requeue(req.params.id)));
+api.post('/archives/docs/:id/bill', wrap((req) => archives.encodeBill(req.params.id)));
+api.post('/archives/analyze-pending', wrap(() => archives.requeuePending()));
+api.post('/archives/folders', wrap((req) => archives.createFolder(req.body)));
+api.put('/archives/folders/:id', wrap((req) => archives.renameFolder(req.params.id, req.body?.name)));
+api.delete('/archives/folders/:id', wrap((req) => archives.deleteFolder(req.params.id)));
+api.get('/archives/deadlines', (req, res) => res.json(archives.listDeadlines({ past: req.query.past === '1' })));
+api.post('/archives/ask', wrap((req) => archives.askDocuments(req.body?.question)));
+api.put('/archives/config', adminOnly, wrap((req) => archives.saveArchivesConfig(req.body)));
+api.get('/archives/inbox', adminOnly, (req, res) => res.json(archives.publicInboxConfig()));
+api.put('/archives/inbox', adminOnly, wrap((req) => { archives.saveInboxConfig(req.body); return archives.publicInboxConfig(); }));
+api.post('/archives/inbox/test', adminOnly, wrap(() => archives.testInbox()));
+api.post('/archives/inbox/check', wrap(() => archives.checkInbox()));
+
 api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...req.body, purchase_id: Number(req.params.id) }) })));
 
 // ---------- Personnalisation des fiches (façon « Studio ») ----------
@@ -1148,7 +1183,7 @@ api.get('/attendance', (req, res) => res.json(listAttendance(req.query)));
 api.post('/attendance', needManager('presences'), wrap((req) => ({ id: saveAttendance(req.body) })));
 api.put('/attendance/:id', needManager('presences'), wrap((req) => ({ id: saveAttendance({ ...req.body }, Number(req.params.id)) })));
 api.delete('/attendance/:id', needManager('presences'), wrap((req) => { run("DELETE FROM time_entries WHERE id=? AND kind='presence'", req.params.id); return { ok: true }; }));
-const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
+const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, archive_inbox, archive_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
 api.get('/settings', (req, res) => res.json(publicSettings()));
 api.put('/settings', adminOnly, wrap((req) => {
   if (req.body.workshop !== undefined) {
@@ -1459,6 +1494,8 @@ function startBackgroundJobs() {
   startScheduler();
   startAutomation();
   startInboxPolling();
+  archives.resumeQueue(); // lectures de documents interrompues par un arrêt du logiciel
+  archives.startInboxPolling();
   startCopilotScheduler();
   setInterval(() => processScheduledEmails().catch((e) => console.error('E-mails programmés', e)), 30_000);
 }
