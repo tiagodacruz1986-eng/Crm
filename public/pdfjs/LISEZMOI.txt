@@ -1,0 +1,10 @@
+PDF.js (Mozilla) — afficheur de PDF utilisé par le logiciel pour montrer l'original d'un document dans la page,
+sur ordinateur, tablette et téléphone, sans dépendre du lecteur PDF du navigateur.
+
+Version : pdfjs-dist 6.5.438 (fichiers « legacy », pour les navigateurs un peu anciens), licence Apache-2.0 (voir LICENSE).
+Fichiers repris tels quels du paquet npm « pdfjs-dist » :
+  legacy/build/pdf.min.mjs, legacy/build/pdf.worker.min.mjs, standard_fonts/, iccs/,
+  wasm/ (décodeurs JBIG2, JPEG 2000 et couleurs — sans le bac à sable de scripts, qui ne sert pas ici).
+Les polices et décodeurs ont leurs propres licences, jointes dans chaque dossier.
+
+Pour mettre à jour : remplacer ces fichiers par ceux de la nouvelle version du paquet, et corriger le numéro ci-dessus.

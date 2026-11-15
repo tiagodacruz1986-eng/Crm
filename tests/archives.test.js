@@ -623,6 +623,23 @@ test('contrats : relecture après correction, date limite tapée à la main, fic
   await A('PUT', `/archives/docs/${d.id}`, { notice_days: 120 });
   assert.equal((await one()).cancel_by, day(480), 'date calculée : elle suit le préavis');
 });
+test('afficheur de l\'original : ses fichiers sont servis par le logiciel, sans internet', async () => {
+  const get = (u) => fetch(`http://127.0.0.1:${PORT}${u}`);
+  for (const [u, type] of [['/pdfjs/pdf.min.mjs', /javascript/], ['/pdfjs/pdf.worker.min.mjs', /javascript/], ['/pdfjs/wasm/openjpeg.wasm', /wasm/], ['/js/file-viewer.js', /javascript/]]) {
+    const r = await get(u);
+    assert.equal(r.status, 200, u);
+    assert.match(r.headers.get('content-type') || '', type, u);
+    assert.ok((await r.arrayBuffer()).byteLength > 1000, u);
+  }
+  assert.equal((await get('/pdfjs/standard_fonts/LiberationSans-Regular.ttf')).status, 200);
+  assert.equal((await get('/pdfjs/iccs/CGATS001Compat-v2-micro.icc')).status, 200);
+  // l'original lui-même est servi tel quel à celui qui a le droit de lire le document (c'est ce que l'afficheur charge)
+  const d = (await A('GET', '/archives/docs?q=leasing')).data[0];
+  const f = await call('GET', `/attachment/${d.attachment_id}`, undefined, admin);
+  assert.equal(f.status, 200);
+  assert.match(f.headers.get('content-type'), /application\/pdf/);
+  assert.equal((await call('GET', `/attachment/${d.attachment_id}`)).status, 401);
+});
 test('dépôt dans « À classer » : rangé quand même ; document supprimé pendant sa lecture : rien n\'est écrit ailleurs', async () => {
   const inbox = await folderId('À classer');
   queue.push({ ...CARD, type: 'vehicle', titre: 'Contrôle technique XY 9876' });

@@ -12,6 +12,7 @@ async function uploadFile(url, file) {
 }
 import { route, go, leaveGuards } from '../router.js';
 import { PaymentModal } from './documents.js';
+import { FileViewer } from '../file-viewer.js';
 
 const PRODUCT_FIELDS = ['ref', 'ean', 'name', 'category', 'brand', 'supplier_id', 'purchase_price', 'sale_price', 'tax_rate', 'qty_min', 'location', 'unit', 'is_service', 'labor_hours', 'active'];
 const MOVE_KIND = { purchase: 'Réception', sale: 'Vente', adjust: 'Inventaire', return: 'Retour' };
@@ -196,7 +197,7 @@ export const PurchaseList = {
 };
 
 export const PurchaseEditor = {
-  components: { PaymentModal },
+  components: { PaymentModal, FileViewer },
   setup() {
     const isNew = route.params.id === 'new';
     const p = ref(null);
@@ -320,8 +321,7 @@ export const PurchaseEditor = {
     <Chatter v-if="!isNew" model="purchase" :record-id="p.id"/>
     </div>
     <div v-if="viewer" class="bill-viewer">
-      <iframe v-if="/pdf/.test(viewer.mime)" :src="'/api/attachment/' + viewer.id"></iframe>
-      <img v-else :src="'/api/attachment/' + viewer.id">
+      <FileViewer :src="'/api/attachment/' + viewer.id" :mime="viewer.mime" :name="viewer.filename"/>
     </div>
     </div>
     <PaymentModal v-if="showPay" :residual="Math.round((p.total - p.amount_paid) * 100) / 100" title="Paiement fournisseur" @close="showPay = false" @save="pay"/>

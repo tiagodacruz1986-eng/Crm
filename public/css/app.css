@@ -661,11 +661,27 @@ a.live { text-decoration: none; white-space: nowrap; }
 .arch-hint { margin: 0; }
 .arch-drop { position: fixed; inset: 0; z-index: 90; background: color-mix(in srgb, var(--brand) 14%, transparent); display: grid; place-items: center; pointer-events: none; }
 .arch-drop > div { background: var(--panel-solid, var(--panel)); border: 2px dashed var(--brand); border-radius: var(--radius); padding: 30px 44px; display: flex; flex-direction: column; align-items: center; gap: 6px; box-shadow: var(--shadow-lg); } .arch-drop .icon { width: 34px; height: 34px; color: var(--brand); }
-.arch-doc { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-.arch-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.arch-view iframe, .arch-nopreview { width: 100%; height: 62vh; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
-.arch-view img { width: 100%; max-height: 62vh; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
-.arch-nopreview { display: grid; place-items: center; align-content: center; gap: 8px; color: var(--muted); background: var(--panel-2); } .arch-nopreview .icon { width: 40px; height: 40px; }
+/* fiche d'un document : l'original à gauche, en grand et toujours sous les yeux ; la fiche à droite */
+.modal:has(.arch-doc) { max-width: 1240px; }
+.arch-doc { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.arch-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; position: sticky; top: 0; }
+.arch-view .fv { height: 70vh; }
+/* ---------- Afficheur de document (PDF, photo) dans la page : l'original à côté de la fiche, comme dans Odoo ---------- */
+.fv { display: flex; flex-direction: column; min-width: 0; height: 62vh; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; background: #55585e; }
+.fv-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; background: var(--panel-solid); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--ink-2); flex: none; }
+.fv-nav, .fv-zoom { display: inline-flex; align-items: center; gap: 4px; }
+.fv-count { padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fv-btn { border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 8px; min-width: 34px; height: 32px; padding: 0 8px; font: inherit; font-size: 17px; line-height: 1; cursor: pointer; }
+.fv-btn.fv-fit { font-size: 12px; min-width: 58px; font-variant-numeric: tabular-nums; }
+.fv-btn:disabled { opacity: .45; cursor: default; }
+.fv-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px; -webkit-overflow-scrolling: touch; }
+.fv-page { position: relative; margin: 0 auto 10px; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .35); }
+.fv-page:last-child { margin-bottom: 0; }
+.fv-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.fv-wait { position: absolute; inset: 0; display: grid; place-items: center; color: #6b7280; font-size: 13px; padding: 10px; text-align: center; }
+.fv-scroll.is-image img { display: block; margin: 0 auto; max-width: none; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .35); }
+.fv-scroll.is-native { padding: 0; } .fv-scroll iframe { width: 100%; height: 100%; border: 0; background: #fff; display: block; }
+.fv-none { height: 100%; display: grid; place-items: center; align-content: center; gap: 8px; color: #e5e7eb; text-align: center; padding: 16px; font-size: 14px; } .fv-none .icon { width: 40px; height: 40px; }
 .arch-file { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; } .arch-file > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .arch-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .arch-card .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
@@ -684,8 +700,8 @@ a.live { text-decoration: none; white-space: nowrap; }
 .arch-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin: 0 4px 0 10px; } .arch-dot.cancel { background: var(--warn); } .arch-dot.end { background: var(--brand); }
 @media (max-width: 800px) {
   .arch { grid-template-columns: 1fr; } .arch-side { display: none; } .arch-pick { display: block; }
-  /* téléphone : pas d'aperçu PDF dans la page (mal pris en charge) — le bouton « Ouvrir » l'affiche en entier */
-  .arch-doc { grid-template-columns: 1fr; } .arch-view iframe, .arch-nopreview { display: none; } .arch-bar > select { flex: 1 1 100%; }
+  /* téléphone : l'original d'abord (un peu moins haut), la fiche en dessous */
+  .arch-doc { grid-template-columns: 1fr; } .arch-view { position: static; } .arch-view .fv { height: 52vh; } .arch-bar > select { flex: 1 1 100%; }
   .arch-card .form-grid { grid-template-columns: 1fr; }
 }
 /* ---------- Gardiennage des roues : carte de la fiche véhicule (jeu été / jeu hiver) et vue d'ensemble ---------- */
@@ -805,9 +821,8 @@ a.live { text-decoration: none; white-space: nowrap; }
 .dz-busy { font-weight: 600; color: var(--brand); padding: 18px; }
 .ai-banner { background: var(--grad-soft); border: 1px solid var(--line-strong); border-radius: 14px; padding: 13px 15px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
 .bill-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.bill-viewer { position: sticky; top: 80px; height: calc(100vh - 104px); background: #3a3d44; border-radius: var(--radius); overflow: auto; border: 1px solid var(--line-strong); }
-.bill-viewer iframe { width: 100%; height: 100%; border: 0; }
-.bill-viewer img { width: 100%; display: block; }
+.bill-viewer { position: sticky; top: 80px; height: calc(100vh - 104px); background: #3a3d44; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line-strong); }
+.bill-viewer .fv { height: 100%; border: 0; border-radius: 0; }
 .bill-layout table.lines { min-width: 720px; } .bill-layout .lines th:nth-child(2) { min-width: 0; }
 
 /* ---------- Copilote IA (orbe + panneau) ---------- */

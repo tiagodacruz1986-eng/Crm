@@ -6,6 +6,7 @@ import DOMPurify from 'dompurify';
 import { GET, POST, PUT, DEL, act, toast, store, money, date as fdate, datetime, today } from '../api.js';
 import { route, go, replace, leaveGuards } from '../router.js';
 import { can } from '../apps.js';
+import { FileViewer } from '../file-viewer.js';
 
 // Réponse de l'IA : mise en forme simple et liens vers les documents seulement. Ni image, ni style, ni lien extérieur :
 // un document piégé ne peut pas faire partir des informations vers un autre site par ce biais.
@@ -32,6 +33,7 @@ const due = (d) => {
 
 // ---------- Fiche d'un document ----------
 const DocModal = {
+  components: { FileViewer },
   props: { id: Number, folders: Array, kinds: Object, ai: Boolean },
   emits: ['close', 'changed'],
   setup(props, { emit }) {
@@ -74,7 +76,6 @@ const DocModal = {
     onMounted(() => leaveGuards.add(leaveOk));
     onUnmounted(() => { clearTimeout(timer); leaveGuards.delete(leaveOk); });
     const reading = computed(() => ['queued', 'analyzing'].includes(d.value?.status));
-    const isImage = computed(() => String(d.value?.mime || '').startsWith('image/'));
     const isContract = computed(() => ['contract', 'insurance'].includes(f.value?.kind) || !!(f.value?.contract_end || f.value?.cancel_by || f.value?.contract_start || d.value?.contract_end));
     const showContract = ref(false);
     // Date limite de résiliation proposée quand la fin ou le préavis changent — seulement si le champ est vide ou contient
@@ -116,16 +117,14 @@ const DocModal = {
       try { await act(() => DEL('/archives/docs/' + props.id), 'Document supprimé'); closing = true; emit('changed'); emit('close', true); } catch { /* message déjà affiché */ }
     };
     const close = () => { if (dirty.value && !confirm('Les modifications ne sont pas enregistrées. Fermer quand même ?')) return; closing = true; emit('close'); };
-    return { d, f, busy, dirty, reading, isImage, isContract, showContract, canEdit, canDelete, canBill, suggest, save, reread, bill, remove, close, STATUS, size, due, fdate, money };
+    return { d, f, busy, dirty, reading, isContract, showContract, canEdit, canDelete, canBill, suggest, save, reread, bill, remove, close, STATUS, size, due, fdate, money };
   },
   template: `
   <Modal :title="d ? d.title : 'Document'" wide @close="close">
     <div v-if="!d" class="muted">Chargement…</div>
     <div v-else class="arch-doc">
       <div class="arch-view">
-        <iframe v-if="d.mime === 'application/pdf'" :src="'/api/attachment/' + d.attachment_id" title="Aperçu du document"></iframe>
-        <img v-else-if="isImage" :src="'/api/attachment/' + d.attachment_id" :alt="d.title">
-        <div v-else class="arch-nopreview"><Icon name="file-text"/><div>Pas d'aperçu pour ce format</div></div>
+        <FileViewer :src="'/api/attachment/' + d.attachment_id" :mime="d.mime" :name="d.filename"/>
         <div class="arch-file"><span class="muted small">{{ d.filename }} · {{ size(d.size) }}<template v-if="d.source === 'email'"> · reçu par e-mail{{ d.email_from ? ' de ' + d.email_from : '' }}</template></span>
           <span class="btns"><a class="btn sm" :href="'/api/attachment/' + d.attachment_id" target="_blank" rel="noopener"><Icon name="external-link" class="ti"/> Ouvrir</a>
           <a class="btn sm" :href="'/api/attachment/' + d.attachment_id + '?download=1'"><Icon name="download" class="ti"/> Télécharger</a></span></div>
