@@ -1,6 +1,6 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, date, DOC_TYPES_SHORT } from '../api.js';
-import { route, go } from '../router.js';
+import { route, go, replace } from '../router.js';
 import { can } from '../apps.js';
 import { BrandManager } from '../brand-manager.js';
 import { WheelStorage, WheelList } from '../wheels.js';
@@ -212,7 +212,8 @@ export const VehicleDetail = {
     onMounted(load);
     const save = async () => { await act(() => PUT('/vehicles/' + v.value.id, v.value), 'Enregistré'); load(); };
     const vin = async () => { try { Object.assign(v.value, await decodeVin(v.value.vin)); toast('VIN décodé'); } catch (e) { toast(e.message, 'error'); } };
-    const remove = async () => { if (!confirm('Supprimer ce véhicule ?')) return; await act(() => DEL('/vehicles/' + v.value.id)); go('/vehicles'); };
+    // (véhicule supprimé : retour à la liste sans repasser par la question « saisie non enregistrée », et sans que le bouton Retour y ramène)
+    const remove = async () => { if (!confirm('Supprimer ce véhicule ?')) return; await act(() => DEL('/vehicles/' + v.value.id)); replace('/vehicles'); };
     return { v, save, vin, remove, money, date, DOC_TYPES_SHORT };
   },
   template: `

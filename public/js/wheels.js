@@ -38,8 +38,12 @@ export const WheelStorage = {
       busy.value = k;
       try {
         const had = w.value[k].quote?.status === 'planned';
+        const sent = { ...f[k] };
         const d = await act(() => PUT(`/wheels/vehicle/${props.vehicleId}/${k}`, diff(k)));
-        w.value = d; reset(k, d);
+        // ce qui a été tapé pendant l'envoi reste à l'écran, à enregistrer : seuls les champs non touchés sont repris
+        const fresh = formOf(d[k]);
+        w.value = d; Object.assign(base[k], fresh);
+        for (const key of Object.keys(fresh)) if (f[k][key] === sent[key]) f[k][key] = fresh[key];
         toast(!had && d[k].quote?.status === 'planned' ? 'Enregistré — un rappel « devis pneus à faire » est dans les activités' : 'Enregistré');
       } catch { /* message déjà affiché */ } finally { busy.value = ''; }
     };

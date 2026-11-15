@@ -224,8 +224,12 @@ const App = {
           const body = changes(d.f[s.key], d.base[s.key]);
           if (!Object.keys(body).length) continue;
           const had = d.data[s.key].quote?.status === 'planned';
+          const sent = { ...d.f[s.key] };
           const data = await call('POST', `/kiosk/orders/${d.order.id}/wheels/${s.key}`, body);
-          d.data = data; d.f[s.key] = formOf(data[s.key]); d.base[s.key] = formOf(data[s.key]);
+          // ce qui a été tapé pendant l'envoi (Wi-Fi lent) reste à l'écran, à enregistrer : seuls les champs non touchés sont repris
+          const fresh = formOf(data[s.key]);
+          d.data = data; d.base[s.key] = fresh;
+          for (const key of Object.keys(fresh)) if (d.f[s.key][key] === sent[key]) d.f[s.key][key] = fresh[key];
           if (!had && data[s.key].quote?.status === 'planned') warned = true;
         }
         d.msg = warned ? 'Enregistré. Le bureau est prévenu : devis pneus à faire.' : 'Enregistré.';
@@ -255,6 +259,7 @@ const App = {
       wh.value = null;
       for (const id of Object.keys(whUrls)) { URL.revokeObjectURL(whUrls[id]); delete whUrls[id]; }
       releaseIdle();
+      if (force !== true) bump(); // fiche fermée : retour au délai court de déconnexion automatique
     }
     const whToday = () => { wf.value.stored_at = localToday(); };
     const openLive = async (o) => { const w = window.open('', '_blank'); const r = await call('POST', `/kiosk/orders/${o.id}/live`); if (w) w.location = r.url; else location.href = r.url; };
@@ -410,7 +415,7 @@ const App = {
           </button>
         </div>
         <p v-if="wh.err" class="k-err" role="alert">{{ wh.err }}</p>
-        <p v-if="wh.msg" class="k-ok" role="status"><Icon name="circle-check" class="ti"/> {{ wh.msg }}</p>
+        <p v-if="wh.msg && !whAnyDirty" class="k-ok" role="status"><Icon name="circle-check" class="ti"/> {{ wh.msg }}</p>
         <div class="k-actions">
           <button class="k-btn green" :disabled="wh.busy || !whAnyDirty" @click="whSave"><Icon name="save" class="ti"/> Enregistrer</button>
           <button class="k-btn" @click="closeWheels()">Fermer</button>

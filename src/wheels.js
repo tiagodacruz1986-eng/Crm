@@ -67,7 +67,9 @@ export function getWheels(vehicleId) {
 /**
  * Rappel « devis à faire » : créé quand des pneus sont signalés à remplacer, pour le gérant, à faire le jour même.
  * Un seul rappel par constat : tant qu'il est en attente il suit les corrections ; une fois traité, il n'est recréé
- * que si le constat change (autres pneus, ou nouvelle mise en gardiennage). Plus rien à remplacer : il est annulé.
+ * que si le constat change — d'autres pneus, ou une NOUVELLE date de gardiennage (la saison suivante). Compléter la
+ * date après coup, ou la vider quand les roues repartent sur le véhicule, n'est pas un nouveau constat.
+ * Plus rien à remplacer : le rappel en attente est annulé.
  */
 function syncQuote(setId, userId) {
   const s = get('SELECT * FROM wheel_sets WHERE id=?', setId);
@@ -80,13 +82,18 @@ function syncQuote(setId, userId) {
     return;
   }
   const v = vehicle(s.vehicle_id);
-  const key = `${s.replace_front ? 'f' : ''}${s.replace_rear ? 'r' : ''}|${s.stored_at || ''}`;
+  const [oldFlags, oldDate = ''] = (s.quote_key || '').split('|');
+  const flags = `${s.replace_front ? 'f' : ''}${s.replace_rear ? 'r' : ''}`;
+  const key = `${flags}|${s.stored_at || oldDate}`;
+  const changed = s.quote_key == null || flags !== oldFlags || Boolean(oldDate && s.stored_at && s.stored_at !== oldDate);
+  // (le nom de celui qui a fait le constat reste, même si quelqu'un d'autre complète la fiche ensuite)
+  const kept = act?.status === 'planned' && flags === oldFlags ? (get('SELECT note FROM activities WHERE id=?', act.id)?.note || '').match(/^Constat de .*$/m)?.[0] : null;
   const car = [v.plate, v.make, v.model].filter(Boolean).join(' ') || 'véhicule';
   const summary = `Devis pneus à faire : ${car} — pneus ${SEASONS[s.season]} ${what} à remplacer pour la saison prochaine`.slice(0, 250);
   const note = [v.customer_name && `Client : ${v.customer_name}`, s.brand && `Marque : ${s.brand}`, s.size && `Dimension : ${s.size}`, s.stored_at && `En gardiennage depuis le ${fr(s.stored_at)}`,
-    s.notes && `Remarque : ${s.notes}`, userName(userId) && `Constat de ${userName(userId)}, le ${fr(today())}.`, 'Ouvrez la fiche du véhicule pour voir les photos des roues et créer le devis.'].filter(Boolean).join('\n');
+    s.notes && `Remarque : ${s.notes}`, kept || (userName(userId) && `Constat de ${userName(userId)}, le ${fr(today())}.`), 'Ouvrez la fiche du véhicule pour voir les photos des roues et créer le devis.'].filter(Boolean).join('\n');
   if (act?.status === 'planned') run('UPDATE activities SET summary=?, note=? WHERE id=?', summary, note, act.id);
-  else if (!act || s.quote_key !== key) {
+  else if (!act || changed) {
     const owner = firstAdmin();
     if (!owner) return;
     const id = createActivity({ model: 'vehicle', record_id: v.id, type: 'todo', summary, note, due_date: today(), user_id: owner }, userId || owner);

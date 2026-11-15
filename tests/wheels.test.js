@@ -129,6 +129,20 @@ test('pneus à remplacer : un rappel « devis à faire » pour le gérant, un se
   q = await quotes();
   assert.equal(q.length, 1);
   assert.match(q[0].summary, /pneus été arrière à remplacer/);
+  // la date de gardiennage complétée après coup, ou vidée quand les roues repartent : pas un nouveau constat
+  const v2 = (await A('POST', '/vehicles', { customer_id: customer, plate: 'EF 4321', make: 'Opel', model: 'Corsa' })).data.id;
+  const mine = async (status = 'planned') => (await quotes(admin, status)).filter((a) => a.record_id === v2);
+  await A('PUT', `/wheels/vehicle/${v2}/winter`, { replace_front: true });
+  await A('POST', `/activities/${(await mine())[0].id}/done`, {});
+  await A('PUT', `/wheels/vehicle/${v2}/winter`, { stored_at: day(), location: 'Rack 7' });
+  assert.equal((await mine()).length, 0, 'date complétée après le devis : pas de second rappel');
+  await A('PUT', `/wheels/vehicle/${v2}/winter`, { stored_at: null });
+  assert.equal((await mine()).length, 0, 'roues remontées (date vidée) : pas de second rappel');
+  await A('PUT', `/wheels/vehicle/${v2}/winter`, { stored_at: day() });
+  assert.equal((await mine()).length, 0, 'même date remise : toujours rien');
+  await A('PUT', `/wheels/vehicle/${v2}/winter`, { stored_at: day(180) });
+  assert.equal((await mine()).length, 1, 'nouvelle mise en gardiennage, pneus toujours à remplacer : nouveau rappel');
+  assert.equal((await mine('done')).length, 1);
   // l'historique du véhicule garde la trace des constats
   const hist = (await A('GET', `/chatter/vehicle/${car}`)).text;
   assert.match(hist, /Roues hiver : pneus avant à remplacer/);
@@ -184,11 +198,16 @@ test('tablette de l\'atelier : le mécanicien remplit la fiche depuis l\'OR, et 
   assert.equal(r.status, 200);
   assert.equal(r.data.winter.replace_front, 1);
   assert.equal(r.data.winter.checked_by_name, 'Paulo');
-  const q = (await quotes()).filter((a) => /hiver avant à remplacer/.test(a.summary));
+  const q = (await quotes()).filter((a) => a.record_id === car && /hiver avant à remplacer/.test(a.summary));
   assert.equal((await quotes()).length, before + 1);
   assert.equal(q.length, 1);
   assert.match(q[0].note, /Constat de Paulo/);
   assert.equal(q[0].user_id, (await A('GET', '/me')).data.id);
+  // le bureau complète la fiche ensuite : le rappel garde le nom du mécanicien qui a fait le constat
+  await A('PUT', `/wheels/vehicle/${car}/winter`, { location: 'Rack A9' });
+  const again = (await quotes()).find((a) => a.id === q[0].id);
+  assert.match(again.note, /Constat de Paulo/);
+  assert.ok(!/Constat de Gérant/.test(again.note));
 
   // photos depuis la tablette, relues depuis la tablette
   r = await call('POST', `/kiosk/orders/${or}/wheels/winter/photo/rr`, jpeg('tablette'), paulo.tok);
