@@ -96,12 +96,11 @@ export const WheelStorage = {
           <div v-for="p in POSITIONS" :key="p.key" class="wh-photo">
             <template v-if="w[s.key].photos[p.key]">
               <a :href="src(w[s.key].photos[p.key])" target="_blank" rel="noopener" title="Agrandir la photo"><img :src="src(w[s.key].photos[p.key])" :alt="alt(s, p)" loading="lazy"></a>
-              <div class="wh-cap"><span>{{ p.label }}</span>
-                <span v-if="canEdit" class="wh-tools">
-                  <button class="icon-btn" title="Remplacer la photo" aria-label="Remplacer la photo" :disabled="!!sending" @click="pick(s.key, p.key)"><Icon name="camera" class="ti"/></button>
-                  <button class="icon-btn" title="Retirer la photo" aria-label="Retirer la photo" :disabled="!!sending" @click="removePhoto(s.key, p.key)"><Icon name="trash-2" class="ti"/></button>
-                </span>
-              </div>
+              <span v-if="canEdit" class="wh-tools">
+                <button class="icon-btn" title="Remplacer la photo" aria-label="Remplacer la photo" :disabled="!!sending" @click="pick(s.key, p.key)"><Icon name="camera" class="ti"/></button>
+                <button class="icon-btn" title="Retirer la photo" aria-label="Retirer la photo" :disabled="!!sending" @click="removePhoto(s.key, p.key)"><Icon name="trash-2" class="ti"/></button>
+              </span>
+              <div class="wh-cap">{{ p.label }}</div>
             </template>
             <button v-else type="button" class="wh-add" :disabled="!canEdit || !!sending" @click="pick(s.key, p.key)">
               <span v-if="sending === s.key + '-' + p.key" class="typing"><span></span><span></span><span></span></span><Icon v-else name="camera" class="ti"/>
