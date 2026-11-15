@@ -39,6 +39,7 @@ import * as studio from './src/studio.js';
 import { brandIndex, brandFile, saveBrandLogo, deleteBrandLogo, listBrands } from './src/brands.js';
 import { summarizeRequest } from './src/request-summary.js';
 import * as archives from './src/archives.js';
+import * as wheels from './src/wheels.js';
 import { stages, listLeads, getLead, saveLead, moveLead, markWon, markLost, restoreLead, ensureCustomer, createQuote, pipelineStats, saveStage, deleteStage, SOURCES, LOST_REASONS } from './src/crm.js';
 import { websiteConfig, saveWebsite, renderSite, generateWebsite, saveSiteImage, siteMediaFile, submitContact, BLOCK_TYPES } from './src/website.js';
 import { PLATFORMS, publicAccounts, saveAccounts, listPosts, getPost, savePost, publishPost, markManualDone, writePosts, postIdeas } from './src/social.js';
@@ -58,7 +59,7 @@ app.use(['/api/auth', '/api/kiosk/login', '/api/kiosk/badge', '/site-api'], expr
 app.use(/^\/live-api\/[^/]+\/(posts|stage|lines)/, express.json({ limit: '50kb' }));
 // Dépôts de fichiers (pièces jointes, factures fournisseurs, images) : le fichier est lu tel quel, octet pour octet —
 // sans passer par les lecteurs JSON / texte ci-dessous, qui altéraient les fichiers .txt, .csv, .xml et refusaient les .json
-const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|archives\/upload|attachments\/|studio\/files\/|brands\/logo|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
+const UPLOAD_ROUTES = /^\/(api\/(bills\/upload|archives\/upload|wheels\/vehicle\/\d+\/[a-z]+\/photo\/|kiosk\/orders\/\d+\/wheels\/[a-z]+\/photo\/|attachments\/|studio\/files\/|brands\/logo|website\/images|social\/images|settings\/(logo|home-bg)|live\/\d+\/upload)|live-api\/[^/]+\/upload)/;
 const jsonBody = express.json({ limit: '20mb' });
 const textBody = express.text({ type: ['text/*', 'application/xml'], limit: '20mb' });
 app.use((req, res, next) => (UPLOAD_ROUTES.test(req.path) ? next() : jsonBody(req, res, (e) => (e ? next(e) : textBody(req, res, next)))));
@@ -73,7 +74,7 @@ app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/int
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/instrument-serif.woff2', express.static(nm('@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
-const ICONS = ['LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban', 'CircleCheck', 'Play', 'Pause', 'TriangleAlert', 'User', 'Paperclip', 'Inbox', 'Lock', 'Banknote', 'RefreshCw', 'Headphones', 'Camera', 'Save', 'CircleX', 'ClipboardList', 'ThumbsUp', 'Hammer', 'Palette', 'Plug', 'Ban', 'Notebook', 'Radio', 'Repeat', 'MessageSquare', 'Type', 'Hash', 'SquareCheck', 'CircleDot', 'Printer', 'Keyboard', 'Folder', 'Wifi', 'MapPin', 'Tag', 'Hourglass', 'Flag', 'Target', 'House', 'CircleHelp', 'PenLine', 'PartyPopper', 'Laptop', 'Info'];
+const ICONS = ['Snowflake', 'LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban', 'CircleCheck', 'Play', 'Pause', 'TriangleAlert', 'User', 'Paperclip', 'Inbox', 'Lock', 'Banknote', 'RefreshCw', 'Headphones', 'Camera', 'Save', 'CircleX', 'ClipboardList', 'ThumbsUp', 'Hammer', 'Palette', 'Plug', 'Ban', 'Notebook', 'Radio', 'Repeat', 'MessageSquare', 'Type', 'Hash', 'SquareCheck', 'CircleDot', 'Printer', 'Keyboard', 'Folder', 'Wifi', 'MapPin', 'Tag', 'Hourglass', 'Flag', 'Target', 'House', 'CircleHelp', 'PenLine', 'PartyPopper', 'Laptop', 'Info'];
 let iconModule = null;
 app.get('/vendor/icons.js', async (req, res) => {
   if (!iconModule) {
@@ -475,6 +476,29 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
 // Lien "photos & messages" du mécanicien pour un OR
 api.post('/kiosk/orders/:id/live', mech, worksOrders, wrap((req) => ({ url: `/suivi.html?t=${ensureLink(Number(req.params.id), 'mechanic')}` })));
 
+// Gardiennage des roues, depuis un OR ouvert sur la tablette : le mécanicien n'accède qu'au véhicule de cet OR
+// (marque, dimension, pneus à remplacer, date, emplacement, une photo par roue — pour le jeu été et le jeu hiver)
+const orderVehicle = (req) => {
+  const d = get("SELECT vehicle_id, status FROM documents WHERE id=? AND type='order'", Number(req.params.id) || 0);
+  if (!d || ['invoiced', 'cancelled'].includes(d.status)) throw new BusinessError('OR introuvable ou clôturé', 404);
+  if (!d.vehicle_id) throw new BusinessError('Cet OR n\'a pas de véhicule : le bureau doit d\'abord l\'ajouter');
+  return d.vehicle_id;
+};
+// (la tablette ne reçoit que ce qu'elle affiche déjà du véhicule : ni la fiche client, ni son numéro)
+const kioskWheels = ({ vehicle: v, ...sets }) => ({ vehicle: { plate: v.plate, make: v.make, model: v.model, tyre_size: v.tyre_size }, ...sets });
+const photoBody = express.raw({ type: () => true, limit: '15mb' });
+api.get('/kiosk/orders/:id/wheels', mech, worksOrders, wrap((req) => kioskWheels(wheels.getWheels(orderVehicle(req)))));
+api.post('/kiosk/orders/:id/wheels/:season', mech, worksOrders, wrap((req) => kioskWheels(wheels.saveWheels(orderVehicle(req), req.params.season, req.body, req.user.id))));
+api.post('/kiosk/orders/:id/wheels/:season/photo/:pos', mech, worksOrders, photoBody, wrap((req) => kioskWheels(wheels.savePhoto(orderVehicle(req), req.params.season, req.params.pos, { buffer: req.body }, req.user.id))));
+api.delete('/kiosk/orders/:id/wheels/:season/photo/:pos', mech, worksOrders, wrap((req) => kioskWheels(wheels.deletePhoto(orderVehicle(req), req.params.season, req.params.pos))));
+api.get('/kiosk/orders/:id/wheels/photo/:att', mech, worksOrders, (req, res) => {
+  let a = null;
+  try { a = wheels.photoFile(orderVehicle(req), req.params.att); } catch { /* OR clôturé ou sans véhicule : pas de photo */ }
+  if (!a) return res.status(404).end();
+  res.type(a.mime).set('X-Content-Type-Options', 'nosniff').set('Cache-Control', 'private, max-age=3600');
+  res.sendFile(a.full);
+});
+
 // ---------- Tout le reste nécessite une connexion bureau ----------
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : staff(req, res, next)));
 api.use((req, res, next) => (req.path.startsWith('/kiosk') || req.path.startsWith('/auth') ? next() : accessGuard(req, res, next)));
@@ -534,6 +558,7 @@ function cleanBody(body, { required = [], numbers = [], dates = [], datetimes = 
 }
 /** Efface ce qui était attaché à une fiche supprimée (sinon la fiche suivante, qui reprend son numéro, en hériterait). */
 function forgetRecord(model, id) {
+  if (model === 'vehicle') wheels.forgetVehicle(id); // jeux de roues en gardiennage et leurs photos
   for (const a of listAttachments(model, id)) deleteAttachment(a.id);
   studio.forgetValues(model, id); // champs personnalisés de la fiche
   run('DELETE FROM messages WHERE model=? AND record_id=?', model, id);
@@ -859,6 +884,15 @@ api.delete('/attachment/:id', wrap((req) => {
   deleteAttachment(Number(req.params.id));
   return { ok: true };
 }));
+
+// ---------- Gardiennage des roues (Parc automobile) ----------
+// Droits de l'application « Parc automobile » : lecture pour consulter, utilisateur pour remplir et ajouter les photos.
+// Les photos s'affichent par /attachment/:id, avec les mêmes droits.
+api.get('/wheels', (req, res) => res.json(wheels.listWheels({ filter: String(req.query.filter || '') })));
+api.get('/wheels/vehicle/:id', wrap((req) => wheels.getWheels(req.params.id)));
+api.put('/wheels/vehicle/:id/:season', wrap((req) => wheels.saveWheels(req.params.id, req.params.season, req.body, req.user.id)));
+api.post('/wheels/vehicle/:id/:season/photo/:pos', rawBody, wrap((req) => wheels.savePhoto(req.params.id, req.params.season, req.params.pos, fileMeta(req), req.user.id)));
+api.delete('/wheels/vehicle/:id/:season/photo/:pos', wrap((req) => wheels.deletePhoto(req.params.id, req.params.season, req.params.pos)));
 
 // ---------- Documents : classement, lecture par l'IA, contrats, questions ----------
 // Droits : application « Documents » (lecture pour consulter et interroger, utilisateur pour déposer et modifier,

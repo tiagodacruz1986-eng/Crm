@@ -78,7 +78,7 @@ export const can = (user, app, level = 'read') => rank(effectivePerms(user)[app]
 // ---------- Quelle application protège quelle route ----------
 const PREFIXES = [
   ['/documents', null], ['/appointments', 'atelier'], ['/live', 'atelier'],
-  ['/customers', 'contacts'], ['/suppliers', 'contacts'], ['/vehicles', 'vehicules'], ['/brands', 'vehicules'],
+  ['/customers', 'contacts'], ['/suppliers', 'contacts'], ['/vehicles', 'vehicules'], ['/brands', 'vehicules'], ['/wheels', 'vehicules'],
   ['/products', 'inventaire'], ['/stock', 'inventaire'],
   ['/purchases', 'achats'], ['/bills', 'achats'],
   ['/bank-accounts', 'banque'], ['/bank', 'banque'], ['/payments', 'banque'],
@@ -96,7 +96,7 @@ const MAIL_RECORD = /^\/mail\/(compose|preview|send|draft-ai)$/;
 const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/, /^\/archives\/ask$/];
 // Suppressions courantes (annuler son e-mail programmé, effacer une conversation IA, retirer une pièce jointe) :
 // le niveau « Utilisateur » suffit ; les autres suppressions restent réservées aux administrateurs de l'application.
-const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/];
+const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/, /^\/wheels\/vehicle\/\d+\/[a-z]+\/photo\/[a-z]+$/];
 
 const typeApp = (t) => (t === 'order' ? 'atelier' : 'ventes');
 /** Types de documents demandés dans l'adresse (?type=order,quote ou ?type=order&type=quote). */
@@ -107,7 +107,7 @@ export function recordApp(model, id) {
   switch (model) {
     case 'document': return typeApp(get('SELECT type FROM documents WHERE id=?', Number(id) || 0)?.type);
     case 'customer': case 'supplier': return 'contacts';
-    case 'vehicle': return 'vehicules';
+    case 'vehicle': case 'wheelset': return 'vehicules';
     case 'product': return 'inventaire';
     case 'purchase': return 'achats';
     case 'appointment': return 'atelier';
