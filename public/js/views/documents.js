@@ -182,6 +182,7 @@ export const DocumentEditor = {
         }
       } else {
         doc.value = await GET('/documents/' + route.params.id);
+        store.docType = doc.value.type; // la barre du haut suit : « Atelier » pour un OR, « Ventes » pour un devis ou une facture
         takeTimes(doc.value);
         takePrint(doc.value); takeMail(doc.value);
         if (doc.value.customer_id) vehicles.value = (await GET('/customers/' + doc.value.customer_id)).vehicles;
@@ -218,7 +219,7 @@ export const DocumentEditor = {
         takePrint(fresh); takeMail(fresh); // imprimé ou envoyé entre-temps sur un autre poste : on le voit ici aussi
       } catch { /* prochain essai dans une minute */ } finally { reading = false; }
     }, 10000); });
-    onUnmounted(() => clearInterval(ticker));
+    onUnmounted(() => { clearInterval(ticker); store.docType = null; });
     const isWork = (l) => l.kind === 'labor' || l.kind === 'fee';
     // Nombre d'heures saisi : « 1,5 » ou « 1.5 » ; vide = rien ; autre chose = invalide (NaN)
     const parseHours = (v) => {

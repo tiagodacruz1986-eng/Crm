@@ -1,7 +1,7 @@
 // Accès à l'API + formatage + notifications
 import { reactive } from 'vue';
 
-export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false, pageError: null });
+export const store = reactive({ user: null, company: '', ai: false, toasts: [], settings: null, offline: false, pageError: null, docType: null });
 
 // Requêtes d'écriture en cours : un double clic sur un bouton renvoie la même réponse au lieu d'enregistrer deux fois
 const inflight = new Map();

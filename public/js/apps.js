@@ -55,7 +55,8 @@ export function currentApp(route) {
   const key = route.name === 'documents' ? `documents:${route.params.type}` : route.name === 'settings' && route.query.tab === 'users' ? 'settings:users' : route.name;
   if (route.name === 'documents' && route.params.type === 'order') return APPS.find((a) => a.key === 'workshop');
   if (route.name === 'document') {
-    const t = route.params.type || route.query.type;
+    // (un document ouvert par son seul numéro — depuis le tableau de l'atelier, une recherche… — dit son type une fois chargé)
+    const t = route.params.type || route.query.type || store.docType;
     if (t === 'order') return APPS.find((a) => a.key === 'workshop');
   }
   return APPS.find((a) => a.routes?.includes(key)) || APPS.find((a) => a.routes?.includes(route.name)) || null;
