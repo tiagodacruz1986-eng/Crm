@@ -157,3 +157,80 @@ test('réglages de la boîte de réception : le mot de passe ne ressort jamais',
   assert.equal(db.getSettings().replies_inbox.pass, 'secret-imap');
   assert.equal(R.publicRepliesConfig().enabled, false);
 });
+
+// ---------- Relève de la boîte : faux serveur de messagerie local (rien ne sort de la machine) ----------
+// Juste assez du protocole IMAP pour que le logiciel se connecte, cherche les messages récents et les lise.
+import net from 'node:net';
+function fakeImap(messages) {
+  const log = [];
+  const server = net.createServer((sock) => {
+    let buf = '';
+    const send = (s) => sock.write(s + '\r\n');
+    send('* OK [CAPABILITY IMAP4rev1] faux serveur de test');
+    sock.on('data', (d) => {
+      buf += d.toString('latin1');
+      let i;
+      while ((i = buf.indexOf('\r\n')) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const [tag, ...rest] = line.split(' ');
+        const cmd = rest.join(' ');
+        const up = cmd.toUpperCase();
+        if (!up.startsWith('LOGIN')) log.push(cmd);
+        if (up.startsWith('CAPABILITY')) { send('* CAPABILITY IMAP4rev1'); send(`${tag} OK`); }
+        else if (up.startsWith('LOGIN')) { log.push('LOGIN'); send(`${tag} OK [CAPABILITY IMAP4rev1] connecté`); }
+        else if (up.startsWith('EXAMINE') || up.startsWith('SELECT')) {
+          send(`* ${messages.length} EXISTS`); send('* 0 RECENT'); send('* FLAGS (\\Seen \\Answered)'); send('* OK [UIDVALIDITY 7] ok'); send(`* OK [UIDNEXT ${messages.length + 1}] ok`);
+          send(`${tag} OK [${up.startsWith('EXAMINE') ? 'READ-ONLY' : 'READ-WRITE'}] ouvert`);
+        } else if (up.startsWith('UID SEARCH')) { send(`* SEARCH ${messages.map((m, n) => n + 1).join(' ')}`); send(`${tag} OK`); }
+        else if (up.startsWith('UID FETCH')) {
+          const set = up.split(' ')[2];
+          const wanted = new Set(set.split(',').flatMap((p) => { const [a, b] = p.split(':').map(Number); return Array.from({ length: (b || a) - a + 1 }, (_, k) => a + k); }));
+          messages.forEach((m, n) => {
+            const uid = n + 1;
+            if (!wanted.has(uid)) return;
+            if (/BODY(\.PEEK)?\[\]/.test(up)) { sock.write(`* ${uid} FETCH (UID ${uid} BODY[] {${m.raw.length}}\r\n`); sock.write(m.raw); sock.write(')\r\n'); }
+            else send(`* ${uid} FETCH (UID ${uid} RFC822.SIZE ${m.raw.length} ENVELOPE ("Mon, 16 Nov 2026 09:30:00 +0100" "sujet" NIL NIL NIL NIL NIL NIL NIL "${m.id}"))`);
+          });
+          send(`${tag} OK`);
+        } else if (up.startsWith('LOGOUT')) { send('* BYE'); send(`${tag} OK`); sock.end(); }
+        else send(`${tag} OK`);
+      }
+    });
+    sock.on('error', () => {});
+  });
+  return { server, log, listen: () => new Promise((r) => server.listen(0, '127.0.0.1', () => r(server.address().port))) };
+}
+
+test('relève de la boîte du garage : lecture seule, seules les réponses sont rangées, rien n’est relu deux fois', async () => {
+  const mid = sent('document', order)[0].message_id;
+  const messages = [
+    { id: '<imap-reponse@example.com>', raw: await raw({ from: 'marc.weber@example.com', to: 'atelier@garage-test.lu', subject: 'Re: Prise en charge', messageId: '<imap-reponse@example.com>', inReplyTo: mid, text: 'Message relevé dans la boîte.' }) },
+    { id: '<imap-autre@example.org>', raw: await raw({ from: 'fournisseur@example.org', to: 'atelier@garage-test.lu', subject: 'Nos tarifs', messageId: '<imap-autre@example.org>', text: 'Sans rapport.' }) },
+  ];
+  const imap = fakeImap(messages);
+  const port = await imap.listen();
+  try {
+    R.saveRepliesConfig({ enabled: false, host: '127.0.0.1', port, secure: false, same_login: false, user: 'atelier@garage-test.lu', pass: 'secret-imap' });
+    const before = thread('document', order).filter((m) => m.kind === 'email_in').length;
+    const r = await R.checkReplies();
+    assert.equal(r.error, null);
+    assert.equal(r.read, 2);
+    assert.equal(r.matched, 1);
+    const got = thread('document', order).filter((m) => m.kind === 'email_in');
+    assert.equal(got.length, before + 1);
+    assert.equal(got.at(-1).body, 'Message relevé dans la boîte.');
+    // la boîte n'est pas modifiée : ouverte en lecture seule, aucun message marqué, déplacé, copié ou supprimé
+    const cmds = imap.log.map((c) => c.toUpperCase());
+    assert.ok(cmds.some((c) => c.startsWith('EXAMINE')), cmds.join(' | '));
+    assert.ok(!cmds.some((c) => /^(SELECT|UID STORE|STORE|UID MOVE|UID COPY|UID EXPUNGE|EXPUNGE|APPEND|DELETE|CREATE)/.test(c)), cmds.join(' | '));
+    assert.equal(db.getSettings().replies_inbox_status.matched, 1);
+    // deuxième relève : les deux messages sont connus, leur contenu n'est même plus téléchargé
+    imap.log.length = 0;
+    const again = await R.checkReplies();
+    assert.equal(again.read, 0);
+    assert.equal(again.matched, 0);
+    assert.ok(!imap.log.some((c) => /BODY/i.test(c)), imap.log.join(' | '));
+    assert.equal(thread('document', order).filter((m) => m.kind === 'email_in').length, before + 1);
+  } finally { imap.server.close(); }
+});
