@@ -147,3 +147,48 @@ test('droits : noter l\'impression demande de pouvoir lire le document ; retirer
   assert.equal((await call('GET', '/documents?type=order', undefined, seller)).status, 403);
   assert.ok(!(await call('GET', '/documents', undefined, seller)).data.some((x) => x.id === or));
 });
+
+test('facture envoyée par mail : la fiche et la liste le disent (quand, à qui, par qui, combien de fois)', async () => {
+  await A('PUT', '/mail/config', { from_email: 'info@garage.lu', from_name: 'Garage Test' });
+  const inv = await order('invoice');
+  let d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.mail_count, 0);
+  assert.equal(d.mailed_at, null);
+  // un brouillon ne s'envoie pas au client
+  assert.equal((await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'marc@client.lu', subject: 'Votre facture', intro: 'Bonjour', include_document: true })).status, 400);
+  assert.equal((await A('POST', `/documents/${inv}/post`)).status, 200);
+
+  // un message sans la facture (simple relance) ne compte pas comme « facture envoyée »
+  assert.equal((await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'marc@client.lu', subject: 'Petit mot', intro: 'Bonjour', include_document: false })).status, 200);
+  assert.equal((await A('GET', `/documents/${inv}`)).data.mail_count, 0);
+
+  const r = await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'marc@client.lu', subject: 'Votre facture', intro: 'Bonjour', include_document: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.status, 'sent');
+  d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.mail_count, 1);
+  assert.equal(d.mailed_to, 'marc@client.lu');
+  assert.equal(d.mailed_by_name, 'Gérant');
+  assert.match(d.mailed_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+  const row = (await A('GET', '/documents?type=invoice')).data.find((x) => x.id === inv);
+  assert.equal(row.mailed_at, d.mailed_at);
+  assert.equal(row.print_count, 0);
+
+  // second envoi à une autre adresse : c'est le dernier qui est affiché, et le compte monte
+  await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'compta@client.lu', subject: 'Votre facture (copie)', intro: 'Bonjour', include_document: true });
+  d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.mail_count, 2);
+  assert.equal(d.mailed_to, 'compta@client.lu');
+  // envoi programmé : annoncé, pas encore compté
+  const t = new Date(Date.now() + 3 * 86400000);
+  const later = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}T08:00`;
+  assert.equal((await A('POST', '/mail/send', { model: 'document', record_id: inv, to: 'marc@client.lu', subject: 'Rappel', intro: 'Bonjour', include_document: true, scheduled_at: later })).data.status, 'scheduled');
+  d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.mail_count, 2);
+  assert.ok(d.mail_scheduled_at.startsWith(later));
+  // l'enregistrement du document ne touche pas à ces informations, et une autre facture n'en hérite pas
+  const other = await order('invoice');
+  assert.equal((await A('GET', `/documents/${other}`)).data.mail_count, 0);
+  assert.equal((await A('GET', '/documents?type=invoice')).data.find((x) => x.id === other).mailed_at, null);
+});
+

@@ -715,7 +715,9 @@ api.get('/documents', (req, res) => {
   if (req.query.overdue) { where.push("d.status IN ('posted','partial') AND d.due_date<?"); p.push(today()); }
   if (req.query.q) { const q = `%${req.query.q}%`; where.push('(d.number LIKE ? OR c.name LIKE ? OR v.plate LIKE ?)'); p.push(q, q, q); }
   res.json(all(`SELECT d.id, d.type, d.number, d.status, d.date, d.due_date, d.subtotal, d.total, d.amount_paid, d.promised_at, d.customer_complaint,
-      d.mechanic_id, d.stage, d.print_count, d.printed_at, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
+      d.mechanic_id, d.stage, d.print_count, d.printed_at,
+      (SELECT MAX(sent_at) FROM emails WHERE model='document' AND record_id=d.id AND status='sent' AND include_document=1) AS mailed_at,
+      c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
       (SELECT ROUND(SUM(quantity),2) FROM document_lines WHERE document_id=d.id AND kind='labor') AS hours_sold,
       CASE WHEN d.type='order' THEN (SELECT ROUND(SUM(CASE WHEN kind NOT IN ('labor','fee') THEN 0 WHEN planned_hours IS NOT NULL THEN planned_hours WHEN kind='labor' THEN MAX(quantity, 0) ELSE 0 END),2)
         FROM document_lines WHERE document_id=d.id) END AS hours_planned,
@@ -727,7 +729,17 @@ api.get('/documents', (req, res) => {
     FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id LEFT JOIN users u ON u.id=d.mechanic_id
     WHERE ${where.join(' AND ')} ORDER BY d.id DESC LIMIT 1000`, localDateTime(), localDateTime(), ...p));
 });
-api.get('/documents/:id', wrap((req) => getDocument(Number(req.params.id))));
+// Envoi par mail du document lui-même (facture, devis…) : combien de fois, le dernier — quand, à qui, par qui — et
+// un éventuel envoi programmé encore en attente. Sert à écrire « Envoyée par mail » sur la facture, comme dans Odoo.
+function mailInfo(id) {
+  const sent = "model='document' AND record_id=? AND status='sent' AND include_document=1";
+  const last = get(`SELECT e.sent_at, e.to_addr, u.name FROM emails e LEFT JOIN users u ON u.id=e.user_id WHERE ${sent} ORDER BY e.sent_at DESC, e.id DESC LIMIT 1`, id);
+  return {
+    mail_count: get(`SELECT COUNT(*) AS n FROM emails WHERE ${sent}`, id).n, mailed_at: last?.sent_at || null, mailed_to: last?.to_addr || null, mailed_by_name: last?.name || null,
+    mail_scheduled_at: get("SELECT MIN(scheduled_at) AS t FROM emails WHERE model='document' AND record_id=? AND status='scheduled' AND include_document=1", id).t || null,
+  };
+}
+api.get('/documents/:id', wrap((req) => ({ ...getDocument(Number(req.params.id)), ...mailInfo(Number(req.params.id)) })));
 // « Écouter le client » : la demande dictée à l'accueil, résumée par l'IA pour le mécanicien (devis et OR).
 // Droits : ceux du type de document (OR → Atelier, devis → Ventes), niveau « Utilisateur ».
 api.post('/documents/request-summary', wrap((req) => {

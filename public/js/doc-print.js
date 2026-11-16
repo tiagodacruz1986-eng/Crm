@@ -1,6 +1,6 @@
 // Document imprimable (devis, OR, facture, avoir) selon la mise en page choisie dans les paramètres.
 // Utilisé pour l'impression / PDF et pour l'aperçu en direct des paramètres (avec un document d'exemple).
-import { computed, watchEffect, onUnmounted } from 'vue';
+import { ref, computed, watchEffect, onMounted, onUnmounted, nextTick } from 'vue';
 import { money, date, DOC_TYPES, store } from './api.js';
 import { lineTotal, computeTotals } from './totals.js';
 
@@ -180,5 +180,33 @@ export const DocPrint = {
       <h3>Conditions générales</h3>
       <div class="ip-terms">{{ L.terms }}</div>
     </div>
+  </div>`,
+};
+
+const PAGE_PX = { A4: 794, Letter: 816 }; // largeur d'une page à l'écran (96 points par pouce)
+/**
+ * Le document tel qu'il s'imprime, montré à l'écran à la largeur disponible (« l'original », comme dans Odoo).
+ * « ribbon » : bandeau en coin (« Envoyé par mail », « Imprimé ») — à l'écran seulement, jamais sur le papier.
+ */
+export const PaperPreview = {
+  components: { DocPrint },
+  props: { doc: Object, ribbon: String, tone: String },
+  setup() {
+    const paper = ref(null), inner = ref(null);
+    const scale = ref(1), height = ref(900);
+    const width = computed(() => PAGE_PX[store.settings?.layout?.paper] || PAGE_PX.A4);
+    let ro = null;
+    const measure = () => {
+      if (paper.value) scale.value = paper.value.clientWidth / width.value;
+      if (inner.value) height.value = Math.ceil(inner.value.offsetHeight * scale.value);
+    };
+    onMounted(() => { ro = new ResizeObserver(measure); [paper.value, inner.value].forEach((el) => el && ro.observe(el)); nextTick(measure); });
+    onUnmounted(() => ro?.disconnect());
+    return { paper, inner, scale, height, width };
+  },
+  template: `
+  <div ref="paper" class="pp" :style="{ height: height + 'px' }">
+    <div ref="inner" class="pp-inner" :style="{ transform: 'scale(' + scale + ')', width: width + 'px' }"><DocPrint :doc="doc" preview/></div>
+    <div v-if="ribbon" class="pp-ribbon" :class="tone"><span>{{ ribbon }}</span></div>
   </div>`,
 };

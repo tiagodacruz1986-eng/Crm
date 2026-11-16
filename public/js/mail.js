@@ -156,6 +156,7 @@ export const ActivityItem = {
 // ---------- Historique + activités d'une fiche (comme le "chatter" d'Odoo) ----------
 export const Chatter = {
   props: { model: String, recordId: [Number, String] },
+  emits: ['mailed'], // un e-mail vient de partir (ou d'être programmé) depuis l'historique : la fiche peut réagir
   components: { MailComposer, ActivityModal, ActivityItem, StudioZone },
   inheritAttrs: false, // (deux blocs : la zone personnalisée puis l'historique, qui reçoit les attributs)
   setup(props) {
@@ -169,7 +170,7 @@ export const Chatter = {
     onMounted(load);
     watch(() => [props.recordId, bus.tick], load);
     const addNote = async () => { await act(() => POST(`/chatter/${props.model}/${props.recordId}/note`, { body: note.value })); note.value = ''; mode.value = null; load(); };
-    const cancelMail = async (e) => { await act(() => DEL('/mail/' + e.id), 'Envoi annulé'); load(); };
+    const cancelMail = async (e) => { await act(() => DEL('/mail/' + e.id), 'Envoi annulé'); bus.tick++; };
     return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO };
   },
   template: `
@@ -195,7 +196,7 @@ export const Chatter = {
       <div style="flex:1;min-width:0"><div class="small muted">{{ m.user_name || 'Système' }} · {{ datetime(m.created_at.replace(' ', 'T') + 'Z') }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div><div style="white-space:pre-wrap">{{ m.body }}</div></div>
     </div>
     <div v-if="!data.messages.length" class="muted small">Aucun échange pour l'instant.</div>
-    <MailComposer v-if="mode==='mail'" :model="model" :record-id="recordId" :preset="preset" @close="mode = null; preset = null" @sent="load"/>
+    <MailComposer v-if="mode==='mail'" :model="model" :record-id="recordId" :preset="preset" @close="mode = null; preset = null" @sent="load(); $emit('mailed', $event)"/>
     <ActivityModal v-if="mode==='activity' || editing" :activity="editing" :model="model" :record-id="recordId" @close="mode = null; editing = null" @saved="load"/>
   </div>`,
 };

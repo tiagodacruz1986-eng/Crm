@@ -713,6 +713,22 @@ a.fv-btn { display: inline-flex; align-items: center; gap: 5px; text-decoration:
 .print-mark .ti { width: 15px; height: 15px; } .print-mark .icon-btn { font-size: 12px; padding: 2px 6px; color: inherit; }
 .kprint { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; } .kprint .ti { width: 13px; height: 13px; }
 .kprint.done { color: var(--b-green-i); font-weight: 600; }
+/* ---------- Document : « Fiche » ou « Original » (le document tel qu'il s'imprime), mention « Envoyée par mail » ---------- */
+.print-mark.mail-mark.done { color: var(--b-blue-i); background: var(--b-blue); }
+.doc-views { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.doc-original { max-width: 900px; margin: 0 auto 24px; }
+.pp { position: relative; overflow: hidden; background: #fff; border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .22); border: 1px solid var(--line); }
+.pp-inner { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+/* bandeau en coin, comme dans Odoo — à l'écran seulement ; il reste dans le coin vide de la page, sans couvrir l'adresse du garage */
+.pp-ribbon { position: absolute; top: 0; right: 0; width: 150px; height: 150px; overflow: hidden; pointer-events: none; }
+.pp-ribbon span { position: absolute; top: 30px; right: -70px; width: 240px; transform: rotate(45deg); text-align: center; padding: 6px 0; font-size: 11px; line-height: 1.3; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap;
+  color: #fff; background: #1d6fe0; box-shadow: 0 3px 10px rgba(0, 0, 0, .25); }
+.pp-ribbon.print span { background: #15803d; }
+/* page réduite (téléphone, tablette) : une étiquette droite dans la marge du haut — un bandeau en biais cacherait l'en-tête */
+@media (max-width: 800px) {
+  .pp-ribbon { top: 5px; right: 6px; width: auto; height: auto; overflow: visible; }
+  .pp-ribbon span { position: static; display: block; width: auto; transform: none; padding: 2px 9px; border-radius: 999px; font-size: 9.5px; box-shadow: none; }
+}
 /* ---------- Gardiennage des roues : carte de la fiche véhicule (jeu été / jeu hiver) et vue d'ensemble ---------- */
 .wh-card { margin-top: 16px; }
 .wh-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

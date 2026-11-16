@@ -2,11 +2,11 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { GET, POST, PUT, DEL, act, toast, money, date, datetime, hours, today, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS } from '../api.js';
 import { route, go, leaveGuards } from '../router.js';
 import { LivePanel } from '../live-panel.js';
-import { DocPrint } from '../doc-print.js';
+import { DocPrint, PaperPreview } from '../doc-print.js';
 import { lineTotal, computeTotals } from '../totals.js';
 import { can } from '../apps.js';
 import { VoiceRequest } from '../voice-request.js';
-import { bus } from '../mail.js';
+import { bus, MailComposer } from '../mail.js';
 
 export const DocumentList = {
   setup() {
@@ -23,14 +23,17 @@ export const DocumentList = {
       rows.value = await GET('/documents?' + params);
     };
     onMounted(load);
-    // OR : ceux dont la feuille d'atelier n'est pas encore sortie
+    // OR : ceux dont la feuille d'atelier n'est pas encore sortie. Factures : celles qui ne sont ni envoyées par mail ni imprimées.
     const unprinted = ref(false);
-    const shown = computed(() => (unprinted.value ? rows.value.filter((r) => !r.print_count) : rows.value));
+    const isInvoices = type === 'invoice' || type === 'credit_note';
+    const pending = (r) => (isInvoices ? r.status !== 'draft' && !r.mailed_at && !r.print_count : !r.print_count);
+    const shown = computed(() => (unprinted.value ? rows.value.filter(pending) : rows.value));
+    const mailedTitle = (r) => `Envoyée par mail le ${datetime(r.mailed_at)}`;
     const printedTitle = (r) => `Imprimé ${r.print_count > 1 ? r.print_count + ' fois, la dernière fois' : ''} le ${datetime(r.printed_at)}`.replace(/\s+/g, ' ');
     const statuses = { quote: ['draft', 'sent', 'accepted', 'refused'], invoice: ['draft', 'posted', 'partial', 'paid'], credit_note: ['draft', 'posted', 'partial', 'paid'], order: ['open', 'in_progress', 'waiting_parts', 'done', 'invoiced'] }[type] || [];
     // « reste dû » : seulement les factures validées (un brouillon n'est pas encore dû)
     const totals = computed(() => ({ total: shown.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: shown.value.filter((r) => r.type === 'invoice' && ['posted', 'partial'].includes(r.status)).reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
-    return { type, rows, shown, unprinted, printedTitle, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
+    return { type, rows, shown, unprinted, printedTitle, mailedTitle, isInvoices, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
   },
   template: `
   <div>
@@ -43,10 +46,11 @@ export const DocumentList = {
         <input v-model="q" @input="load" placeholder="N°, client, plaque…">
         <select v-model="status" @change="load"><option value="">Tous les statuts</option><option v-if="type==='invoice'" value="overdue">En retard</option><option v-for="s in statuses" :value="s">{{ STATUS[s][0] }}</option></select>
         <label v-if="type==='order'" class="check"><input v-model="unprinted" type="checkbox"> Pas encore imprimés</label>
+        <label v-if="isInvoices" class="check"><input v-model="unprinted" type="checkbox"> Ni envoyées ni imprimées</label>
         <span class="muted" style="margin-left:auto">{{ shown.length }} documents · {{ money(totals.total) }} TTC<span v-if="type==='invoice'"> · reste dû {{ money(totals.due) }}</span></span>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Véhicule</th><th v-if="type==='invoice'">Échéance</th><th>Statut</th><th v-if="type==='order'">Imprimé</th><th class="num">Total TTC</th><th class="num" v-if="type==='invoice'">Reste dû</th></tr></thead>
+        <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Véhicule</th><th v-if="type==='invoice'">Échéance</th><th>Statut</th><th v-if="type==='order'">Imprimé</th><th v-if="isInvoices">Remise au client</th><th class="num">Total TTC</th><th class="num" v-if="type==='invoice'">Reste dû</th></tr></thead>
         <tbody>
           <tr v-for="r in shown" :key="r.id" class="click" @click="go('/document/' + r.id)">
             <td><b>{{ r.number || 'Brouillon' }}</b> <span v-if="r.type==='credit_note'" class="badge b-purple">Avoir</span></td>
@@ -55,12 +59,13 @@ export const DocumentList = {
             <td v-if="type==='invoice'" :class="{late: r.due_date < today() && ['posted','partial'].includes(r.status)}">{{ date(r.due_date) }}</td>
             <td><Badge :status="r.status"/></td>
             <td v-if="type==='order'"><span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimé{{ r.print_count > 1 ? ' ×' + r.print_count : '' }}</span><span v-else class="muted small">Non</span></td>
+            <td v-if="isInvoices"><span v-if="r.mailed_at" class="badge b-blue" :title="mailedTitle(r)"><Icon name="mail" class="ti"/> Par mail</span> <span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimée</span><span v-if="!r.mailed_at && !r.print_count" class="muted small">{{ r.status === 'draft' ? '' : 'Pas encore' }}</span></td>
             <td class="num">{{ money(r.type === 'credit_note' ? -r.total : r.total) }}</td>
             <td class="num" v-if="type==='invoice'">{{ r.type === 'invoice' && r.status !== 'draft' ? money(r.total - r.amount_paid) : '' }}</td>
           </tr>
         </tbody>
       </table></div>
-      <Empty v-if="!shown.length" :text="rows.length ? 'Tous ces OR ont déjà été imprimés' : 'Aucun document'"/>
+      <Empty v-if="!shown.length" :text="rows.length ? (isInvoices ? 'Toutes ces factures ont été envoyées par mail ou imprimées' : 'Tous ces OR ont déjà été imprimés') : 'Aucun document'"/>
     </div>
   </div>`,
 };
@@ -129,7 +134,7 @@ export const PaymentModal = {
 
 // ---------- Éditeur de document (devis / OR / facture / avoir) ----------
 export const DocumentEditor = {
-  components: { QuickCustomer, PaymentModal, LivePanel, DocPrint, VoiceRequest },
+  components: { QuickCustomer, PaymentModal, LivePanel, DocPrint, PaperPreview, MailComposer, VoiceRequest },
   setup() {
     const isNew = route.params.id === 'new';
     const doc = ref(null);
@@ -157,6 +162,12 @@ export const DocumentEditor = {
     // Impression : gardée à part du document (la relire ou la poser ne touche jamais à une saisie en cours)
     const printed = ref({ count: 0, at: null, by: null });
     const takePrint = (d) => { printed.value = { count: d?.print_count || 0, at: d?.printed_at || null, by: d?.printed_by_name || null }; };
+    // Envoi par mail du document : gardé à part lui aussi (un envoi depuis l'historique, ou par un collègue, se voit ici)
+    const mailed = ref({ count: 0, at: null, to: null, by: null, scheduled: null });
+    const takeMail = (d) => { if (d && 'mail_count' in d) mailed.value = { count: d.mail_count || 0, at: d.mailed_at || null, to: d.mailed_to || null, by: d.mailed_by_name || null, scheduled: d.mail_scheduled_at || null }; };
+    const showMail = ref(false);
+    // « Fiche » (la saisie) ou « Original » : le document tel qu'il s'imprime, affiché à l'écran
+    const view = ref('form');
     const s = store.settings?.workshop || { labor_rate: 85, default_tax: 17 };
 
     const load = async () => {
@@ -172,7 +183,7 @@ export const DocumentEditor = {
       } else {
         doc.value = await GET('/documents/' + route.params.id);
         takeTimes(doc.value);
-        takePrint(doc.value);
+        takePrint(doc.value); takeMail(doc.value);
         if (doc.value.customer_id) vehicles.value = (await GET('/customers/' + doc.value.customer_id)).vehicles;
       }
       await nextTick();
@@ -204,7 +215,7 @@ export const DocumentEditor = {
         // Modifié ailleurs (diagnostic saisi à la tablette, ligne cochée…) et rien en cours de saisie ici : on prend tout le document
         if (!dirty.value && fresh.updated_at !== doc.value.updated_at) { doc.value = fresh; takeTimes(fresh); await nextTick(); dirty.value = false; }
         else takeTimes(fresh);
-        takePrint(fresh); // imprimé entre-temps sur un autre poste : on le voit ici aussi
+        takePrint(fresh); takeMail(fresh); // imprimé ou envoyé entre-temps sur un autre poste : on le voit ici aussi
       } catch { /* prochain essai dans une minute */ } finally { reading = false; }
     }, 10000); });
     onUnmounted(() => clearInterval(ticker));
@@ -354,7 +365,7 @@ export const DocumentEditor = {
       const id = doc.value.id;
       const fresh = await GET('/documents/' + id);
       if (dirty.value || doc.value?.id !== id) return; // une saisie a commencé pendant la relecture : on ne l'écrase pas
-      doc.value = fresh; takeTimes(fresh); takePrint(fresh);
+      doc.value = fresh; takeTimes(fresh); takePrint(fresh); takeMail(fresh);
       await nextTick();
       dirty.value = false;
     };
@@ -393,7 +404,8 @@ export const DocumentEditor = {
           if (r === 'changed') continue;
           if (r === 'logout') return; // l'écran de connexion s'affiche : on n'imprime pas cette page-là
           if (r === 'failed' && !confirm('L’impression n’a pas pu être notée : pas de connexion au serveur du garage.\n\nImprimer quand même ? La feuille ne sera pas marquée « imprimée ».')) return;
-          setTimeout(() => { lastMark = Date.now(); window.print(); }, 100);
+          // (facture : une fois la fenêtre d'impression fermée, on montre l'original, avec sa mention « Imprimé »)
+          setTimeout(() => { lastMark = Date.now(); window.print(); if (isInvoice.value) view.value = 'original'; }, 100);
           return;
         }
       } finally { setTimeout(() => { printing = false; }, 1000); }
@@ -405,6 +417,27 @@ export const DocumentEditor = {
     };
     onMounted(() => window.addEventListener('beforeprint', onBeforePrint));
     onUnmounted(() => window.removeEventListener('beforeprint', onBeforePrint));
+    // ---------- Envoi par mail ----------
+    const isInvoice = computed(() => ['invoice', 'credit_note'].includes(doc.value?.type));
+    const canMail = can('emails', 'user');
+    const refreshMarks = async () => { const id = doc.value?.id; if (!id) return; try { const f = await GET('/documents/' + id); if (doc.value?.id === id) { takePrint(f); takeMail(f); } } catch { /* au prochain passage */ } };
+    const mailIt = async () => {
+      if (isInvoice.value && doc.value.status === 'draft') { toast('Validez d’abord la facture : un brouillon n’a pas de numéro et ne s’envoie pas au client', 'error'); return; }
+      if (dirty.value && !locked.value) { try { await save(true); } catch { return; } }
+      showMail.value = true;
+    };
+    // Envoyé : la mention apparaît, et on montre l'original (la facture telle que le client la reçoit)
+    // (aussi quand l'envoi part du bouton « Envoyer un e-mail » de l'historique ; un e-mail sans le document ne compte pas)
+    const onMailed = async () => { const before = mailed.value.count; await refreshMarks(); if (isInvoice.value && mailed.value.count > before) view.value = 'original'; };
+    // un e-mail envoyé depuis l'historique en bas de page (ou une activité) : les mentions suivent
+    watch(() => bus.tick, () => { if (!showMail.value) refreshMarks(); });
+    const mailedText = computed(() => {
+      const m = mailed.value;
+      if (m.count) return `Envoyé${isInvoice.value ? 'e' : ''} par mail${m.count > 1 ? ' ' + m.count + ' fois' : ''} · ${m.count > 1 ? 'dernière fois le ' : 'le '}${datetime(m.at)}${m.to ? ' · à ' + m.to : ''}${m.by ? ' · ' + m.by : ''}`;
+      return m.scheduled ? `Envoi par mail programmé pour le ${datetime(m.scheduled)}` : 'Pas encore envoyée par mail';
+    });
+    // Bandeau en coin de l'original : « Envoyé par mail » d'abord (comme dans Odoo), sinon « Imprimé »
+    const ribbon = computed(() => (mailed.value.count ? { text: 'Envoyé par mail', tone: 'mail' } : printed.value.count ? { text: 'Imprimé', tone: 'print' } : null));
     const canUnprint = computed(() => !!doc.value && can(doc.value.type === 'order' ? 'atelier' : 'ventes', 'user'));
     const unprint = async () => {
       if (!confirm('Retirer la marque « imprimé » ? (à faire seulement si la feuille n’est pas sortie)')) return;
@@ -423,7 +456,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { printed, printedText, canUnprint, unprint, curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { printed, printedText, canUnprint, unprint, mailed, mailedText, showMail, mailIt, onMailed, canMail, isInvoice, view, ribbon, curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showVoice, canVoice, onVoice, complaintBox, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -434,6 +467,9 @@ export const DocumentEditor = {
           <template v-for="(f, i) in flow"><span v-if="i">→</span><a :href="'#/document/' + f.id" :class="{cur: f.cur}">{{ DOC_TYPES_SHORT[f.type] }} {{ f.number || '' }}</a></template>
         </div>
         <h1 style="margin-top:6px">{{ DOC_TYPES[doc.type] }} {{ doc.number || (isNew ? '(nouveau)' : '(brouillon)') }} <Badge v-if="!isNew" :status="doc.status"/></h1>
+        <div v-if="!isNew && (mailed.count || mailed.scheduled || (isInvoice && doc.status !== 'draft'))" class="print-mark mail-mark" :class="{ done: mailed.count }">
+          <Icon name="mail" class="ti"/> <span>{{ mailedText }}</span>
+        </div>
         <div v-if="!isNew && (doc.type === 'order' || printed.count)" class="print-mark" :class="{ done: printed.count }">
           <Icon name="printer" class="ti"/> <span>{{ printedText }}</span>
           <button v-if="printed.count && canUnprint" class="icon-btn" title="La feuille n’est pas sortie : retirer la marque « imprimé »" aria-label="Retirer la marque « imprimé »" @click="unprint">✕</button>
@@ -456,12 +492,25 @@ export const DocumentEditor = {
         <button class="btn success" v-if="['invoice','credit_note'].includes(doc.type) && doc.status==='draft' && !isNew" @click="post"><Icon name="check" class="ti"/> Valider</button>
         <button class="btn primary" v-if="['invoice','credit_note'].includes(doc.type) && ['posted','partial'].includes(doc.status)" @click="showPay = true"><Icon name="banknote" class="ti"/> {{ doc.type === 'credit_note' ? 'Rembourser' : 'Paiement' }}</button>
         <button class="btn" v-if="doc.type==='invoice' && doc.status!=='draft'" @click="convert('credit_note')"><Icon name="undo-2" class="ti"/> Note de crédit</button>
+        <button class="btn" v-if="!isNew && isInvoice && canMail" @click="mailIt"><Icon name="mail" class="ti"/> Envoyer par mail</button>
         <button class="btn" v-if="!isNew" @click="print"><Icon name="printer" class="ti"/> Imprimer / PDF</button>
         <button class="btn danger" v-if="!isNew && !locked" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
       </div>
     </div>
 
-    <div class="doc-layout no-print">
+    <div v-if="!isNew" class="doc-views no-print">
+      <div class="seg" role="tablist" aria-label="Affichage du document">
+        <button role="tab" :aria-selected="view === 'form'" :class="{ on: view === 'form' }" @click="view = 'form'">Fiche</button>
+        <button role="tab" :aria-selected="view === 'original'" :class="{ on: view === 'original' }" @click="view = 'original'">{{ locked ? 'Original' : 'Aperçu' }}</button>
+      </div>
+      <span v-if="view === 'original'" class="muted small">{{ locked ? 'Le document tel que le client le reçoit' : 'Le document tel qu’il s’imprimera' }}<template v-if="dirty"> — avec vos modifications non enregistrées</template>.</span>
+    </div>
+    <div v-if="!isNew && view === 'original'" class="doc-original no-print">
+      <PaperPreview :doc="doc" :ribbon="ribbon ? ribbon.text : ''" :tone="ribbon ? ribbon.tone : ''"/>
+    </div>
+    <MailComposer v-if="showMail" model="document" :record-id="doc.id" @close="showMail = false" @sent="onMailed"/>
+
+    <div v-show="view === 'form' || isNew" class="doc-layout no-print">
       <div>
         <div class="card">
           <div class="form-grid">
@@ -537,7 +586,7 @@ export const DocumentEditor = {
           </div>
           <button v-if="locked" class="btn sm" style="margin-top:8px" @click="save()">Enregistrer les notes internes</button>
         </div>
-        <Chatter v-if="!isNew && doc.id" model="document" :record-id="doc.id"/>
+        <Chatter v-if="!isNew && doc.id" model="document" :record-id="doc.id" @mailed="onMailed"/>
       </div>
 
       <div>
