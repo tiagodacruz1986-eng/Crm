@@ -180,7 +180,9 @@ export const Chatter = {
     const chat = reactive({ to: '', subject: '', text: '', busy: false });
     const openChat = (m) => {
       const c = data.value?.contact || {};
-      const addr = m ? (/[^\s<>,;]+@[^\s<>,;]+/.exec(m.from_addr || '') || [''])[0] : '';
+      // (l'adresse réelle de l'expéditeur est celle entre chevrons, pas une adresse écrite dans son nom affiché)
+      const from = String(m?.from_addr || '');
+      const addr = (/<([^<>\s]+@[^<>\s]+)>\s*$/.exec(from) || [])[1] || (/[^\s<>,;]+@[^\s<>,;]+/.exec(from) || [''])[0];
       const subject = m?.subject ? (/^\s*re\s*:/i.test(m.subject) ? m.subject : 'Re: ' + m.subject) : c.subject || '';
       Object.assign(chat, { to: addr || c.to || '', subject });
       mode.value = 'chat';
@@ -201,10 +203,11 @@ export const Chatter = {
       catch { /* erreur déjà affichée */ } finally { checking.value = false; }
     };
     const opened = reactive({}); // textes longs dépliés
+    const full = reactive({}); // réponses affichées en entier, avec la partie citée (le client y a peut-être répondu)
     const isLong = (t) => String(t || '').length > 420 || String(t || '').split('\n').length > 7;
     const size = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' Mo' : Math.max(1, Math.round(n / 1024)) + ' ko');
     const stamp = (m) => datetime(m.created_at.replace(' ', 'T') + 'Z');
-    return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO, who, canMail, isAdmin, chat, openChat, sendChat, checking, checkReplies, opened, isLong, size, stamp, go };
+    return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO, who, canMail, isAdmin, chat, openChat, sendChat, checking, checkReplies, opened, full, isLong, size, stamp, go };
   },
   template: `
   <StudioZone v-if="STUDIO.includes(model) && recordId && recordId !== 'new'" :model="model" :record-id="recordId" @mail="preset = $event; mode = 'mail'" @changed="load"/>
@@ -253,8 +256,9 @@ export const Chatter = {
           <div class="small muted"><b class="mail-from">{{ m.from_addr || 'Expéditeur inconnu' }}</b> · reçu le {{ stamp(m) }}</div>
           <div class="mail-bubble in">
             <div class="mail-subject" v-if="m.subject">{{ m.subject }}</div>
-            <div class="mail-text" :class="{clamp: isLong(m.body) && !opened[m.id]}">{{ m.body }}</div>
-            <button v-if="isLong(m.body)" class="link-btn" @click="opened[m.id] = !opened[m.id]">{{ opened[m.id] ? 'Réduire' : 'Lire la suite' }}</button>
+            <div class="mail-text" :class="{clamp: !full[m.id] && isLong(m.body) && !opened[m.id]}">{{ full[m.id] ? m.body_full : m.body }}</div>
+            <button v-if="!full[m.id] && isLong(m.body)" class="link-btn" @click="opened[m.id] = !opened[m.id]">{{ opened[m.id] ? 'Réduire' : 'Lire la suite' }}</button>
+            <button v-if="m.body_full" class="link-btn mail-full" @click="full[m.id] = !full[m.id]" :title="full[m.id] ? '' : 'Le client a peut-être répondu dans le message cité'">{{ full[m.id] ? 'Masquer le message cité' : 'Afficher le message complet' }}</button>
             <div class="mail-files" v-if="m.files && m.files.length">
               <a v-for="f in m.files" :key="f.id" class="mail-file" :href="'/api/attachment/' + f.id" target="_blank" rel="noopener" :title="'Ouvrir ' + f.filename"><Icon name="paperclip" class="ti"/> {{ f.filename }} <span class="muted">· {{ size(f.size) }}</span></a>
             </div>

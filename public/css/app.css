@@ -864,6 +864,8 @@ html.pp-open { scrollbar-gutter: stable; }
 .mail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .mail-text.clamp { max-height: 9.2em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .mail-from { color: var(--ink); font-weight: 600; }
+.mail-bubble .link-btn { margin-top: 6px; }
+.mail-bubble .link-btn + .link-btn { margin-left: 14px; }
 .mail-in-avatar { background: var(--ok); color: #fff; width: 26px; height: 26px; font-size: 13px; }
 .mail-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .mail-file { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-solid); font-size: 13px; color: inherit; text-decoration: none; max-width: 100%; overflow-wrap: anywhere; }

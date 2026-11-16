@@ -194,3 +194,147 @@ test('conversation par e-mail : la fiche dit à qui écrire, garde le texte envo
   assert.ok(check.data.error.length > 5);
   assert.equal((await A('PUT', '/mail/replies', { enabled: false })).status, 200);
 });
+
+// ---------- Suites de la relecture : ce que l'historique ne notait pas encore ----------
+const lastChange = async (model, id) => (await changes(model, id)).at(-1);
+const bodies = async (model, id) => (await history(model, id)).map((m) => m.body);
+const order = async (extra = {}) => (await A('POST', '/documents', { type: 'order', customer_id: customer, vehicle_id: vehicle, lines: [{ kind: 'labor', description: 'Vidange', quantity: 1, unit_price: 100, tax_rate: 17 }], ...extra })).data.id;
+
+test('texte long modifié : on lit ce qui a changé (et non deux fois le même début tronqué)', async () => {
+  const n1 = '[Paulo 2026-11-16 20:36] Disques AV à la cote mini, le client a refusé le remplacement par téléphone.';
+  const n2 = '[Paulo 2026-11-16 21:02] Rayure constatée sur l’aile arrière gauche AVANT les travaux (photo prise).';
+  const id = await order({ internal_notes: `${n1}\n${n2}` });
+  let d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, internal_notes: `${n1}\nRAS.` })).status, 200);
+  let b = (await lastChange('document', id)).body;
+  const m = /• Notes internes : « (.*) » → « (.*) »/.exec(b);
+  assert.ok(m, b);
+  assert.notEqual(m[1], m[2]);
+  assert.match(m[1], /Rayure constatée sur l’aile arrière gauche/);
+  assert.match(m[2], /RAS\./);
+  // la deuxième note supprimée : son texte est gardé dans l'historique
+  d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, internal_notes: `${n1}\n${n2}` })).status, 200);
+  d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, internal_notes: n1 })).status, 200);
+  b = (await lastChange('document', id)).body;
+  assert.match(b, /• Notes internes : retiré « .*Rayure constatée.*photo prise\)\. »/);
+  // désignation longue corrigée vers la fin
+  d = await doc(id);
+  const long = 'Remplacement du kit de distribution complet avec pompe à eau et galets tendeurs, référence KD457.71';
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, lines: [{ ...d.lines[0], description: long }] })).status, 200);
+  d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, lines: [{ ...d.lines[0], description: long.replace('KD457.71', 'KD457.73') }] })).status, 200);
+  b = (await lastChange('document', id)).body;
+  assert.match(b, /désignation « … .*KD457\.71 » → « … .*KD457\.73 »/);
+});
+
+test('une référence qui ne change que par ses zéros est bien notée ; un nombre identique ne l’est pas', async () => {
+  const id = await order({ reference: '00123' });
+  let d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, reference: '123' })).status, 200);
+  assert.match((await lastChange('document', id)).body, /• Référence : 00123 → 123/);
+  const n = (await changes('document', id)).length;
+  d = await doc(id);
+  // mêmes valeurs envoyées sous forme de texte : rien de nouveau
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, lines: d.lines.map((l) => ({ ...l, quantity: '1', unit_price: '100.00', discount: '' })) })).status, 200);
+  assert.equal((await changes('document', id)).length, n);
+});
+
+test('plus de trente lignes modifiées d’un coup : les premières sont citées, le total reste', async () => {
+  const lines = Array.from({ length: 40 }, (_, i) => ({ kind: 'part', description: `Pièce n° ${i + 1}`, quantity: 1, unit_price: 10, tax_rate: 17 }));
+  const id = (await A('POST', '/documents', { type: 'order', customer_id: customer, lines })).data.id;
+  const d = await doc(id);
+  assert.equal((await A('PUT', '/documents/' + id, { ...d, reference: 'Lot', lines: d.lines.map((l) => ({ ...l, unit_price: 11 })) })).status, 200);
+  const b = (await lastChange('document', id)).body;
+  assert.match(b, /• Référence : \(vide\) → Lot/);
+  assert.match(b, /• … et 10 autres lignes modifiées/);
+  assert.match(b, /• Total TTC : 468,00 € → 514,80 €/);
+  assert.equal(b.split('\n').length, 1 + 1 + 30 + 1 + 1);
+});
+
+test('démarrer le chrono : le passage « En cours » et le mécanicien sont notés', async () => {
+  const mech = (await A('POST', '/users', { name: 'Sven', role: 'mechanic', pin: '4321' })).data.id;
+  const tok = (await call('POST', '/kiosk/login', { user_id: mech, pin: '4321' })).data.token;
+  const id = await order();
+  const r = await call('POST', '/kiosk/clock', { action: 'start', document_id: id }, tok);
+  assert.equal(r.status, 200, r.text);
+  const c = await lastChange('document', id);
+  assert.equal(c.user_name, 'Sven');
+  assert.match(c.body, /• Statut : À faire → En cours/);
+  assert.match(c.body, /• Mécanicien : \(vide\) → Sven/);
+  // le chrono relancé sur le même OR n'ajoute rien
+  const n = (await changes('document', id)).length;
+  await call('POST', '/kiosk/clock', { action: 'start', document_id: id }, tok);
+  assert.equal((await changes('document', id)).length, n);
+  // lancé par le bureau pour le mécanicien, sur un OR « Terminé » : noté au nom de la personne du bureau
+  await call('POST', '/kiosk/clock', { action: 'stop' }, tok);
+  assert.equal((await A('POST', `/documents/${id}/status`, { status: 'done' })).status, 200);
+  const o = await A('POST', `/documents/${id}/clock`, { action: 'start', user_id: mech });
+  assert.equal(o.status, 200, o.text);
+  const c2 = await lastChange('document', id);
+  assert.equal(c2.user_name, 'Gérant');
+  assert.match(c2.body, /• Statut : Terminé → En cours/);
+});
+
+test('paiement par rapprochement bancaire, note de crédit, facture brouillon supprimée : la fiche concernée le dit', async () => {
+  // facture payée par l'import d'un relevé bancaire
+  const inv = (await A('POST', '/documents', { type: 'invoice', customer_id: customer, lines: [{ kind: 'labor', description: 'Vidange', quantity: 1, unit_price: 100, tax_rate: 17 }] })).data.id;
+  const number = (await A('POST', `/documents/${inv}/post`)).data.number;
+  const acc = (await A('POST', '/bank-accounts', { name: 'Compte courant', account_code: '5131' })).data.id;
+  const imp = await A('POST', `/bank/import/${acc}`, { content: `Date;Montant;Communication\n${new Date().toLocaleDateString('fr-FR')};117,00;Paiement facture ${number}\n` });
+  assert.equal(imp.status, 200, imp.text);
+  assert.equal((await doc(inv)).status, 'paid', JSON.stringify(imp.data));
+  let h = await history('document', inv);
+  const paid = h.find((m) => m.body.startsWith('💶 Paiement enregistré par rapprochement bancaire'));
+  assert.ok(paid, h.map((m) => m.body).join(' | '));
+  assert.match(paid.body, /117\.00 €/);
+  assert.equal(paid.user_name, 'Gérant');
+  // rapprochement défait : noté aussi
+  const line = (await A('GET', '/bank/lines')).data.find((l) => l.status === 'matched');
+  assert.ok(line);
+  assert.equal((await A('POST', `/bank/lines/${line.id}/unmatch`)).status, 200);
+  assert.ok((await bodies('document', inv)).some((b) => /^↩️ Paiement de 117\.00 € annulé \(rapprochement bancaire défait\)/.test(b)));
+  assert.equal((await doc(inv)).status, 'posted');
+  // note de crédit validée : la facture d'origine dit pourquoi elle est soldée
+  const cn = (await A('POST', `/documents/${inv}/convert`, { type: 'credit_note' })).data.id;
+  const cnNumber = (await A('POST', `/documents/${cn}/post`)).data.number;
+  assert.ok((await bodies('document', inv)).some((b) => b === `🧾 Note de crédit ${cnNumber} validée : 117.00 € imputés sur cette facture`), (await bodies('document', inv)).join(' | '));
+  // facture brouillon d'un OR supprimée : l'OR le note
+  const or = await order();
+  assert.equal((await A('POST', `/documents/${or}/status`, { status: 'done' })).status, 200);
+  const draft = (await A('POST', `/documents/${or}/convert`, { type: 'invoice' })).data.id;
+  assert.equal((await doc(or)).status, 'invoiced');
+  assert.equal((await A('DELETE', '/documents/' + draft)).status, 200);
+  assert.equal((await doc(or)).status, 'done');
+  h = await history('document', or);
+  assert.ok(h.some((m) => m.body.startsWith('🗑 Facture en brouillon supprimée') && m.user_name === 'Gérant'), h.map((m) => m.body).join(' | '));
+});
+
+test('fiches créées hors de l’éditeur (rendez-vous, réassort) et zones personnalisées : qui, et quoi', async () => {
+  const start = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const ap = await A('POST', '/appointments', { customer_id: customer, vehicle_id: vehicle, title: 'Révision', start: `${start}T09:00`, end: `${start}T10:00` });
+  assert.equal(ap.status, 200, ap.text);
+  const or = (await A('POST', `/appointments/${ap.data.id}/order`)).data.id;
+  let h = await history('document', or);
+  assert.equal(h[0].body, '📄 Ordre de réparation créé depuis le rendez-vous (arrivée du véhicule)');
+  assert.equal(h[0].user_name, 'Gérant');
+  // réassort automatique
+  await A('POST', '/products', { ref: 'RS-1', name: 'Filtre à air', supplier_id: supplier, qty_min: 2, purchase_price: 8, sale_price: 18, tax_rate: 17 });
+  const re = await A('POST', '/stock/reorder');
+  assert.equal(re.status, 200, re.text);
+  const hp = await history('purchase', re.data.created[0]);
+  assert.equal(hp[0].body, '🛒 Achat créé par « Commander le stock bas »');
+  assert.equal(hp[0].user_name, 'Gérant');
+  assert.ok(hp.some((m) => /raison : Réassort du stock/.test(m.body)));
+  // zone personnalisée de la fiche OR
+  const f = (await A('POST', '/studio/fields', { target: 'order', kind: 'text', label: 'N° de sinistre' })).data.id;
+  assert.ok(f);
+  assert.equal((await A('PUT', `/studio/record/document/${or}`, { values: { [f]: 'A-1' } })).status, 200);
+  assert.equal((await lastChange('document', or)).body, '✏️ Modification\n• N° de sinistre : (vide) → A-1');
+  assert.equal((await A('PUT', `/studio/record/document/${or}`, { values: { [f]: 'A-2' } })).status, 200);
+  assert.equal((await lastChange('document', or)).body, '✏️ Modification\n• N° de sinistre : A-1 → A-2');
+  const n = (await changes('document', or)).length;
+  assert.equal((await A('PUT', `/studio/record/document/${or}`, { values: { [f]: 'A-2' } })).status, 200);
+  assert.equal((await changes('document', or)).length, n);
+});

@@ -288,16 +288,22 @@ export function saveValues(model, id, values, user) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) throw new BusinessError('Valeurs invalides');
   const fields = new Map(listFields(target).map((f) => [f.id, f]));
   const now = localDateTime();
+  const changes = [];
+  const shown = (f, v) => (v === null || v === undefined || v === '' ? '(vide)' : f.kind === 'checkbox' ? (v === '1' || v === 1 || v === true || v === 'true' ? 'oui' : 'non') : String(v).replace(/\s+/g, ' ').slice(0, 120));
   tx(() => {
     for (const [k, raw] of Object.entries(values)) {
       const f = fields.get(Number(k));
       if (!f || !VALUE_KINDS.includes(f.kind)) throw new BusinessError('Champ inconnu sur cette fiche');
-      const v = cleanValue(f, raw, get('SELECT value FROM studio_values WHERE field_id=? AND record_id=?', f.id, id)?.value ?? null);
+      const old = get('SELECT value FROM studio_values WHERE field_id=? AND record_id=?', f.id, id)?.value ?? null;
+      const v = cleanValue(f, raw, old);
+      if (String(old ?? '') !== String(v ?? '') && shown(f, old) !== shown(f, v)) changes.push(`${f.label} : ${shown(f, old)} → ${shown(f, v)}`);
       if (v === null) run('DELETE FROM studio_values WHERE field_id=? AND record_id=?', f.id, id);
       else run(`INSERT INTO studio_values(field_id, record_id, value, updated_at, updated_by) VALUES(?,?,?,?,?)
         ON CONFLICT(field_id, record_id) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by`, f.id, id, v, now, userId || null);
     }
   });
+  // (les zones personnalisées d'une fiche gardent, elles aussi, qui a changé quoi)
+  if (changes.length) logMessage(model, id, `✏️ Modification\n${changes.map((c) => `• ${c}`).join('\n')}`, userId, 'system');
   return recordData(model, id, user);
 }
 

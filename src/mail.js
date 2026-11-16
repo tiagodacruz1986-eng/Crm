@@ -224,6 +224,8 @@ if (!columns('messages').includes('message_id')) {
   db.exec('ALTER TABLE messages ADD COLUMN from_addr TEXT');
   db.exec('ALTER TABLE messages ADD COLUMN subject TEXT');
 }
+// (message reçu : son texte complet, partie citée comprise, quand la fiche n'en montre que le début)
+if (!columns('messages').includes('body_full')) db.exec('ALTER TABLE messages ADD COLUMN body_full TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS idx_emails_msgid ON emails(message_id)');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_msgid ON messages(message_id) WHERE message_id IS NOT NULL');
 
@@ -279,7 +281,8 @@ export async function sendEmail({ model, record_id, to, cc, subject, intro, incl
     run("UPDATE emails SET status='error', error=? WHERE id=?", e.message, id);
     throw new BusinessError(`Envoi impossible : ${e.message}`);
   }
-  markQuoteSent(model, record_id);
+  // (un simple message écrit au client depuis un devis n'est pas « le devis envoyé »)
+  if (include_document) markQuoteSent(model, record_id);
   return { id, status: 'sent' };
 }
 /**
@@ -319,7 +322,7 @@ export async function processScheduledEmails() {
     for (const e of due) {
       // chaque e-mail est « pris » une seule fois
       if (!run("UPDATE emails SET status='sending' WHERE id=? AND status='scheduled'", e.id).changes) continue;
-      try { await deliver(e); markQuoteSent(e.model, e.record_id); } catch (err) {
+      try { await deliver(e); if (e.include_document) markQuoteSent(e.model, e.record_id); } catch (err) {
         run("UPDATE emails SET status='error', error=? WHERE id=?", err.message, e.id);
         logMessage(e.model, e.record_id, `⚠️ Échec de l'envoi programmé « ${e.subject} » : ${err.message}`, e.user_id, 'system');
       }
@@ -413,7 +416,9 @@ export function conversationContact(model, record_id) {
     WHERE m.model=? AND m.record_id=? AND (m.kind='email_in' OR (m.kind='email' AND e.status='sent')) ORDER BY m.id DESC LIMIT 1`, model, record_id);
   const bare = (s) => String(s || '').replace(/^(\s*(re|aw|tr|fw|fwd|rép|rep|antw)\s*:\s*)+/i, '').trim();
   if (last?.kind === 'email_in') {
-    const addr = (/[^\s<>,;]+@[^\s<>,;]+/.exec(last.from_addr || '') || [''])[0];
+    // (l'adresse réelle est celle entre chevrons, pas une adresse écrite dans le nom affiché)
+    const from = String(last.from_addr || '');
+    const addr = (/<([^<>\s]+@[^<>\s]+)>\s*$/.exec(from) || [])[1] || (/[^\s<>,;]+@[^\s<>,;]+/.exec(from) || [''])[0];
     return { to: addr || info.email || '', name: info.name || '', subject: `Re: ${bare(last.subject) || info.label}`, replying: true };
   }
   if (last) return { to: last.to_addr || info.email || '', name: info.name || '', subject: bare(last.sent_subject) || info.label, replying: false };

@@ -387,9 +387,11 @@ function stopWork(userId, now) {
  * (« switched » dit lequel, pour le lui afficher). Utilisé par la tablette de l'atelier et par la fiche de l'OR au bureau.
  */
 // presence=false (chrono lancé depuis le bureau pour quelqu'un d'autre) : on ne pointe pas l'arrivée à sa place
-function startWork(uid, documentId, lineRef, note, { presence = true } = {}) {
+function startWork(uid, documentId, lineRef, note, { presence = true, by = uid } = {}) {
   const now = localDateTime();
   let resumed = null, reopened = null, switched = null;
+  // (démarrer le chrono peut changer l'OR : « À faire » → « En cours », mécanicien, intervention décochée — l'historique le note)
+  const before = snapshotDocument(Number(documentId) || 0);
   tx(() => {
     const d = get("SELECT id, number, status, mechanic_id FROM documents WHERE id=? AND type='order'", Number(documentId) || 0);
     if (!d) throw new BusinessError('OR introuvable');
@@ -418,6 +420,7 @@ function startWork(uid, documentId, lineRef, note, { presence = true } = {}) {
     // Démarrer le travail remet l'OR « En cours » (aussi après une attente de pièces, ou s'il était déjà « Terminé »)
     if (['open', 'waiting_parts', 'done'].includes(d.status)) { run("UPDATE documents SET status='in_progress', mechanic_id=COALESCE(mechanic_id, ?) WHERE id=?", uid, d.id); if (!d.mechanic_id) touchDocument(d.id); resumed = d.id; }
   });
+  if (before) logChanges('document', before.id, diffDocument(before, snapshotDocument(before.id)), by);
   if (resumed) stageFromStatus(resumed, 'in_progress');
   else if (reopened) livePublish(reopened);
   return { switched };
@@ -670,7 +673,7 @@ api.get('/stock/moves', (req, res) => res.json(all(`SELECT m.*, p.ref, p.name, d
   JOIN products p ON p.id=m.product_id LEFT JOIN documents d ON d.id=m.document_id LEFT JOIN purchases pu ON pu.id=m.purchase_id LEFT JOIN users u ON u.id=m.user_id ORDER BY m.id DESC LIMIT 500`)));
 api.get('/stock/valuation', (req, res) => res.json(get('SELECT ROUND(SUM(qty_on_hand*purchase_price),2) AS purchase_value, ROUND(SUM(qty_on_hand*sale_price),2) AS sale_value, COUNT(*) AS items FROM products WHERE active=1 AND is_service=0 AND qty_on_hand>0')));
 // Proposition de réapprovisionnement groupée par fournisseur
-api.post('/stock/reorder', wrap(() => {
+api.post('/stock/reorder', wrap((req) => {
   // Les articles déjà en commande (brouillon ou commandé, pas encore reçus) ne sont pas recommandés une deuxième fois
   const low = all(`SELECT * FROM products p WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND supplier_id IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM purchase_lines l WHERE l.product_id=p.id AND COALESCE(l.received_qty,0) < l.quantity)`);
@@ -683,7 +686,8 @@ api.post('/stock/reorder', wrap(() => {
       lines: items.map((p) => ({ product_id: p.id, description: `${p.ref || ''} ${p.name}`.trim(), quantity: Math.max(1, p.qty_min * 2 - p.qty_on_hand), unit_price: p.purchase_price, tax_rate: p.tax_rate })),
     });
     // (une commande de réassort n'est pas pour un OR : sa raison est connue d'avance)
-    setPurchasePurpose(id, { reason: 'Réassort du stock (articles sous le minimum)' });
+    logMessage('purchase', id, '🛒 Achat créé par « Commander le stock bas »', req.user.id, 'system');
+    logPurpose(id, setPurchasePurpose(id, { reason: 'Réassort du stock (articles sous le minimum)' }), req.user.id);
     created.push(id);
   }
   const lowCount = (extra) => get(`SELECT COUNT(*) n FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND ${extra}`).n;
@@ -705,6 +709,7 @@ api.post('/appointments/:id/order', wrap((req) => {
   if (a.document_id) return { id: a.document_id };
   const id = saveDocument({ type: 'order', customer_id: a.customer_id, vehicle_id: a.vehicle_id, mechanic_id: a.mechanic_id, customer_complaint: [a.title, a.notes].filter(Boolean).join(' — '), promised_at: a.end, lines: [] });
   run("UPDATE appointments SET document_id=?, status='arrived' WHERE id=?", id, a.id);
+  logMessage('document', id, '📄 Ordre de réparation créé depuis le rendez-vous (arrivée du véhicule)', req.user.id, 'system');
   return { id };
 }));
 
@@ -776,6 +781,7 @@ api.delete('/documents/:id', wrap((req) => {
   if (!d) throw new BusinessError('Introuvable', 404);
   if ((d.type === 'invoice' || d.type === 'credit_note') && d.status !== 'draft') throw new BusinessError('Une facture validée ne peut pas être supprimée : créez une note de crédit.');
   if (get("SELECT 1 FROM payments WHERE document_id=?", d.id)) throw new BusinessError('Ce document a des paiements enregistrés : il ne peut pas être supprimé.');
+  const linked = all('SELECT id FROM purchases WHERE document_id=?', d.id);
   tx(() => {
     run('UPDATE documents SET parent_id=NULL WHERE parent_id=?', d.id);
     run('UPDATE appointments SET document_id=NULL WHERE document_id=?', d.id);
@@ -791,7 +797,13 @@ api.delete('/documents/:id', wrap((req) => {
     if (parent?.type === 'order' && parent.status === 'invoiced' && !get("SELECT 1 FROM documents WHERE parent_id=? AND type='invoice'", parent.id)) {
       run("UPDATE documents SET status='done' WHERE id=?", parent.id);
       stageFromStatus(parent.id, 'done');
+      logMessage('document', parent.id, '🗑 Facture en brouillon supprimée — l’OR redevient « Terminé »', req.user.id, 'system');
+    } else if (d.parent_id && get('SELECT 1 FROM documents WHERE id=?', d.parent_id)) {
+      const bill = d.type === 'invoice' || d.type === 'credit_note';
+      logMessage('document', d.parent_id, `🗑 ${DOC_NAMES[d.type] || 'Document'}${bill ? ' en brouillon supprimée' : `${d.number ? ' ' + d.number : ''} supprimé`}`, req.user.id, 'system');
     }
+    // (les commandes qui étaient faites pour cet OR le notent aussi)
+    for (const p of linked) logMessage('purchase', p.id, `🔧 L’OR ${d.number || ''} a été supprimé : la commande n’est plus rattachée à un OR`.replace('  ', ' '), req.user.id, 'system');
   });
   return { ok: true };
 }));
@@ -822,7 +834,7 @@ api.post('/documents/:id/clock', wrap((req) => {
   if (target.id !== req.user.id && !can(req.user, 'presences', 'manager')) throw new BusinessError('Lancer ou arrêter le chrono de quelqu\'un d\'autre est réservé aux administrateurs des Présences', 403);
   if (target.role !== 'mechanic' && !can(target, 'atelier', 'user')) throw new BusinessError(`${target.name} n'a pas le droit de travailler sur un OR`);
   let switched = null;
-  if (req.body.action === 'start') ({ switched } = startWork(target.id, id, req.body.line_id, undefined, { presence: target.id === req.user.id }));
+  if (req.body.action === 'start') ({ switched } = startWork(target.id, id, req.body.line_id, undefined, { presence: target.id === req.user.id, by: req.user.id }));
   else if (req.body.action === 'stop') run("UPDATE time_entries SET end=? WHERE user_id=? AND document_id=? AND kind='work' AND end IS NULL", localDateTime(), target.id, id);
   else throw new BusinessError('Action inconnue');
   return { ok: true, switched };
@@ -835,8 +847,17 @@ api.post('/documents/:id/convert', wrap((req) => {
   return { id };
 }));
 api.post('/documents/:id/post', wrap((req) => {
-  const number = postInvoice(Number(req.params.id));
-  logMessage('document', Number(req.params.id), `✔ Validée sous le numéro ${number}`, req.user.id, 'system');
+  const id = Number(req.params.id);
+  const before = get('SELECT type, parent_id, total FROM documents WHERE id=?', id);
+  const parent = before?.type === 'credit_note' && before.parent_id ? get('SELECT id, amount_paid, status FROM documents WHERE id=?', before.parent_id) : null;
+  const number = postInvoice(id);
+  logMessage('document', id, `✔ Validée sous le numéro ${number}`, req.user.id, 'system');
+  if (parent) {
+    // (la note de crédit s'impute sur la facture d'origine : celle-ci dit pourquoi elle est soldée)
+    const now = get('SELECT amount_paid, status FROM documents WHERE id=?', parent.id);
+    const used = round2((now?.amount_paid || 0) - (parent.amount_paid || 0));
+    logMessage('document', parent.id, `🧾 Note de crédit ${number} validée${used > 0.004 ? ` : ${used.toFixed(2)} € imputés sur cette facture` : ''}`, req.user.id, 'system');
+  }
   return { number };
 }));
 api.post('/documents/:id/payments', wrap((req) => {
@@ -951,13 +972,13 @@ function assertApproved(req) {
 }
 // Validation du bon de commande : il doit dire pour quel ordre de réparation il est fait — ou, sinon, pourquoi
 /** L'OR ou la raison donnés avec l'action sont gardés d'abord (même si l'action est ensuite refusée) ; un brouillon sans l'un ni l'autre ne passe pas. */
-function purposeGate(req, verb) {
+function purposeGate(req, verb, always = false) {
   const id = Number(req.params.id);
   const b = req.body && typeof req.body === 'object' ? req.body : {};
   if (b.document_id || String(b.reason ?? '').trim()) logPurpose(id, setPurchasePurpose(id, b), req.user.id);
   const p = get('SELECT status, document_id, reason FROM purchases WHERE id=?', id);
   if (!p) throw new BusinessError('Achat introuvable', 404);
-  if (p.status === 'draft' && !hasPurpose(p)) throw new BusinessError(`Avant de ${verb}, indiquez l’ordre de réparation concerné ou, si elle n’est pas pour un OR, la raison de la commande.`);
+  if ((always || p.status === 'draft') && !hasPurpose(p)) throw new BusinessError(`Avant de ${verb}, indiquez l’ordre de réparation concerné ou, si elle n’est pas pour un OR, la raison de la commande.`);
   return id;
 }
 api.post('/purchases/:id/order', wrap((req) => {
@@ -968,11 +989,17 @@ api.post('/purchases/:id/order', wrap((req) => {
 }));
 // Changer (ou préciser) pour quoi la commande est faite, à tout moment
 api.post('/purchases/:id/assign', wrap((req) => { const id = Number(req.params.id); logPurpose(id, setPurchasePurpose(id, req.body), req.user.id); return getPurchase(id); }));
-// (réceptionner un brouillon, c'est valider la commande et la recevoir d'un coup : la même question est posée)
-api.post('/purchases/:id/receive', wrap((req) => { const id = purposeGate(req, 'réceptionner la commande'); assertApproved(req); receivePurchase(id); logMessage('purchase', id, '📥 Marchandise réceptionnée — stock mis à jour', req.user.id, 'system'); return { ok: true }; }));
+// (de la marchandise n'entre pas en stock sans que l'on sache pour quoi elle a été commandée — même si la facture du
+//  fournisseur a déjà été comptabilisée : la même question est posée)
+api.post('/purchases/:id/receive', wrap((req) => { const id = purposeGate(req, 'réceptionner la commande', true); assertApproved(req); receivePurchase(id); logMessage('purchase', id, '📥 Marchandise réceptionnée — stock mis à jour', req.user.id, 'system'); return { ok: true }; }));
 api.post('/purchases/:id/post', wrap((req) => { assertApproved(req); postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); logMessage('purchase', Number(req.params.id), '✔ Facture fournisseur comptabilisée', req.user.id, 'system'); return { ok: true }; }));
 api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); logMessage('purchase', Number(req.params.id), '✓ Facture marquée comme vérifiée', req.user.id, 'system'); return { ok: true }; }));
-api.post('/purchases/:id/reanalyze', wrap((req) => reanalyze(Number(req.params.id))));
+api.post('/purchases/:id/reanalyze', wrap(async (req) => {
+  const id = Number(req.params.id), before = snapshotPurchase(id);
+  const r = await reanalyze(id, req.user.id);
+  logChanges('purchase', id, diffPurchase(before, snapshotPurchase(id)), req.user.id);
+  return r;
+}));
 
 // ---------- Factures fournisseurs : dépôt de fichier, boîte e-mail, pièces jointes ----------
 const rawBody = express.raw({ type: () => true, limit: '40mb' });
@@ -980,7 +1007,7 @@ const fileName = (req) => { try { return decodeURIComponent(req.headers['x-filen
 const fileMeta = (req) => ({ buffer: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), mime: (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase(), filename: fileName(req) });
 // Seuls ces formats s'affichent dans le navigateur ; tout le reste (HTML, SVG…) est téléchargé, jamais exécuté dans le logiciel
 const INLINE_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-api.post('/bills/upload', rawBody, wrap((req) => createBillFromFile({ ...fileMeta(req), source: 'upload' })));
+api.post('/bills/upload', rawBody, wrap((req) => createBillFromFile({ ...fileMeta(req), source: 'upload', userId: req.user.id })));
 api.get('/bills/inbox', (req, res) => res.json(publicInboxConfig()));
 api.put('/bills/inbox', adminOnly, wrap((req) => { saveInboxConfig(req.body); return publicInboxConfig(); }));
 api.post('/bills/inbox/test', adminOnly, wrap(() => testInbox()));
@@ -1153,15 +1180,29 @@ api.post('/bank/import/:accountId', wrap((req) => {
   if (!text) throw new BusinessError('Fichier vide');
   const lines = /<\?xml|<Document/i.test(text) ? parseCamt(text) : parseCsv(text);
   if (!lines.length) throw new BusinessError(lines.rejected ? `Aucune opération reconnue : ${lines.rejected} ligne(s) dont la date ou le montant est illisible. Formats acceptés : CAMT.053 XML, CSV.` : 'Aucune opération reconnue dans ce fichier (formats acceptés : CAMT.053 XML, CSV).');
-  return importLines(Number(req.params.accountId), lines);
+  return bankPayments(req.user.id, () => importLines(Number(req.params.accountId), lines));
 }));
 api.post('/bank/sync/:accountId', wrap((req) => syncAccount(Number(req.params.accountId))));
-api.post('/bank/lines/:id/match', wrap((req) => ({ payment_id: matchLine(Number(req.params.id), req.body) })));
+/**
+ * Paiements créés (ou annulés) par une action de la banque — import d'un relevé, rapprochement, annulation : chacun est
+ * noté dans l'historique de la facture ou de l'achat concerné, comme un paiement saisi à la main.
+ */
+function bankPayments(userId, fn) {
+  const PAY = 'SELECT id, document_id, purchase_id, amount FROM payments WHERE bank_line_id IS NOT NULL';
+  const before = new Map(all(PAY).map((p) => [p.id, p]));
+  const out = fn();
+  const after = new Map(all(PAY).map((p) => [p.id, p]));
+  const note = (p, text) => { if (p.document_id) logMessage('document', p.document_id, text, userId, 'system'); if (p.purchase_id) logMessage('purchase', p.purchase_id, text, userId, 'system'); };
+  for (const p of after.values()) if (!before.has(p.id)) note(p, `💶 Paiement enregistré par rapprochement bancaire : ${Number(p.amount).toFixed(2)} €`);
+  for (const p of before.values()) if (!after.has(p.id)) note(p, `↩️ Paiement de ${Number(p.amount).toFixed(2)} € annulé (rapprochement bancaire défait)`);
+  return out;
+}
+api.post('/bank/lines/:id/match', wrap((req) => bankPayments(req.user.id, () => ({ payment_id: matchLine(Number(req.params.id), req.body) }))));
 api.post('/bank/lines/:id/assign', wrap((req) => ({ move_id: assignLine(Number(req.params.id), req.body.account_code, req.body.label) })));
 api.post('/bank/lines/:id/ignore', wrap((req) => { run("UPDATE bank_lines SET status='ignored' WHERE id=? AND status='unmatched'", req.params.id); return { ok: true }; }));
 // Annuler : une opération ignorée, rapprochée ou affectée par erreur redevient « à rapprocher »
-api.post('/bank/lines/:id/unmatch', needManager('banque'), wrap((req) => unmatchLine(Number(req.params.id))));
-api.post('/bank/auto-reconcile', wrap(() => autoReconcile()));
+api.post('/bank/lines/:id/unmatch', needManager('banque'), wrap((req) => bankPayments(req.user.id, () => unmatchLine(Number(req.params.id)))));
+api.post('/bank/auto-reconcile', wrap((req) => bankPayments(req.user.id, () => autoReconcile())));
 // Annuler un paiement saisi par erreur (réservé aux administrateurs de la banque)
 api.delete('/payments/:id', wrap((req) => {
   const p = get('SELECT * FROM payments WHERE id=?', req.params.id);
@@ -1398,7 +1439,7 @@ api.post('/crm/leads/:id/won', wrap((req) => markWon(Number(req.params.id))));
 api.post('/crm/leads/:id/lost', wrap((req) => markLost(Number(req.params.id), req.body.reason)));
 api.post('/crm/leads/:id/restore', wrap((req) => restoreLead(Number(req.params.id))));
 api.post('/crm/leads/:id/customer', wrap((req) => { if (!can(req.user, 'contacts', 'user')) throw new BusinessError('Droit « Utilisateur » sur Contacts requis', 403); return { customer_id: ensureCustomer(Number(req.params.id)) }; }));
-api.post('/crm/leads/:id/quote', wrap((req) => { if (!can(req.user, 'ventes', 'user')) throw new BusinessError('Droit « Utilisateur » sur Ventes requis', 403); return { document_id: createQuote(Number(req.params.id)) }; }));
+api.post('/crm/leads/:id/quote', wrap((req) => { if (!can(req.user, 'ventes', 'user')) throw new BusinessError('Droit « Utilisateur » sur Ventes requis', 403); const document_id = createQuote(Number(req.params.id)); logMessage('document', document_id, '📄 Devis créé depuis une opportunité', req.user.id, 'system'); return { document_id }; }));
 api.post('/crm/stages', needManager('crm'), wrap((req) => ({ id: saveStage(req.body) })));
 api.put('/crm/stages/:id', needManager('crm'), wrap((req) => ({ id: saveStage(req.body, Number(req.params.id)) })));
 api.delete('/crm/stages/:id', wrap((req) => { deleteStage(Number(req.params.id)); return { ok: true }; }));

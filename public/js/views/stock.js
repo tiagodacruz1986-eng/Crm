@@ -291,7 +291,7 @@ export const PurchaseEditor = {
     };
     const addFiles = async (e) => { for (const f of e.target.files) await act(() => uploadFile(`/attachments/purchase/${p.value.id}`, f)); e.target.value = ''; load(); };
     const removeFile = async (f) => { if (!confirm(`Supprimer la pièce jointe ${f.filename} ?`)) return; await act(() => DEL('/attachment/' + f.id)); load(); };
-    const reviewed = async () => { await save(); await act(() => POST(`/purchases/${p.value.id}/reviewed`), 'Facture marquée comme vérifiée'); load(); };
+    const reviewed = async () => { await save(); await act(() => POST(`/purchases/${p.value.id}/reviewed`), 'Facture marquée comme vérifiée'); await load(); bus.tick++; };
     const reanalyze = async () => {
       if (!confirm('Relancer l\'IA ? Les lignes actuelles seront remplacées.')) return;
       aiBusy.value = true;
@@ -309,7 +309,7 @@ export const PurchaseEditor = {
     const pickProduct = (l, x) => { if (x) Object.assign(l, { product_id: x.id, description: `${x.ref ? x.ref + ' — ' : ''}${x.name}`, unit_price: x.purchase_price, tax_rate: x.tax_rate }); };
     const save = async () => {
       if (isNew) { const r = await act(() => POST('/purchases', p.value), 'Enregistré'); markSaved(); go('/purchase/' + r.id); return r.id; }
-      await act(() => PUT('/purchases/' + p.value.id, p.value), 'Enregistré'); await load(); return p.value.id;
+      await act(() => PUT('/purchases/' + p.value.id, p.value), 'Enregistré'); await load(); bus.tick++; return p.value.id;
     };
     const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); bus.tick++; };
     // ---------- Pour quoi la commande est faite : demandé à la validation du bon de commande ----------
@@ -324,8 +324,8 @@ export const PurchaseEditor = {
     }
     // « Valider la commande » : sans OR ni raison, le logiciel pose d'abord la question
     const orderIt = () => { if (hasPurpose.value) action('order', 'Commande validée'); else purpose.value = 'order'; };
-    // « Réceptionner » un brouillon revient à valider la commande et à la recevoir : même question
-    const receiveIt = () => { if (p.value.status !== 'draft' || hasPurpose.value) action('receive', 'Marchandise réceptionnée — stock mis à jour'); else purpose.value = 'receive'; };
+    // « Réceptionner » : la marchandise n'entre pas en stock sans que l'on sache pour quoi elle a été commandée
+    const receiveIt = () => { if (hasPurpose.value) action('receive', 'Marchandise réceptionnée — stock mis à jour'); else purpose.value = 'receive'; };
     const onPurpose = async (b) => {
       if (purposeBusy.value) return;
       purposeBusy.value = true;
@@ -355,7 +355,7 @@ export const PurchaseEditor = {
         }
       } catch { /* le message d'erreur est déjà affiché ; la fenêtre reste ouverte */ } finally { purposeBusy.value = false; }
     };
-    const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; load(); };
+    const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; await load(); bus.tick++; };
     // Paiement fournisseur saisi par erreur : un administrateur de la banque peut l'annuler
     const canCancelPay = can('banque', 'manager');
     // Bandeau d'une facture déposée : encodée par l'IA, ou à encoder à la main quand l'IA n'a rien pu lire (pas de clé)
@@ -364,7 +364,7 @@ export const PurchaseEditor = {
       : { title: 'Facture déposée — à encoder', hint: 'Saisissez le fournisseur et les lignes' }));
     const cancelPay = async (x) => {
       if (!confirm(`Annuler le paiement de ${money(x.amount)} du ${date(x.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
-      await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); load();
+      await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); await load(); bus.tick++;
     };
     const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); markSaved(); p.value = null; go('/purchases'); };
     return { purpose, purposeBusy, hasPurpose, canSeeOrder, orderIt, receiveIt, onPurpose, banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };

@@ -196,17 +196,17 @@ function applyExtraction(purchaseId, data, { aiError, emailFrom, emailSubject, s
   return { id, warnings };
 }
 
-export async function createBillFromFile({ buffer, mime, filename, source = 'upload', emailFrom = null, emailSubject = null }) {
+export async function createBillFromFile({ buffer, mime, filename, source = 'upload', emailFrom = null, emailSubject = null, userId = null }) {
   if (!buffer?.length) throw new BusinessError('Fichier vide');
   const { data, aiError } = await analyze(buffer, mime);
   const { id, warnings } = applyExtraction(null, data, { aiError, emailFrom, emailSubject, source });
   saveAttachment('purchase', id, { buffer, mime, filename, source });
-  logMessage('purchase', id, `📥 Facture ${source === 'email' ? `reçue par e-mail${emailFrom ? ` de ${emailFrom}` : ''}` : 'déposée'} : ${filename || 'document'}${data ? ' — encodée automatiquement par l\'IA' : ''}`, null, 'system');
+  logMessage('purchase', id, `📥 Facture ${source === 'email' ? `reçue par e-mail${emailFrom ? ` de ${emailFrom}` : ''}` : 'déposée'} : ${filename || 'document'}${data ? ' — encodée automatiquement par l\'IA' : ''}`, userId, 'system');
   return { id, warnings, extracted: Boolean(data) };
 }
 
 // Relance l'IA sur le document original d'une facture encore en brouillon
-export async function reanalyze(purchaseId) {
+export async function reanalyze(purchaseId, userId = null) {
   const p = get('SELECT * FROM purchases WHERE id=?', purchaseId);
   if (!p) throw new BusinessError('Facture introuvable', 404);
   if (p.posted) throw new BusinessError('Facture déjà comptabilisée');
@@ -217,7 +217,7 @@ export async function reanalyze(purchaseId) {
   const { data, aiError } = await analyze(fs.readFileSync(a.full), a.mime);
   if (!data) throw new BusinessError(aiError);
   const r = applyExtraction(purchaseId, data, { aiError, emailFrom: p.email_from, source: p.source || 'upload' });
-  logMessage('purchase', purchaseId, '🔄 Facture ré-encodée par l\'IA', null, 'system');
+  logMessage('purchase', purchaseId, '🔄 Facture ré-encodée par l\'IA', userId, 'system');
   return { id: purchaseId, warnings: r.warnings, extracted: true };
 }
 
@@ -236,7 +236,10 @@ export function saveInboxConfig(c) {
 function imapClient() {
   const c = inboxConfig();
   if (!c.host || !c.user || !c.pass) throw new BusinessError('Renseignez le serveur IMAP, l\'identifiant et le mot de passe de la boîte « factures ».');
-  return new ImapFlow({ host: c.host, port: c.port, secure: c.secure !== false, auth: { user: c.user, pass: c.pass }, logger: false, socketTimeout: 60000 });
+  const cl = new ImapFlow({ host: c.host, port: c.port, secure: c.secure !== false, auth: { user: c.user, pass: c.pass }, logger: false, socketTimeout: 60000 });
+  // (sans écouteur, une coupure de connexion — événement « error » — arrêterait tout le logiciel)
+  cl.on('error', () => {});
+  return cl;
 }
 export async function testInbox() {
   const cl = imapClient();

@@ -370,10 +370,10 @@ export const DocumentEditor = {
     const cancelPay = async (p) => {
       if (!confirm(`Annuler le paiement de ${money(p.amount)} du ${date(p.date)} ? L'écriture comptable sera supprimée et la facture redeviendra « à payer ».`)) return;
       if (dirty.value) await save(true);
-      await act(() => DEL('/payments/' + p.id), 'Paiement annulé'); await load();
+      await act(() => DEL('/payments/' + p.id), 'Paiement annulé'); await load(); bus.tick++;
     };
     // (notes internes en cours de saisie : enregistrées avant, pour ne pas être perdues au rechargement)
-    const pay = async (p) => { if (dirty.value) await save(true); await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); };
+    const pay = async (p) => { if (dirty.value) await save(true); await act(() => POST(`/documents/${doc.value.id}/payments`, p), 'Paiement enregistré'); showPay.value = false; await load(); bus.tick++; };
     // Le suivi en direct a changé (étape, accord du client…) : l'OR affiché se met à jour tant qu'aucune saisie n'est en cours
     const onLive = async () => {
       if (dirty.value || !doc.value?.id) return;

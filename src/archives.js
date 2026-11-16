@@ -614,7 +614,10 @@ export function saveInboxConfig(c = {}) {
 function imapClient() {
   const c = inboxConfig();
   if (!c.host || !c.user || !c.pass) throw new BusinessError('Renseignez le serveur IMAP, l\'identifiant et le mot de passe de la boîte « documents ».');
-  return new ImapFlow({ host: c.host, port: c.port, secure: c.secure !== false, auth: { user: c.user, pass: c.pass }, logger: false, socketTimeout: 60000 });
+  const cl = new ImapFlow({ host: c.host, port: c.port, secure: c.secure !== false, auth: { user: c.user, pass: c.pass }, logger: false, socketTimeout: 60000 });
+  // (sans écouteur, une coupure de connexion — événement « error » — arrêterait tout le logiciel)
+  cl.on('error', () => {});
+  return cl;
 }
 export async function testInbox() {
   let cl = null;

@@ -301,3 +301,18 @@ test('achat au-delà du plafond : la réponse de l’acheteur est gardée, même
   assert.equal(p.status, 'ordered');
   assert.equal((await A('PUT', '/settings', { options: { ...cur } })).status, 200);
 });
+
+test('facture comptabilisée d’abord, puis « Réceptionner » : la question est posée quand même', async () => {
+  const product = (await A('POST', '/products', { ref: 'PL-3', name: 'Plaquettes arrière', supplier_id: supplier, purchase_price: 30, sale_price: 60, tax_rate: 17 })).data.id;
+  const id = (await A('POST', '/purchases', { supplier_id: supplier, supplier_ref: 'FA-900', lines: [{ product_id: product, description: 'Plaquettes arrière', quantity: 2, unit_price: 30, tax_rate: 17 }] })).data.id;
+  // une facture de fournisseur se comptabilise sans question (électricité, loyer…)
+  assert.equal((await A('POST', `/purchases/${id}/post`)).status, 200);
+  // mais la marchandise n'entre pas en stock sans OR ni raison
+  const r = await A('POST', `/purchases/${id}/receive`);
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /ordre de réparation concerné ou.*raison/);
+  assert.equal((await A('GET', '/products/' + product)).data.qty_on_hand, 0);
+  assert.equal((await A('POST', `/purchases/${id}/receive`, { reason: 'Réassort du stock' })).status, 200);
+  assert.equal((await A('GET', '/products/' + product)).data.qty_on_hand, 2);
+  assert.equal((await purchase(id)).reason, 'Réassort du stock');
+});

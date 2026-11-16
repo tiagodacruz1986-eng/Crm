@@ -255,7 +255,10 @@ export function mountLive(app, api) {
   pub.post('/:token/lines/:line', wrap((req) => {
     const l = writable(req);
     if (l.role !== 'mechanic') throw new BusinessError('Accès refusé', 403);
+    const line = get('SELECT description, done FROM document_lines WHERE id=? AND document_id=?', req.params.line, l.document_id);
     run('UPDATE document_lines SET done=? WHERE id=? AND document_id=?', req.body.done ? 1 : 0, req.params.line, l.document_id);
+    // (noté dans l'historique de l'OR : ce lien n'a pas de compte utilisateur)
+    if (line && Boolean(line.done) !== Boolean(req.body.done)) logMessage('document', l.document_id, `🔧 Lien du mécanicien : intervention « ${String(line.description || '').slice(0, 80)} » ${req.body.done ? 'marquée « fait »' : 'remise « à faire »'}`, null, 'system');
     if (req.body.done && Number.isInteger(Number(req.params.line))) stopLineTimers(l.document_id, Number(req.params.line)); // intervention terminée : son chrono s'arrête
     touchDocument(l.document_id);
     publish(l.document_id);
