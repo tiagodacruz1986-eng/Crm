@@ -708,7 +708,7 @@ a.fv-btn { display: inline-flex; align-items: center; gap: 5px; text-decoration:
   .arch-card .form-grid { grid-template-columns: 1fr; }
 }
 /* ---------- Impression : marque « imprimé / pas encore imprimé » (fiche d'un document, tableau de l'atelier) ---------- */
-.print-mark { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.print-mark { display: inline-flex; align-items: center; gap: 6px; margin: 6px 12px 0 0; font-size: 13px; color: var(--muted); }
 .print-mark.done { color: var(--b-green-i); font-weight: 600; background: var(--b-green); border-radius: 99px; padding: 3px 6px 3px 10px; }
 .print-mark .ti { width: 15px; height: 15px; } .print-mark .icon-btn { font-size: 12px; padding: 2px 6px; color: inherit; }
 .kprint { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; } .kprint .ti { width: 13px; height: 13px; }
