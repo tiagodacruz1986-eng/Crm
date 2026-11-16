@@ -70,18 +70,33 @@ test('un OR jamais imprimé, puis imprimé : date, personne, nombre de fois, vis
   assert.ok(row.printed_at);
   assert.match((await A('GET', `/chatter/document/${id}`)).text, /Imprimé/);
 
-  // bouton « Imprimer » puis raccourci du navigateur dans la foulée : une seule impression comptée
-  assert.equal((await A('POST', `/documents/${id}/printed`)).data.print_count, 1);
-  // plus tard, une réimpression est bien comptée, et l'historique le dit
-  earlier(id);
-  r = await A('POST', `/documents/${id}/printed`);
+  // le navigateur signale l'impression (Ctrl+P) juste après le bouton : c'est la même, comptée une seule fois
+  assert.equal((await A('POST', `/documents/${id}/printed`, { auto: true })).data.print_count, 1);
+  // une réimpression demandée par le bouton est toujours comptée, même dans la foulée, et l'historique le dit
+  r = await A('POST', `/documents/${id}/printed`, { seen: 1 });
   assert.equal(r.data.print_count, 2);
   assert.match((await A('GET', `/chatter/document/${id}`)).text, /Imprimé de nouveau \(2e fois\)/);
+  // plus tard, une impression par le menu du navigateur est comptée
+  earlier(id);
+  assert.equal((await A('POST', `/documents/${id}/printed`, { auto: true })).data.print_count, 3);
   // quelqu'un d'autre imprime juste après : compté aussi (c'est justement le doublon qu'on veut voir)
   const colleague = await userWith({ atelier: 'user' }, 'accueil');
-  r = await call('POST', `/documents/${id}/printed`, undefined, colleague);
-  assert.equal(r.data.print_count, 3);
+  r = await call('POST', `/documents/${id}/printed`, {}, colleague);
+  assert.equal(r.data.print_count, 4);
   assert.equal(r.data.printed_by_name, 'accueil');
+
+  // deux personnes au même moment : la seconde avait vu « 4 impressions » à l'écran, le serveur en est à 5 → refus,
+  // rien n'est noté, l'écran relira et reposera la question
+  assert.equal((await A('POST', `/documents/${id}/printed`, { seen: 4 })).data.print_count, 5);
+  r = await call('POST', `/documents/${id}/printed`, { seen: 4 }, colleague);
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /vient d’être imprimé par quelqu’un d’autre/);
+  assert.equal((await A('GET', `/documents/${id}`)).data.print_count, 5);
+  assert.equal((await call('POST', `/documents/${id}/printed`, { seen: 5 }, colleague)).data.print_count, 6);
+  // même chose sur un OR jamais imprimé : le second est arrêté
+  const fresh = await order();
+  assert.equal((await A('POST', `/documents/${fresh}/printed`, { seen: 0 })).data.print_count, 1);
+  assert.equal((await call('POST', `/documents/${fresh}/printed`, { seen: 0 }, colleague)).status, 409);
 });
 
 test('la marque ne se modifie pas par l\'enregistrement du document ; on peut la retirer si la feuille n\'est pas sortie', async () => {

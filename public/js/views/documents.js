@@ -29,7 +29,7 @@ export const DocumentList = {
     const printedTitle = (r) => `Imprimé ${r.print_count > 1 ? r.print_count + ' fois, la dernière fois' : ''} le ${datetime(r.printed_at)}`.replace(/\s+/g, ' ');
     const statuses = { quote: ['draft', 'sent', 'accepted', 'refused'], invoice: ['draft', 'posted', 'partial', 'paid'], credit_note: ['draft', 'posted', 'partial', 'paid'], order: ['open', 'in_progress', 'waiting_parts', 'done', 'invoiced'] }[type] || [];
     // « reste dû » : seulement les factures validées (un brouillon n'est pas encore dû)
-    const totals = computed(() => ({ total: rows.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: rows.value.filter((r) => r.type === 'invoice' && ['posted', 'partial'].includes(r.status)).reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
+    const totals = computed(() => ({ total: shown.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: shown.value.filter((r) => r.type === 'invoice' && ['posted', 'partial'].includes(r.status)).reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
     return { type, rows, shown, unprinted, printedTitle, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
   },
   template: `
@@ -361,27 +361,48 @@ export const DocumentEditor = {
     const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); dirty.value = false; history.back(); };
     // Impression : le logiciel note quand, par qui et combien de fois. Pour un OR déjà imprimé, il demande avant d'en
     // sortir une seconde feuille (deux feuilles du même OR dans l'atelier = travail fait deux fois, ou pas du tout).
-    let lastMark = 0;
-    const markPrinted = async () => {
-      if (!doc.value?.id) return;
+    let lastMark = 0, printing = false;
+    // Note l'impression. Répond 'ok', 'changed' (quelqu'un vient d'imprimer : on relit et on redemande), 'logout'
+    // (session expirée) ou 'failed' (pas de connexion au serveur).
+    const markPrinted = async (body = {}) => {
+      if (!doc.value?.id) return 'failed';
       lastMark = Date.now();
-      try { takePrint(await POST(`/documents/${doc.value.id}/printed`)); bus.tick++; } catch { /* l'impression continue ; la marque sera posée la prochaine fois */ }
+      try { takePrint(await POST(`/documents/${doc.value.id}/printed`, body)); bus.tick++; return 'ok'; } catch (e) { return e?.status === 409 ? 'changed' : e?.status === 401 ? 'logout' : 'failed'; }
     };
     const printedText = computed(() => {
       const p = printed.value;
       return p.count ? `Imprimé${p.count > 1 ? ' ' + p.count + ' fois' : ''} · ${p.count > 1 ? 'dernière fois le ' : 'le '}${datetime(p.at)}${p.by ? ' · ' + p.by : ''}` : 'Pas encore imprimé';
     });
     const print = async () => {
-      // (l'état est relu juste avant : un collègue a peut-être imprimé cet OR il y a une minute)
-      if (doc.value.type === 'order') { try { takePrint(await GET('/documents/' + doc.value.id)); } catch { /* on garde ce qu'on sait */ } }
-      const p = printed.value;
-      if (doc.value.type === 'order' && p.count > 0 && !confirm(`Cet OR a déjà été imprimé ${p.count > 1 ? p.count + ' fois, la dernière fois ' : ''}le ${datetime(p.at)}${p.by ? ' par ' + p.by : ''}.\n\nL’imprimer de nouveau ?`)) return;
-      if (dirty.value && !locked.value) await save(true);
-      await markPrinted();
-      setTimeout(() => window.print(), 100);
+      if (printing) return; // double clic : une seule impression
+      printing = true;
+      try {
+        const isOrder = doc.value.type === 'order';
+        let asked = -1; // nombre d'impressions pour lequel la question a déjà été posée
+        for (let i = 0; i < 4; i++) {
+          // (l'état est relu juste avant : un collègue a peut-être imprimé cet OR il y a une minute)
+          if (isOrder) { try { takePrint(await GET('/documents/' + doc.value.id)); } catch { /* on garde ce qu'on sait : l'enregistrement ci-dessous dira si le serveur ne répond pas */ } }
+          const p = printed.value;
+          if (isOrder && p.count > 0 && asked !== p.count) {
+            if (!confirm(`Cet OR a déjà été imprimé ${p.count > 1 ? p.count + ' fois, la dernière fois ' : ''}le ${datetime(p.at)}${p.by ? ' par ' + p.by : ''}.\n\nL’imprimer de nouveau ?`)) return;
+            asked = p.count;
+          }
+          if (dirty.value && !locked.value) await save(true);
+          // (le serveur compare avec ce que l'écran affichait : si un collègue a imprimé entre-temps, on repose la question)
+          const r = await markPrinted(isOrder ? { seen: p.count } : {});
+          if (r === 'changed') continue;
+          if (r === 'logout') return; // l'écran de connexion s'affiche : on n'imprime pas cette page-là
+          if (r === 'failed' && !confirm('L’impression n’a pas pu être notée : pas de connexion au serveur du garage.\n\nImprimer quand même ? La feuille ne sera pas marquée « imprimée ».')) return;
+          setTimeout(() => { lastMark = Date.now(); window.print(); }, 100);
+          return;
+        }
+      } finally { setTimeout(() => { printing = false; }, 1000); }
     };
-    // Impression lancée par le menu ou le raccourci du navigateur (Ctrl+P) : notée aussi
-    const onBeforePrint = () => { if (Date.now() - lastMark > 4000) markPrinted(); };
+    // Impression lancée par le menu ou le raccourci du navigateur (Ctrl+P) : notée aussi (on ne peut pas poser de question à ce moment-là)
+    const onBeforePrint = async () => {
+      if (Date.now() - lastMark < 4000 || !doc.value?.id) return;
+      if (await markPrinted({ auto: true }) === 'failed') toast('Impression non notée : pas de connexion au serveur du garage', 'error');
+    };
     onMounted(() => window.addEventListener('beforeprint', onBeforePrint));
     onUnmounted(() => window.removeEventListener('beforeprint', onBeforePrint));
     const canUnprint = computed(() => !!doc.value && can(doc.value.type === 'order' ? 'atelier' : 'ventes', 'user'));

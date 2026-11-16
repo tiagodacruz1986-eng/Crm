@@ -815,8 +815,13 @@ api.post('/documents/:id/printed', wrap((req) => {
   const d = get('SELECT id, print_count, printed_at, printed_by FROM documents WHERE id=?', id);
   if (!d) throw new BusinessError('Document introuvable', 404);
   const now = localDateTime();
-  // bouton « Imprimer » et raccourci du navigateur peuvent se suivre de très près : une seule impression est comptée
-  const again = d.printed_by === req.user.id && d.printed_at && new Date(now) - new Date(d.printed_at) < 5000;
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  // « seen » : le nombre d'impressions que l'écran affichait au moment de la question. S'il a changé, quelqu'un vient
+  // d'imprimer ce document : rien n'est noté, l'écran relit et redemande (deux personnes ne sortent pas la même feuille).
+  if (b.seen !== undefined && b.seen !== null && Number(b.seen) !== (d.print_count || 0)) throw new BusinessError('Ce document vient d’être imprimé par quelqu’un d’autre', 409);
+  // « auto » : impression vue par le navigateur (Ctrl+P). Juste après le bouton « Imprimer », c'est la même impression :
+  // elle n'est pas comptée deux fois. Une impression demandée par le bouton, elle, est toujours comptée.
+  const again = b.auto === true && d.printed_by === req.user.id && d.printed_at && new Date(now) - new Date(d.printed_at) < 5000;
   if (!again) {
     const n = (d.print_count || 0) + 1;
     run('UPDATE documents SET print_count=?, printed_at=?, printed_by=? WHERE id=?', n, now, req.user.id, id);
