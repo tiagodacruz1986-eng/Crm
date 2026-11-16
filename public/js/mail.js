@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { StudioZone } from './studio.js';
 import { GET, POST, PUT, DEL, act, toast, store, date, datetime, today } from './api.js';
 import { go } from './router.js';
+import { can } from './apps.js';
 
 export const meta = reactive({ loaded: false, modules: {}, types: {}, users: [], mail: null });
 export async function loadMeta(force) {
@@ -159,9 +160,9 @@ export const Chatter = {
   emits: ['mailed'], // un e-mail vient de partir (ou d'être programmé) depuis l'historique : la fiche peut réagir
   components: { MailComposer, ActivityModal, ActivityItem, StudioZone },
   inheritAttrs: false, // (deux blocs : la zone personnalisée puis l'historique, qui reçoit les attributs)
-  setup(props) {
+  setup(props, { emit }) {
     const data = ref(null);
-    const mode = ref(null); // 'mail' | 'note' | 'activity'
+    const mode = ref(null); // 'mail' | 'chat' | 'note' | 'activity'
     const preset = ref(null); // e-mail préparé par un bouton personnalisé de la fiche
     const STUDIO = ['customer', 'vehicle', 'document', 'product', 'purchase', 'lead'];
     const note = ref('');
@@ -171,15 +172,60 @@ export const Chatter = {
     watch(() => [props.recordId, bus.tick], load);
     const addNote = async () => { await act(() => POST(`/chatter/${props.model}/${props.recordId}/note`, { body: note.value })); note.value = ''; mode.value = null; load(); };
     const cancelMail = async (e) => { await act(() => DEL('/mail/' + e.id), 'Envoi annulé'); bus.tick++; };
-    return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO };
+    // ---------- Conversation par e-mail avec le client (ou le fournisseur), gardée dans la fiche ----------
+    const WHO = { purchase: 'fournisseur', supplier: 'fournisseur', product: null, archive: null };
+    const who = computed(() => (props.model in WHO ? WHO[props.model] : 'client'));
+    const canMail = can('emails', 'user');
+    const isAdmin = computed(() => store.user?.role === 'admin');
+    const chat = reactive({ to: '', subject: '', text: '', busy: false });
+    const openChat = (m) => {
+      const c = data.value?.contact || {};
+      const addr = m ? (/[^\s<>,;]+@[^\s<>,;]+/.exec(m.from_addr || '') || [''])[0] : '';
+      const subject = m?.subject ? (/^\s*re\s*:/i.test(m.subject) ? m.subject : 'Re: ' + m.subject) : c.subject || '';
+      Object.assign(chat, { to: addr || c.to || '', subject });
+      mode.value = 'chat';
+    };
+    const sendChat = async () => {
+      if (chat.busy) return;
+      chat.busy = true;
+      try {
+        const r = await act(() => POST('/mail/send', { model: props.model, record_id: Number(props.recordId), to: chat.to.trim(), subject: chat.subject.trim(), intro: chat.text.trim(), include_document: false }), 'E-mail envoyé au ' + who.value);
+        chat.text = ''; mode.value = null; bus.tick++; emit('mailed', r);
+      } catch { /* le message d'erreur est déjà affiché ; le texte reste dans la zone */ } finally { chat.busy = false; }
+    };
+    const checking = ref(false);
+    const checkReplies = async () => {
+      if (checking.value) return;
+      checking.value = true;
+      try { const r = await act(() => POST('/mail/replies/check')); toast(r.matched ? (r.matched > 1 ? r.matched + ' réponses rangées dans leurs fiches' : '1 réponse rangée dans sa fiche') : 'Aucune nouvelle réponse'); bus.tick++; }
+      catch { /* erreur déjà affichée */ } finally { checking.value = false; }
+    };
+    const opened = reactive({}); // textes longs dépliés
+    const isLong = (t) => String(t || '').length > 420 || String(t || '').split('\n').length > 7;
+    const size = (n) => (n > 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' Mo' : Math.max(1, Math.round(n / 1024)) + ' ko');
+    const stamp = (m) => datetime(m.created_at.replace(' ', 'T') + 'Z');
+    return { data, mode, note, editing, load, addNote, cancelMail, datetime, preset, STUDIO, who, canMail, isAdmin, chat, openChat, sendChat, checking, checkReplies, opened, isLong, size, stamp, go };
   },
   template: `
   <StudioZone v-if="STUDIO.includes(model) && recordId && recordId !== 'new'" :model="model" :record-id="recordId" @mail="preset = $event; mode = 'mail'" @changed="load"/>
   <div class="card chatter no-print" v-if="data" v-bind="$attrs">
     <div class="btns">
       <button class="btn sm" :class="{primary: mode==='mail'}" @click="mode = 'mail'"><Icon name="mail" class="ti"/> Envoyer un e-mail</button>
+      <button class="btn sm" v-if="who && canMail" :class="{primary: mode==='chat'}" @click="mode === 'chat' ? (mode = null) : openChat()"><Icon name="message-circle" class="ti"/> Écrire au {{ who }}</button>
       <button class="btn sm" :class="{primary: mode==='note'}" @click="mode = mode === 'note' ? null : 'note'"><Icon name="notebook-pen" class="ti"/> Note</button>
       <button class="btn sm" :class="{primary: mode==='activity'}" @click="mode = 'activity'"><Icon name="alarm-clock" class="ti"/> Planifier une activité</button>
+    </div>
+    <div v-if="mode==='chat'" class="chat-box">
+      <div class="chat-box-head">
+        <label>À <input type="email" v-model="chat.to" :placeholder="'Adresse e-mail du ' + who"></label>
+        <label>Objet <input v-model="chat.subject" maxlength="200"></label>
+      </div>
+      <textarea v-model="chat.text" rows="4" :placeholder="'Votre message au ' + who + ' — il part par e-mail et reste dans cette fiche'"></textarea>
+      <div class="chat-box-foot">
+        <span class="small muted" v-if="data.inbox?.enabled"><Icon name="inbox" class="ti"/> Sa réponse reviendra ici, dans l'historique.</span>
+        <span class="small muted" v-else><Icon name="info" class="ti"/> Pour voir ses réponses ici, activez la réception dans <a v-if="isAdmin" href="#/settings?tab=mail">Paramètres → E-mails</a><template v-else>Paramètres → E-mails (gérant)</template>.</span>
+        <button class="btn sm primary" :disabled="chat.busy || !chat.text.trim() || !chat.to.trim() || !chat.subject.trim()" @click="sendChat"><Icon name="send" class="ti"/> Envoyer</button>
+      </div>
     </div>
     <div v-if="mode==='note'" style="margin-top:10px"><textarea v-model="note" placeholder="Note interne (visible uniquement par l'équipe)"></textarea><button class="btn sm primary" style="margin-top:6px" :disabled="!note.trim()" @click="addNote">Enregistrer la note</button></div>
     <template v-if="data.activities.length">
@@ -190,10 +236,46 @@ export const Chatter = {
       <h3 style="margin:14px 0 6px">E-mails programmés</h3>
       <div v-for="e in data.scheduled" class="list-item small"><span><Icon name="clock" class="ti"/> {{ datetime(e.scheduled_at) }} → {{ e.to_addr }} · {{ e.subject }}</span><button class="btn sm danger" @click="cancelMail(e)">Annuler</button></div>
     </template>
-    <h3 style="margin:14px 0 6px">Historique</h3>
-    <div v-for="m in data.messages" class="chat-msg" :class="m.kind">
-      <span class="avatar" :style="{background: m.user_color || '#94a3b8', width: '26px', height: '26px', fontSize: '11px'}">{{ (m.user_name || '•')[0] }}</span>
-      <div style="flex:1;min-width:0"><div class="small muted">{{ m.user_name || 'Système' }} · {{ datetime(m.created_at.replace(' ', 'T') + 'Z') }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div><div style="white-space:pre-wrap">{{ m.body }}</div></div>
+    <div class="chat-title">
+      <h3>Historique</h3>
+      <span class="small muted" v-if="data.inbox?.enabled && who">
+        <template v-if="data.inbox.error"><span class="neg">Relève des réponses impossible</span> · </template>
+        <template v-else-if="data.inbox.at">Réponses relevées le {{ datetime(data.inbox.at) }} · </template>
+        <button v-if="canMail" class="link-btn" :disabled="checking" @click="checkReplies">{{ checking ? 'Relève en cours…' : 'Relever maintenant' }}</button>
+      </span>
+    </div>
+    <div v-for="m in data.messages" :key="m.id" class="chat-msg" :class="m.kind">
+      <span v-if="m.kind === 'email_in'" class="avatar mail-in-avatar" title="E-mail reçu"><Icon name="mail" class="ti"/></span>
+      <span v-else class="avatar" :style="{background: m.user_color || '#94a3b8', width: '26px', height: '26px', fontSize: '11px'}">{{ (m.user_name || '•')[0] }}</span>
+      <div style="flex:1;min-width:0">
+        <!-- Réponse reçue par e-mail -->
+        <template v-if="m.kind === 'email_in'">
+          <div class="small muted"><b class="mail-from">{{ m.from_addr || 'Expéditeur inconnu' }}</b> · reçu le {{ stamp(m) }}</div>
+          <div class="mail-bubble in">
+            <div class="mail-subject" v-if="m.subject">{{ m.subject }}</div>
+            <div class="mail-text" :class="{clamp: isLong(m.body) && !opened[m.id]}">{{ m.body }}</div>
+            <button v-if="isLong(m.body)" class="link-btn" @click="opened[m.id] = !opened[m.id]">{{ opened[m.id] ? 'Réduire' : 'Lire la suite' }}</button>
+            <div class="mail-files" v-if="m.files && m.files.length">
+              <a v-for="f in m.files" :key="f.id" class="mail-file" :href="'/api/attachment/' + f.id" target="_blank" rel="noopener" :title="'Ouvrir ' + f.filename"><Icon name="paperclip" class="ti"/> {{ f.filename }} <span class="muted">· {{ size(f.size) }}</span></a>
+            </div>
+          </div>
+          <button v-if="canMail && who" class="link-btn" @click="openChat(m)"><Icon name="reply" class="ti"/> Répondre</button>
+        </template>
+        <!-- E-mail envoyé : son texte se relit dans la fiche -->
+        <template v-else-if="m.kind === 'email' && m.email_intro">
+          <div class="small muted">{{ m.user_name || 'Système' }} · {{ stamp(m) }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div>
+          <div class="mail-line">{{ m.body }}</div>
+          <div class="mail-bubble out">
+            <div class="mail-text" :class="{clamp: isLong(m.email_intro) && !opened[m.id]}">{{ m.email_intro }}</div>
+            <button v-if="isLong(m.email_intro)" class="link-btn" @click="opened[m.id] = !opened[m.id]">{{ opened[m.id] ? 'Réduire' : 'Lire la suite' }}</button>
+            <div class="small muted" v-if="m.email_with_doc"><Icon name="file-text" class="ti"/> avec le document</div>
+          </div>
+        </template>
+        <template v-else>
+          <div class="small muted">{{ m.user_name || 'Système' }} · {{ stamp(m) }}<span v-if="m.email_status === 'error'" class="neg"> · échec</span></div>
+          <div class="chat-body">{{ m.body }}</div>
+        </template>
+      </div>
     </div>
     <div v-if="!data.messages.length" class="muted small">Aucun échange pour l'instant.</div>
     <MailComposer v-if="mode==='mail'" :model="model" :record-id="recordId" :preset="preset" @close="mode = null; preset = null" @sent="load(); $emit('mailed', $event)"/>

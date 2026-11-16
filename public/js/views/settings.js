@@ -77,7 +77,20 @@ export const Settings = {
     const saveInbox = async () => { await act(() => PUT('/bills/inbox', inbox.value), 'Boîte « factures » enregistrée'); await loadInbox(); };
     const testInbox = async () => { await saveInbox(); const r = await act(() => POST('/bills/inbox/test')); toast(`Connecté : ${r.messages} e-mails, dont ${r.unseen} non lus`); };
     const imapPreset = (k) => Object.assign(inbox.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
-    const load = async () => { loadOdoo(); loadMail(); loadInbox(); loadAiKey(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
+    // Réponses des clients : la boîte du garage est lue (sans rien y changer) et chaque réponse revient dans sa fiche
+    const replies = ref(null);
+    const repliesBusy = ref(false);
+    const loadReplies = async () => { replies.value = { ...(await GET('/mail/replies')), pass: '' }; };
+    const saveReplies = async () => { await act(() => PUT('/mail/replies', replies.value), 'Réception des réponses enregistrée'); await loadReplies(); };
+    const testReplies = async () => { await saveReplies(); const r = await act(() => POST('/mail/replies/test')); toast(`Connecté : ${r.messages} e-mails dans la boîte`); };
+    const checkReplies = async () => {
+      if (repliesBusy.value) return;
+      repliesBusy.value = true;
+      try { await saveReplies(); const r = await act(() => POST('/mail/replies/check')); toast(r.matched ? `${r.matched} réponse(s) rangée(s) dans leurs fiches` : 'Aucune nouvelle réponse'); }
+      catch { /* message déjà affiché */ } finally { repliesBusy.value = false; loadReplies().catch(() => {}); }
+    };
+    const repliesPreset = (k) => Object.assign(replies.value, { gmail: { host: 'imap.gmail.com', port: 993, secure: true }, outlook: { host: 'outlook.office365.com', port: 993, secure: true }, ovh: { host: 'ssl0.ovh.net', port: 993, secure: true }, pt: { host: 'mail.pt.lu', port: 993, secure: true } }[k]);
+    const load = async () => { loadOdoo(); loadMail(); loadInbox(); loadReplies().catch(() => {}); loadAiKey(); s.value = await GET('/settings'); users.value = await GET('/users'); accounts.value = await GET('/accounting/accounts'); };
     // Lien direct vers un onglet (ex. ?tab=mail) : sur téléphone, l'onglet actif est ramené à l'écran
     onMounted(async () => { await load(); await nextTick(); document.querySelector('.tabs button.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
     const save = async () => {
@@ -92,7 +105,7 @@ export const Settings = {
       editUser.value = null; load();
     };
     const saveAcc = async () => { await act(() => POST('/accounting/accounts', newAcc.value), 'Compte enregistré'); newAcc.value = null; load(); };
-    return { aiKey, aiKeyInput, aiKeyBusy, aiKeyError, saveAiKey, removeAiKey, inbox, saveInbox, testInbox, imapPreset, mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
+    return { replies, repliesBusy, saveReplies, testReplies, checkReplies, repliesPreset, aiKey, aiKeyInput, aiKeyBusy, aiKeyError, saveAiKey, removeAiKey, inbox, saveInbox, testInbox, imapPreset, mail, saveMail, testMail, preset, odoo, odooOpts, odooTest, saveOdoo, testOdoo, importOdoo, datetime, s, users, accounts, tab, save, editUser, saveUser, newAcc, saveAcc, ROLE, store };
   },
   template: `
   <div v-if="s">
@@ -147,6 +160,28 @@ export const Settings = {
       </div>
       <p class="muted small">Gmail / Microsoft 365 : utilisez un « mot de passe d'application » (sécurité du compte), pas votre mot de passe habituel.</p>
       <div class="btns"><button class="btn primary" @click="saveMail">Enregistrer</button><button class="btn" @click="testMail"><Icon name="plug" class="ti"/> Tester</button><span v-if="mail.configured" class="pos">● Configuré</span></div>
+    </div>
+    <div class="card" v-if="tab==='mail' && replies">
+      <h2>Réponses des clients dans leurs fiches</h2>
+      <p class="muted">Quand un client répond à un e-mail envoyé depuis une facture, un devis ou un ordre de réparation, sa réponse (et ses pièces jointes) est rangée dans l'historique de cette fiche, comme une conversation. Pour cela, le logiciel lit la boîte de réception de votre adresse d'expédition.</p>
+      <div class="btns small" style="margin-bottom:10px"><span class="muted">Préréglages :</span><button class="btn sm" @click="repliesPreset('gmail')">Gmail</button><button class="btn sm" @click="repliesPreset('outlook')">Outlook / Microsoft 365</button><button class="btn sm" @click="repliesPreset('ovh')">OVH</button><button class="btn sm" @click="repliesPreset('pt')">POST Luxembourg</button></div>
+      <div class="form-grid">
+        <label>Serveur de réception (IMAP)<input v-model="replies.host" placeholder="imap.exemple.lu"></label>
+        <label>Port<input v-model.number="replies.port" type="number"></label>
+        <label class="check"><input type="checkbox" v-model="replies.secure"> SSL</label>
+        <label class="check full"><input type="checkbox" v-model="replies.same_login"> Même identifiant et même mot de passe que pour l'envoi</label>
+        <template v-if="!replies.same_login">
+          <label>Adresse / identifiant<input v-model="replies.user" autocomplete="off" placeholder="info@votre-garage.lu"></label>
+          <label>Mot de passe {{ replies.has_pass ? '(enregistré — vide = inchangé)' : '' }}<input v-model="replies.pass" type="password" autocomplete="new-password"></label>
+        </template>
+        <label>Dossier à lire<input v-model="replies.folder" placeholder="INBOX"></label>
+        <label>Relever toutes les (minutes)<input v-model.number="replies.interval" type="number" min="1" max="120"></label>
+        <label class="check"><input type="checkbox" v-model="replies.enabled"> Relève automatique</label>
+      </div>
+      <div class="btns" style="margin-top:10px"><button class="btn primary" @click="saveReplies">Enregistrer</button><button class="btn" @click="testReplies"><Icon name="plug" class="ti"/> Tester</button>
+        <button class="btn" :disabled="repliesBusy" @click="checkReplies"><Icon name="inbox" class="ti"/> {{ repliesBusy ? 'Relève en cours…' : 'Relever maintenant' }}</button>
+        <span v-if="replies.status" class="small" :class="replies.status.error ? 'neg' : 'muted'">Dernière relève : {{ datetime(replies.status.at) }} — {{ replies.status.error ? replies.status.error : replies.status.read + ' e-mail(s) lu(s), ' + replies.status.matched + ' rangé(s) dans une fiche' }}</span></div>
+      <p class="muted small">Votre boîte n'est pas modifiée : aucun e-mail n'y est marqué comme lu, déplacé ou supprimé, et vous continuez à la lire comme d'habitude. Seules les réponses à un e-mail envoyé par le logiciel sont rangées ; les autres e-mails ne sont ni enregistrés ni analysés.</p>
     </div>
     <div class="card" v-if="tab==='mail' && inbox">
       <h2>Réception des factures fournisseurs</h2>

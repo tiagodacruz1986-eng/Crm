@@ -344,6 +344,7 @@ export const DocumentEditor = {
         throw e;
       }
       await load();
+      bus.tick++; // (l'historique en bas de page montre tout de suite ce qui vient de changer)
       return doc.value.id;
     };
     const ensureSaved = async () => (dirty.value || !doc.value.id ? save(true) : doc.value.id);
@@ -354,13 +355,16 @@ export const DocumentEditor = {
     };
     const post = async () => {
       const cn = doc.value.type === 'credit_note';
-      if (!confirm(`Valider définitivement ${cn ? 'la note de crédit' : 'la facture'} ? Elle ne pourra plus être modifiée (obligation légale).`)) return;
+      // (le kilométrage figure sur la facture : s'il manque, on le dit avant qu'elle ne soit plus modifiable)
+      const noKm = doc.value.vehicle_id && !(Number(doc.value.mileage) > 0);
+      if (!confirm(`Valider définitivement ${cn ? 'la note de crédit' : 'la facture'} ? Elle ne pourra plus être modifiée (obligation légale).${noKm ? '\n\nAttention : le kilométrage du véhicule n’est pas renseigné — il ne figurera pas sur le document.' : ''}`)) return;
       const id = await ensureSaved();
       const r = await act(() => POST(`/documents/${id}/post`), cn ? 'Note de crédit validée' : 'Facture validée');
       toast(`Numéro attribué : ${r.number}`);
       await load();
+      bus.tick++;
     };
-    const setStatus = async (status) => { await ensureSaved(); await act(() => POST(`/documents/${doc.value.id}/status`, { status })); await load(); };
+    const setStatus = async (status) => { await ensureSaved(); await act(() => POST(`/documents/${doc.value.id}/status`, { status })); await load(); bus.tick++; };
     // Paiement saisi par erreur : un administrateur de la banque peut l'annuler (la facture redevient « à payer »)
     const canCancelPay = computed(() => can('banque', 'manager'));
     const cancelPay = async (p) => {

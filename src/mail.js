@@ -1,5 +1,6 @@
 // E-mails (modèles, envoi immédiat ou programmé), historique des échanges ("chatter") et activités planifiées
 // sur chaque fiche, comme dans Odoo.
+import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { db, all, get, run, insert, getSettings, setSetting, round2, localDateTime, localDate, today, isDate } from './db.js';
@@ -165,7 +166,7 @@ async function documentBlock(model, id, attachments) {
   if (model === 'document') {
     const d = getDocument(id);
     const titles = { quote: 'Devis', order: 'Ordre de réparation', invoice: 'Facture', credit_note: 'Note de crédit' };
-    let html = `<h3 style="margin:18px 0 4px">${titles[d.type]} ${esc(d.number || '')}</h3><div style="color:#555;font-size:13px">Date : ${esc(fdate(d.date))}${d.plate ? ` · Véhicule : ${esc(d.plate)} ${esc(d.make || '')} ${esc(d.model || '')}` : ''}${d.mileage ? ` · ${esc(d.mileage)} km` : ''}</div>`;
+    let html = `<h3 style="margin:18px 0 4px">${titles[d.type]} ${esc(d.number || '')}</h3><div style="color:#555;font-size:13px">Date : ${esc(fdate(d.date))}${d.plate || d.make || d.vin ? ` · Véhicule : ${esc([d.plate, d.make, d.model].filter(Boolean).join(' '))}${d.vin ? ` · N° de châssis : ${esc(d.vin)}` : ''}` : ''}${d.mileage ? ` · Kilométrage : ${esc(Number(d.mileage).toLocaleString('fr-LU'))} km` : ''}</div>`;
     html += table(d.lines.map((l) => (l.kind === 'text' ? [`<i>${esc(l.description)}</i>`, '', '', ''] : [esc(l.description), esc(l.quantity), fmt(l.unit_price), fmt(l.total_ht)])), ['Désignation', 'Qté', 'P.U. HT', 'Total HT']);
     html += table([['Total HT', fmt(d.subtotal)], ...d.taxes.map((t) => [`TVA ${esc(t.rate)} %`, fmt(t.amount)]), [`<b>Total TTC</b>`, `<b>${fmt(d.total)}</b>`]], []);
     const residual = round2(d.total - d.amount_paid);
@@ -214,14 +215,38 @@ export function logMessage(model, record_id, body, user_id = null, kind = 'note'
   insert('messages', { model, record_id, body, user_id, kind, email_id }, ['model', 'record_id', 'body', 'user_id', 'kind', 'email_id']);
 }
 
+// Conversation par e-mail : chaque e-mail envoyé porte un identifiant, et chaque réponse reçue le sien. La réponse d'un
+// client cite l'identifiant du message auquel il répond : c'est ce qui permet de la ranger dans la bonne fiche.
+const columns = (table) => all(`PRAGMA table_info(${table})`).map((c) => c.name);
+if (!columns('emails').includes('message_id')) db.exec('ALTER TABLE emails ADD COLUMN message_id TEXT');
+if (!columns('messages').includes('message_id')) {
+  db.exec('ALTER TABLE messages ADD COLUMN message_id TEXT');
+  db.exec('ALTER TABLE messages ADD COLUMN from_addr TEXT');
+  db.exec('ALTER TABLE messages ADD COLUMN subject TEXT');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_emails_msgid ON emails(message_id)');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_msgid ON messages(message_id) WHERE message_id IS NOT NULL');
+
+/** Identifiants des e-mails déjà échangés sur une fiche (envoyés et reçus), du plus ancien au plus récent. */
+export function threadIds(model, record_id) {
+  if (!model || !record_id) return [];
+  return all(`SELECT COALESCE(m.message_id, e.message_id) AS mid FROM messages m LEFT JOIN emails e ON e.id=m.email_id
+    WHERE m.model=? AND m.record_id=? AND COALESCE(m.message_id, e.message_id) IS NOT NULL ORDER BY m.id`, model, record_id).map((r) => r.mid);
+}
+
 const fromAddress = (c) => (c.from_email ? (c.from_name ? `"${c.from_name.replace(/"/g, '')}" <${c.from_email}>` : c.from_email) : 'garage@localhost');
 async function deliver(email) {
   const c = mailConfig();
   const { html, attachments, text } = await renderEmail({ model: email.model, record_id: email.record_id, intro: email.intro, include_document: email.include_document });
   const me = email.user_id ? get('SELECT email FROM users WHERE id=?', email.user_id)?.email : null;
   const from = fromAddress(c);
-  await transport().sendMail({ from, to: email.to_addr, cc: email.cc || undefined, bcc: c.bcc_me && me ? me : undefined, replyTo: c.from_email || undefined, subject: email.subject, html, text, attachments });
-  run("UPDATE emails SET status='sent', sent_at=?, error=NULL WHERE id=?", localDateTime(), email.id);
+  // (l'e-mail s'inscrit dans la conversation de sa fiche : la messagerie du client le range avec les précédents)
+  const domain = String(c.from_email || '').split('@')[1] || 'garage.local';
+  const messageId = `<garage.${email.id}.${crypto.randomBytes(8).toString('hex')}@${domain.replace(/[^a-zA-Z0-9.-]/g, '')}>`;
+  const thread = threadIds(email.model, email.record_id);
+  await transport().sendMail({ from, to: email.to_addr, cc: email.cc || undefined, bcc: c.bcc_me && me ? me : undefined, replyTo: c.from_email || undefined, subject: email.subject, html, text, attachments,
+    messageId, inReplyTo: thread.at(-1), references: thread.length ? thread.slice(-12) : undefined });
+  run("UPDATE emails SET status='sent', sent_at=?, error=NULL, message_id=? WHERE id=?", localDateTime(), messageId, email.id);
   logMessage(email.model, email.record_id, `✉️ E-mail envoyé à ${email.to_addr} : « ${email.subject} »`, email.user_id, 'email', email.id);
 }
 
@@ -380,9 +405,34 @@ export function activityCounts(userId) {
   return { late: r.late || 0, today: r.today || 0, upcoming: r.upcoming || 0 };
 }
 
+/** À qui écrire, et sous quel objet, pour poursuivre la conversation par e-mail d'une fiche. */
+export function conversationContact(model, record_id) {
+  const info = recordInfo(model, record_id);
+  if (!info) return null;
+  const last = get(`SELECT m.kind, m.from_addr, m.subject, e.to_addr, e.subject AS sent_subject FROM messages m LEFT JOIN emails e ON e.id=m.email_id
+    WHERE m.model=? AND m.record_id=? AND (m.kind='email_in' OR (m.kind='email' AND e.status='sent')) ORDER BY m.id DESC LIMIT 1`, model, record_id);
+  const bare = (s) => String(s || '').replace(/^(\s*(re|aw|tr|fw|fwd|rép|rep|antw)\s*:\s*)+/i, '').trim();
+  if (last?.kind === 'email_in') {
+    const addr = (/[^\s<>,;]+@[^\s<>,;]+/.exec(last.from_addr || '') || [''])[0];
+    return { to: addr || info.email || '', name: info.name || '', subject: `Re: ${bare(last.subject) || info.label}`, replying: true };
+  }
+  if (last) return { to: last.to_addr || info.email || '', name: info.name || '', subject: bare(last.sent_subject) || info.label, replying: false };
+  // premier message : un objet clair pour le client (« Facture F2026-0012 — Garage … »)
+  const garage = getSettings().company.name;
+  let subject = `${info.label} — ${garage}`;
+  if (model === 'document') {
+    const d = get('SELECT type, number FROM documents WHERE id=?', record_id);
+    subject = `${{ quote: 'Devis', order: 'Ordre de réparation', invoice: 'Facture', credit_note: 'Note de crédit' }[d?.type] || 'Document'}${d?.number ? ' ' + d.number : ''} — ${garage}`;
+  } else if (model === 'customer' || model === 'supplier') subject = garage;
+  return { to: info.email || '', name: info.name || '', subject, replying: false };
+}
+
 export function chatter(model, record_id) {
   return {
-    messages: all(`SELECT m.*, u.name AS user_name, u.color AS user_color, e.status AS email_status, e.error AS email_error, e.scheduled_at
+    contact: conversationContact(model, record_id),
+    // (pour un e-mail envoyé : son texte et son destinataire, pour relire toute la conversation dans la fiche)
+    messages: all(`SELECT m.*, u.name AS user_name, u.color AS user_color, e.status AS email_status, e.error AS email_error, e.scheduled_at,
+        e.intro AS email_intro, e.to_addr AS email_to, e.subject AS email_subject, e.include_document AS email_with_doc
       FROM messages m LEFT JOIN users u ON u.id=m.user_id LEFT JOIN emails e ON e.id=m.email_id WHERE m.model=? AND m.record_id=? ORDER BY m.id DESC LIMIT 200`, model, record_id),
     activities: listActivities({ model, record_id }),
     scheduled: all("SELECT id, to_addr, subject, scheduled_at FROM emails WHERE model=? AND record_id=? AND status='scheduled' ORDER BY scheduled_at", model, record_id),

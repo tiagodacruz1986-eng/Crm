@@ -253,3 +253,51 @@ test('réassort automatique du stock : la raison est déjà écrite', async () =
   assert.equal((await A('POST', `/purchases/${p.id}/order`, {})).status, 200);
   assert.equal((await purchase(p.id)).status, 'ordered');
 });
+
+test('réceptionner un brouillon pose la même question que valider la commande', async () => {
+  const product = (await A('POST', '/products', { ref: 'DF-2', name: 'Disque de frein', supplier_id: supplier, purchase_price: 38, sale_price: 70, tax_rate: 17 })).data.id;
+  const id = (await A('POST', '/purchases', { supplier_id: supplier, lines: [{ product_id: product, description: 'Disque de frein', quantity: 2, unit_price: 38, tax_rate: 17 }] })).data.id;
+  // sans OR ni raison : pas de réception, le stock ne bouge pas
+  const r = await A('POST', `/purchases/${id}/receive`);
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /ordre de réparation concerné ou.*raison/);
+  assert.equal((await purchase(id)).status, 'draft');
+  assert.equal((await A('GET', '/products/' + product)).data.qty_on_hand, 0);
+  // la réponse est donnée avec la réception
+  const or = await doc('order');
+  assert.equal((await A('POST', `/purchases/${id}/receive`, { document_id: or })).status, 200);
+  const p = await purchase(id);
+  assert.equal(p.status, 'received');
+  assert.equal(p.document_id, or);
+  assert.equal((await A('GET', '/products/' + product)).data.qty_on_hand, 2);
+  assert.equal((await A('GET', `/documents/${or}/purchases`)).data.length, 1);
+});
+
+test('recherche de l’OR : sans accent ni majuscule, et par la marque d’un véhicule sans modèle', async () => {
+  const c = (await A('POST', '/customers', { name: 'Müller Hélène' })).data.id;
+  const v = (await A('POST', '/vehicles', { customer_id: c, plate: 'MU 5521', make: 'Peugeot', model: '' })).data.id;
+  const or = (await A('POST', '/documents', { type: 'order', customer_id: c, vehicle_id: v, lines: [{ kind: 'labor', description: 'Freins', quantity: 1, unit_price: 80, tax_rate: 17 }] })).data.id;
+  for (const q of ['muller', 'MÜLLER', 'helene', 'peugeot', 'PEUGEOT', 'mu5521', 'mu 5521']) {
+    const r = await A('GET', '/purchases/orders?q=' + encodeURIComponent(q));
+    assert.ok(r.data.some((o) => o.id === or), `« ${q} » doit trouver l’OR`);
+  }
+  assert.equal((await A('GET', '/purchases/orders?q=' + encodeURIComponent('100%_'))).data.length, 0);
+});
+
+test('achat au-delà du plafond : la réponse de l’acheteur est gardée, même si la validation revient à un administrateur', async () => {
+  const cur = (await A('GET', '/settings')).data.options;
+  assert.equal((await A('PUT', '/settings', { options: { ...cur, achats: { ...cur.achats, approval: true, approval_amount: 50 } } })).status, 200);
+  const buyer = await userWith({ achats: 'user' }, 'acheteur2');
+  const or = await doc('order');
+  const id = await buy();
+  const r = await call('POST', `/purchases/${id}/order`, { document_id: or }, buyer);
+  assert.equal(r.status, 403, r.text);
+  let p = await purchase(id);
+  assert.equal(p.status, 'draft', 'la commande reste à valider par un administrateur');
+  assert.equal(p.document_id, or, 'mais l’OR indiqué par l’acheteur est gardé');
+  // l'administrateur valide sans avoir à répondre de nouveau
+  assert.equal((await A('POST', `/purchases/${id}/order`, {})).status, 200);
+  p = await purchase(id);
+  assert.equal(p.status, 'ordered');
+  assert.equal((await A('PUT', '/settings', { options: { ...cur } })).status, 200);
+});

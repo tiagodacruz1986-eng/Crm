@@ -212,3 +212,21 @@ test('un brouillon imprimé pour relecture, puis validé : la facture numéroté
   // une fois validée, l'impression compte de nouveau normalement
   assert.equal((await A('POST', `/documents/${inv}/printed`)).data.print_count, 1);
 });
+
+test('facture : la marque, le modèle, le n° de châssis et le kilométrage du véhicule suivent le document (fiche et e-mail)', async () => {
+  const car = (await A('POST', '/vehicles', { customer_id: customer, plate: 'KM 2026', make: 'Peugeot', model: '308 SW', vin: 'VF3LBHNZ6KS123456' })).data.id;
+  const or = (await A('POST', '/documents', { type: 'order', customer_id: customer, vehicle_id: car, mileage: 125300, lines: [{ kind: 'labor', description: 'Vidange', quantity: 1, unit_price: 80, tax_rate: 17 }] })).data.id;
+  // la facture tirée de l'OR reprend son kilométrage
+  const inv = (await A('POST', `/documents/${or}/convert`, { type: 'invoice' })).data.id;
+  const d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.type, 'invoice');
+  assert.equal(d.make, 'Peugeot');
+  assert.equal(d.model, '308 SW');
+  assert.equal(d.vin, 'VF3LBHNZ6KS123456');
+  assert.equal(d.mileage, 125300);
+  // et le message envoyé au client les mentionne
+  const html = (await A('POST', '/mail/preview', { model: 'document', record_id: inv, intro: 'Bonjour', include_document: true })).data.html;
+  assert.match(html, /KM 2026 Peugeot 308 SW/);
+  assert.match(html, /N° de châssis : VF3LBHNZ6KS123456/);
+  assert.match(html, /Kilométrage : 125[\s  .]300 km/);
+});

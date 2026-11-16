@@ -70,7 +70,8 @@ export const DocPrint = {
     const showQr = computed(() => L.value.show_qr !== false && props.doc?.type === 'invoice' && props.doc?.status !== 'paid' && C.value.iban);
     const qrUrl = computed(() => (props.doc?.id ? `/api/documents/${props.doc.id}/qr.svg` : '/api/qr.svg?text=' + encodeURIComponent(`BCD\n002\n1\nSCT\n${C.value.bic || ''}\n${C.value.name || ''}\n${C.value.iban || ''}\nEUR${totals.value.total.toFixed(2)}\n\n\n${props.doc?.number || ''}`)));
     const companyLine = computed(() => [C.value.name && `${C.value.name}${C.value.legal_form ? ' ' + C.value.legal_form : ''}`, C.value.rcs && `RCS ${C.value.rcs}`, C.value.vat_number && C.value.vat_number !== 'LU' && `TVA ${C.value.vat_number}`, C.value.matricule && `Matricule ${C.value.matricule}`, C.value.autorisation && `Autorisation n° ${C.value.autorisation}`].filter(Boolean).join(' · '));
-    const vehicle = computed(() => L.value.show_vehicle !== false && props.doc?.plate);
+    // (un véhicule sans plaque — pas encore immatriculé — est mentionné quand même, par sa marque ou son n° de châssis)
+    const vehicle = computed(() => { const d = props.doc || {}; return L.value.show_vehicle !== false && !!(d.plate || d.vin || d.make || d.model); });
 
     // Format du papier à l'impression (seulement pour le vrai document, pas pour les aperçus)
     let styleEl = null;
@@ -127,8 +128,13 @@ export const DocPrint = {
       </section>
 
       <section v-if="vehicle" class="ip-vehicle">
-        <span class="ip-plate">{{ doc.plate }}</span>
-        <div><b>{{ doc.make }} {{ doc.model }}</b><div class="ip-sub"><span v-if="doc.vin">VIN {{ doc.vin }}</span><span v-if="doc.mileage"> · {{ Number(doc.mileage).toLocaleString('fr-LU') }} km</span></div></div>
+        <span v-if="doc.plate" class="ip-plate">{{ doc.plate }}</span>
+        <dl class="ip-veh">
+          <div><dt>Marque</dt><dd>{{ doc.make || '—' }}</dd></div>
+          <div><dt>Modèle</dt><dd>{{ doc.model || '—' }}</dd></div>
+          <div><dt>N° de châssis</dt><dd>{{ doc.vin || '—' }}</dd></div>
+          <div><dt>Kilométrage</dt><dd>{{ doc.mileage ? Number(doc.mileage).toLocaleString('fr-LU') + ' km' : '—' }}</dd></div>
+        </dl>
       </section>
       <p v-if="doc.customer_complaint" class="ip-text"><b>Demande du client :</b> {{ doc.customer_complaint }}</p>
       <p v-if="doc.type === 'order' && doc.diagnosis" class="ip-text"><b>Diagnostic :</b> {{ doc.diagnosis }}</p>

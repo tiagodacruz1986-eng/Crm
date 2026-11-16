@@ -2,6 +2,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { GET, POST, PUT, DEL, act, toast, money, num, date, datetime, today, TAX_RATES } from '../api.js';
 import { round2, computeTotals } from '../totals.js';
 import { can } from '../apps.js';
+import { bus } from '../mail.js';
 
 // Envoi d'un fichier brut (PDF, photo) à l'API
 async function uploadFile(url, file) {
@@ -310,9 +311,9 @@ export const PurchaseEditor = {
       if (isNew) { const r = await act(() => POST('/purchases', p.value), 'Enregistré'); markSaved(); go('/purchase/' + r.id); return r.id; }
       await act(() => PUT('/purchases/' + p.value.id, p.value), 'Enregistré'); await load(); return p.value.id;
     };
-    const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); };
+    const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); bus.tick++; };
     // ---------- Pour quoi la commande est faite : demandé à la validation du bon de commande ----------
-    const purpose = ref(null); // null, 'order' (question posée à la validation) ou 'edit' (préciser / modifier)
+    const purpose = ref(null); // null, 'order' / 'receive' (question posée à la validation ou à la réception d'un brouillon) ou 'edit' (préciser / modifier)
     const purposeBusy = ref(false);
     const hasPurpose = computed(() => !!(p.value && (p.value.document_id || String(p.value.reason || '').trim())));
     const canSeeOrder = can('atelier');
@@ -323,16 +324,24 @@ export const PurchaseEditor = {
     }
     // « Valider la commande » : sans OR ni raison, le logiciel pose d'abord la question
     const orderIt = () => { if (hasPurpose.value) action('order', 'Commande validée'); else purpose.value = 'order'; };
+    // « Réceptionner » un brouillon revient à valider la commande et à la recevoir : même question
+    const receiveIt = () => { if (p.value.status !== 'draft' || hasPurpose.value) action('receive', 'Marchandise réceptionnée — stock mis à jour'); else purpose.value = 'receive'; };
     const onPurpose = async (b) => {
       if (purposeBusy.value) return;
       purposeBusy.value = true;
       const send = b.document_id ? { document_id: b.document_id } : { reason: b.reason };
       try {
-        if (purpose.value === 'order') {
+        if (purpose.value === 'order' || purpose.value === 'receive') {
           const id = await save();
-          await act(() => POST(`/purchases/${id}/order`, send), 'Commande validée');
-          purpose.value = null;
-          await load();
+          try {
+            await act(() => POST(`/purchases/${id}/${purpose.value}`, send), purpose.value === 'order' ? 'Commande validée' : 'Marchandise réceptionnée — stock mis à jour');
+            purpose.value = null;
+          } finally {
+            // la réponse est gardée même si l'action est refusée (achat au-delà du plafond à faire valider) : la fenêtre se referme alors
+            await load();
+            bus.tick++;
+            if (hasPurpose.value) purpose.value = null;
+          }
         } else if (isNew) {
           applyPurpose(b); // pas encore enregistré : gardé avec l'achat
           purpose.value = null;
@@ -342,6 +351,7 @@ export const PurchaseEditor = {
           for (const k of PURPOSE_FIELDS) p.value[k] = r[k] ?? null;
           if (!dirty) markSaved(); // (des modifications en cours restent « non enregistrées »)
           purpose.value = null;
+          bus.tick++;
         }
       } catch { /* le message d'erreur est déjà affiché ; la fenêtre reste ouverte */ } finally { purposeBusy.value = false; }
     };
@@ -357,7 +367,7 @@ export const PurchaseEditor = {
       await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); load();
     };
     const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); markSaved(); p.value = null; go('/purchases'); };
-    return { purpose, purposeBusy, hasPurpose, canSeeOrder, orderIt, onPurpose, banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
+    return { purpose, purposeBusy, hasPurpose, canSeeOrder, orderIt, receiveIt, onPurpose, banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
   },
   template: `
   <div v-if="p">
@@ -366,7 +376,7 @@ export const PurchaseEditor = {
       <div class="btns">
         <button class="btn" v-if="!p.posted" @click="save"><Icon name="save" class="ti"/> Enregistrer</button>
         <button class="btn" v-if="!isNew && p.status==='draft'" title="Le bon de commande est validé : la commande est passée chez le fournisseur" @click="orderIt"><Icon name="send" class="ti"/> Valider la commande</button>
-        <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="action('receive', 'Marchandise réceptionnée — stock mis à jour')"><Icon name="inbox" class="ti"/> Réceptionner</button>
+        <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="receiveIt"><Icon name="inbox" class="ti"/> Réceptionner</button>
         <button class="btn success" v-if="!isNew && !p.posted" @click="action('post', 'Facture fournisseur comptabilisée')"><Icon name="check" class="ti"/> Comptabiliser la facture</button>
         <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true"><Icon name="banknote" class="ti"/> Payer</button>
         <button class="btn danger" v-if="!isNew && !p.posted" @click="remove" title="Supprimer" aria-label="Supprimer"><Icon name="trash-2" class="ti"/></button>
@@ -445,7 +455,7 @@ export const PurchaseEditor = {
     </div>
     </div>
     <PaymentModal v-if="showPay" :residual="Math.round((p.total - p.amount_paid) * 100) / 100" title="Paiement fournisseur" @close="showPay = false" @save="pay"/>
-    <PurchasePurpose v-if="purpose" :purchase="p" :busy="purposeBusy" :title="purpose === 'order' ? 'Valider la commande : pour quel ordre de réparation ?' : 'Pour quoi est cette commande ?'" :confirm-label="purpose === 'order' ? 'Valider la commande' : 'Enregistrer'" @close="purpose = null" @done="onPurpose"/>
+    <PurchasePurpose v-if="purpose" :purchase="p" :busy="purposeBusy" :title="purpose === 'order' ? 'Valider la commande : pour quel ordre de réparation ?' : purpose === 'receive' ? 'Réceptionner : pour quel ordre de réparation ?' : 'Pour quoi est cette commande ?'" :confirm-label="purpose === 'order' ? 'Valider la commande' : purpose === 'receive' ? 'Réceptionner' : 'Enregistrer'" @close="purpose = null" @done="onPurpose"/>
   </div>`,
 };
 

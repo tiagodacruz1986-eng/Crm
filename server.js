@@ -13,6 +13,8 @@ import {
   getPurchase, savePurchase, receivePurchase, postPurchase, setPurchasePurpose, hasPurpose, purchasesOfOrder, PURCHASE_ORDER_COLS, PURCHASE_ORDER_JOIN, dashboard, trialBalance, vatReport, profitAndLoss, durationHours,
   touchDocument,
 } from './src/business.js';
+import { publicRepliesConfig, saveRepliesConfig, testReplies, checkReplies, startRepliesPolling } from './src/replies.js';
+import { snapshotDocument, diffDocument, snapshotPurchase, diffPurchase, logChanges, DOC_NAMES } from './src/history.js';
 import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, cancelPayment, unmatchLine, remainingOf, PROVIDERS } from './src/bank.js';
 import { AGENTS } from './src/agents.js';
 import {
@@ -74,7 +76,7 @@ app.use('/vendor/fonts/inter.woff2', express.static(nm('@fontsource-variable/int
 app.use('/vendor/fonts/space-grotesk.woff2', express.static(nm('@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2')));
 app.use('/vendor/fonts/instrument-serif.woff2', express.static(nm('@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2')));
 // Jeu d'icônes (Lucide) limité aux icônes utilisées, servi comme module JS
-const ICONS = ['Snowflake', 'LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban', 'CircleCheck', 'Play', 'Pause', 'TriangleAlert', 'User', 'Paperclip', 'Inbox', 'Lock', 'Banknote', 'RefreshCw', 'Headphones', 'Camera', 'Save', 'CircleX', 'ClipboardList', 'ThumbsUp', 'Hammer', 'Palette', 'Plug', 'Ban', 'Notebook', 'Radio', 'Repeat', 'MessageSquare', 'Type', 'Hash', 'SquareCheck', 'CircleDot', 'Printer', 'Keyboard', 'Folder', 'Wifi', 'MapPin', 'Tag', 'Hourglass', 'Flag', 'Target', 'House', 'CircleHelp', 'PenLine', 'PartyPopper', 'Laptop', 'Info'];
+const ICONS = ['Reply', 'Snowflake', 'LayoutDashboard', 'Bot', 'AlarmClock', 'Mail', 'Wrench', 'CalendarDays', 'Timer', 'FileText', 'Receipt', 'Users', 'Car', 'Package', 'ShoppingCart', 'Factory', 'Landmark', 'BookOpen', 'Settings', 'Search', 'Plus', 'Menu', 'Home', 'Moon', 'Sun', 'Smartphone', 'MonitorSmartphone', 'Download', 'LogOut', 'Sparkles', 'Mic', 'MicOff', 'Send', 'X', 'Volume2', 'Square', 'NotebookPen', 'CalendarCheck', 'Zap', 'TrendingUp', 'Wallet', 'Gauge', 'Bell', 'Tablet', 'History', 'Scan', 'List', 'VolumeX', 'MessageCircle', 'PhoneOff', 'AudioLines', 'Pin', 'Brain', 'ListTodo', 'UserCheck', 'Contact', 'ShieldCheck', 'UserPlus', 'Link', 'Copy', 'Clock', 'LogIn', 'ScanLine', 'ChartColumn', 'LayoutGrid', 'KeyRound', 'ChevronRight', 'ArrowLeft', 'CircleUser', 'PanelLeft', 'Briefcase', 'Pencil', 'Trash2', 'Check', 'Image', 'Upload', 'Coffee', 'Sunrise', 'Moon', 'Delete', 'Handshake', 'Globe', 'Megaphone', 'Eye', 'EyeOff', 'ArrowUp', 'ArrowDown', 'ExternalLink', 'Star', 'Trophy', 'ThumbsDown', 'Lightbulb', 'Phone', 'CalendarClock', 'WandSparkles', 'Rocket', 'Undo2', 'Kanban', 'CircleCheck', 'Play', 'Pause', 'TriangleAlert', 'User', 'Paperclip', 'Inbox', 'Lock', 'Banknote', 'RefreshCw', 'Headphones', 'Camera', 'Save', 'CircleX', 'ClipboardList', 'ThumbsUp', 'Hammer', 'Palette', 'Plug', 'Ban', 'Notebook', 'Radio', 'Repeat', 'MessageSquare', 'Type', 'Hash', 'SquareCheck', 'CircleDot', 'Printer', 'Keyboard', 'Folder', 'Wifi', 'MapPin', 'Tag', 'Hourglass', 'Flag', 'Target', 'House', 'CircleHelp', 'PenLine', 'PartyPopper', 'Laptop', 'Info'];
 let iconModule = null;
 app.get('/vendor/icons.js', async (req, res) => {
   if (!iconModule) {
@@ -457,6 +459,7 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
     mileage = Number(req.body.mileage);
     if (!Number.isInteger(mileage) || mileage < 0 || mileage > 9_999_999) throw new BusinessError('Kilométrage invalide');
   }
+  const before = snapshotDocument(id); // pour l'historique : ce que le mécanicien change (fait, diagnostic, km, note, statut)
   // (le document n'est marqué « modifié » que si une saisie que le bureau pourrait écraser a changé — pas pour un simple changement de statut)
   if (line_id !== undefined || diagnosis !== undefined || mileage || note) touchDocument(id);
   if (line_id !== undefined) {
@@ -471,6 +474,7 @@ api.post('/kiosk/orders/:id', mech, worksOrders, wrap((req) => {
     if (status === 'done') stopOrderTimers(id);
     stageFromStatus(id, status);
   } else if (line_id !== undefined || diagnosis !== undefined || mileage || note) livePublish(id);
+  logChanges('document', id, diffDocument(before, snapshotDocument(id)), req.user.id);
   return fullKioskState(req.user);
 }));
 // Lien "photos & messages" du mécanicien pour un OR
@@ -754,8 +758,19 @@ api.post('/documents/request-summary', wrap((req) => {
   if (!['quote', 'order'].includes(req.body?.type)) throw new BusinessError('Type de document inconnu');
   return summarizeRequest(req.body);
 }));
-api.post('/documents', wrap((req) => ({ id: saveDocument(req.body) })));
-api.put('/documents/:id', wrap((req) => ({ id: saveDocument(req.body, Number(req.params.id)) })));
+// Historique des modifications : chaque action compare la fiche avant et après, et note qui a changé quoi
+api.post('/documents', wrap((req) => {
+  const id = saveDocument(req.body);
+  logMessage('document', id, `📄 ${DOC_NAMES[req.body?.type] || 'Document'} créé${req.body?.type === 'quote' || req.body?.type === 'order' ? '' : 'e'}`, req.user.id, 'system');
+  return { id };
+}));
+api.put('/documents/:id', wrap((req) => {
+  const id = Number(req.params.id);
+  const before = snapshotDocument(id);
+  saveDocument(req.body, id);
+  logChanges('document', id, diffDocument(before, snapshotDocument(id)), req.user.id);
+  return { id };
+}));
 api.delete('/documents/:id', wrap((req) => {
   const d = get('SELECT * FROM documents WHERE id=?', req.params.id);
   if (!d) throw new BusinessError('Introuvable', 404);
@@ -785,12 +800,14 @@ api.post('/documents/:id/status', wrap((req) => {
   const d = get('SELECT * FROM documents WHERE id=?', req.params.id);
   if (!allowed[d?.type]?.includes(req.body.status)) throw new BusinessError('Statut invalide');
   if (d.status === 'invoiced') throw new BusinessError('OR déjà facturé');
+  const before = snapshotDocument(d.id);
   run('UPDATE documents SET status=? WHERE id=?', req.body.status, d.id);
   if (d.type === 'order') {
     // OR terminé ou annulé par le bureau : les chronos encore en cours dessus s'arrêtent (comme à la tablette)
     if (['done', 'cancelled'].includes(req.body.status)) stopOrderTimers(d.id);
     stageFromStatus(d.id, req.body.status);
   }
+  logChanges('document', d.id, diffDocument(before, snapshotDocument(d.id)), req.user.id);
   return { ok: true };
 }));
 // Chrono lancé depuis la fiche de l'OR, pour le mécanicien choisi (même règle qu'à la tablette : un seul travail à la fois).
@@ -881,9 +898,10 @@ api.get('/purchases/orders', (req, res) => {
   const from = "FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.type='order'";
   if (req.query.id) return res.json(all(`SELECT ${cols} ${from} AND d.id=?`, Number(req.query.id) || 0));
   const q = String(req.query.q || '').trim().slice(0, 80);
-  const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-  res.json(all(`SELECT ${cols} ${from} ${q ? "AND (d.number LIKE ? ESCAPE '\\' OR v.plate LIKE ? ESCAPE '\\' OR REPLACE(v.plate, ' ', '') LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR v.make || ' ' || v.model LIKE ? ESCAPE '\\')" : ''}
-    ORDER BY CASE WHEN d.status='invoiced' THEN 1 ELSE 0 END, d.id DESC LIMIT 30`, ...(q ? [like, like, `%${q.replace(/\s/g, '').replace(/[\\%_]/g, '\\$&')}%`, like, like] : [])));
+  // (comme partout dans le logiciel : sans tenir compte des accents ni des majuscules — « muller » trouve « Müller »)
+  const like = likeFold(q);
+  res.json(all(`SELECT ${cols} ${from} ${q ? "AND (fold(d.number) LIKE ? ESCAPE '\\' OR fold(v.plate) LIKE ? ESCAPE '\\' OR fold(REPLACE(v.plate, ' ', '')) LIKE ? ESCAPE '\\' OR fold(c.name) LIKE ? ESCAPE '\\' OR fold(COALESCE(v.make, '') || ' ' || COALESCE(v.model, '')) LIKE ? ESCAPE '\\')" : ''}
+    ORDER BY CASE WHEN d.status='invoiced' THEN 1 ELSE 0 END, d.id DESC LIMIT 30`, ...(q ? [like, like, likeFold(q.replace(/\s/g, '')), like, like] : [])));
 });
 api.get('/purchases/:id', wrap((req) => getPurchase(Number(req.params.id))));
 // Historique : pour quoi la commande est faite (sur l'achat, et sur l'OR concerné)
@@ -900,10 +918,17 @@ api.post('/purchases', wrap((req) => {
   // (commande créée depuis un OR : l'OR est vérifié avant d'enregistrer quoi que ce soit)
   if (b.document_id && get('SELECT type FROM documents WHERE id=?', Number(b.document_id) || 0)?.type !== 'order') throw new BusinessError('Ordre de réparation introuvable');
   const id = savePurchase(b);
+  logMessage('purchase', id, '🛒 Achat créé', req.user.id, 'system');
   if (b.document_id || String(b.reason ?? '').trim()) logPurpose(id, setPurchasePurpose(id, b), req.user.id);
   return { id };
 }));
-api.put('/purchases/:id', wrap((req) => ({ id: savePurchase(req.body, Number(req.params.id)) })));
+api.put('/purchases/:id', wrap((req) => {
+  const id = Number(req.params.id);
+  const before = snapshotPurchase(id);
+  savePurchase(req.body, id);
+  logChanges('purchase', id, diffPurchase(before, snapshotPurchase(id), Array.isArray(req.body?.lines) ? req.body.lines : null), req.user.id);
+  return { id };
+}));
 api.delete('/purchases/:id', wrap((req) => {
   const p = get('SELECT * FROM purchases WHERE id=?', req.params.id);
   if (p?.posted) throw new BusinessError('Achat comptabilisé : suppression impossible');
@@ -925,22 +950,28 @@ function assertApproved(req) {
   }
 }
 // Validation du bon de commande : il doit dire pour quel ordre de réparation il est fait — ou, sinon, pourquoi
-api.post('/purchases/:id/order', wrap((req) => {
-  assertApproved(req);
+/** L'OR ou la raison donnés avec l'action sont gardés d'abord (même si l'action est ensuite refusée) ; un brouillon sans l'un ni l'autre ne passe pas. */
+function purposeGate(req, verb) {
   const id = Number(req.params.id);
   const b = req.body && typeof req.body === 'object' ? req.body : {};
   if (b.document_id || String(b.reason ?? '').trim()) logPurpose(id, setPurchasePurpose(id, b), req.user.id);
   const p = get('SELECT status, document_id, reason FROM purchases WHERE id=?', id);
   if (!p) throw new BusinessError('Achat introuvable', 404);
-  if (p.status === 'draft' && !hasPurpose(p)) throw new BusinessError('Avant de valider la commande, indiquez l’ordre de réparation concerné ou, si elle n’est pas pour un OR, la raison de la commande.');
-  run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", id);
+  if (p.status === 'draft' && !hasPurpose(p)) throw new BusinessError(`Avant de ${verb}, indiquez l’ordre de réparation concerné ou, si elle n’est pas pour un OR, la raison de la commande.`);
+  return id;
+}
+api.post('/purchases/:id/order', wrap((req) => {
+  const id = purposeGate(req, 'valider la commande');
+  assertApproved(req);
+  if (run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", id).changes) logMessage('purchase', id, '📦 Commande validée (passée chez le fournisseur)', req.user.id, 'system');
   return { ok: true };
 }));
 // Changer (ou préciser) pour quoi la commande est faite, à tout moment
 api.post('/purchases/:id/assign', wrap((req) => { const id = Number(req.params.id); logPurpose(id, setPurchasePurpose(id, req.body), req.user.id); return getPurchase(id); }));
-api.post('/purchases/:id/receive', wrap((req) => { assertApproved(req); receivePurchase(Number(req.params.id)); return { ok: true }; }));
-api.post('/purchases/:id/post', wrap((req) => { assertApproved(req); postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
-api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
+// (réceptionner un brouillon, c'est valider la commande et la recevoir d'un coup : la même question est posée)
+api.post('/purchases/:id/receive', wrap((req) => { const id = purposeGate(req, 'réceptionner la commande'); assertApproved(req); receivePurchase(id); logMessage('purchase', id, '📥 Marchandise réceptionnée — stock mis à jour', req.user.id, 'system'); return { ok: true }; }));
+api.post('/purchases/:id/post', wrap((req) => { assertApproved(req); postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); logMessage('purchase', Number(req.params.id), '✔ Facture fournisseur comptabilisée', req.user.id, 'system'); return { ok: true }; }));
+api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); logMessage('purchase', Number(req.params.id), '✓ Facture marquée comme vérifiée', req.user.id, 'system'); return { ok: true }; }));
 api.post('/purchases/:id/reanalyze', wrap((req) => reanalyze(Number(req.params.id))));
 
 // ---------- Factures fournisseurs : dépôt de fichier, boîte e-mail, pièces jointes ----------
@@ -1013,7 +1044,11 @@ api.put('/archives/inbox', adminOnly, wrap((req) => { archives.saveInboxConfig(r
 api.post('/archives/inbox/test', adminOnly, wrap(() => archives.testInbox()));
 api.post('/archives/inbox/check', wrap(() => archives.checkInbox()));
 
-api.post('/purchases/:id/payments', wrap((req) => ({ id: registerPayment({ ...req.body, purchase_id: Number(req.params.id) }) })));
+api.post('/purchases/:id/payments', wrap((req) => {
+  const id = registerPayment({ ...req.body, purchase_id: Number(req.params.id) });
+  logMessage('purchase', Number(req.params.id), `💶 Paiement fournisseur enregistré : ${Number(req.body?.amount || 0).toFixed(2)} €`, req.user.id, 'system');
+  return { id };
+}));
 
 // ---------- Personnalisation des fiches (façon « Studio ») ----------
 // Concevoir (ajouter, modifier, supprimer des éléments) : administrateur. Remplir : mêmes droits que la fiche (voir access.js).
@@ -1315,7 +1350,7 @@ api.get('/attendance', (req, res) => res.json(listAttendance(req.query)));
 api.post('/attendance', needManager('presences'), wrap((req) => ({ id: saveAttendance(req.body) })));
 api.put('/attendance/:id', needManager('presences'), wrap((req) => ({ id: saveAttendance({ ...req.body }, Number(req.params.id)) })));
 api.delete('/attendance/:id', needManager('presences'), wrap((req) => { run("DELETE FROM time_entries WHERE id=? AND kind='presence'", req.params.id); return { ok: true }; }));
-const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, archive_inbox, archive_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
+const publicSettings = () => { const { odoo, smtp, bills_inbox, bills_inbox_status, archive_inbox, archive_inbox_status, replies_inbox, replies_inbox_status, copilot, social, ...s } = getSettings(); return { ...s, options: options(), attendance: attendanceConfig(), home: s.home || {} }; };
 api.get('/settings', (req, res) => res.json(publicSettings()));
 api.put('/settings', adminOnly, wrap((req) => {
   if (req.body.workshop !== undefined) {
@@ -1419,6 +1454,11 @@ const checkModel = (m) => { if (m && !MODELS.includes(m)) throw new BusinessErro
 api.get('/mail/config', (req, res) => res.json(publicMailConfig()));
 api.put('/mail/config', adminOnly, wrap((req) => { saveMailConfig(req.body); return publicMailConfig(); }));
 api.post('/mail/test', adminOnly, wrap(() => testMail()));
+// Réception des réponses des clients (boîte du garage, lue sans rien y modifier) : elles reviennent dans la fiche concernée
+api.get('/mail/replies', adminOnly, (req, res) => res.json(publicRepliesConfig()));
+api.put('/mail/replies', adminOnly, wrap((req) => { saveRepliesConfig(req.body); return publicRepliesConfig(); }));
+api.post('/mail/replies/test', adminOnly, wrap(() => testReplies()));
+api.post('/mail/replies/check', wrap(() => checkReplies()));
 api.get('/mail/compose', wrap((req) => compose(checkModel(req.query.model), Number(req.query.id) || null, req.query.template, publicUrl(req))));
 // Logo du garage (documents, e-mails, suivi client)
 api.post('/settings/logo', adminOnly, rawBody, wrap((req) => saveLogo(Buffer.isBuffer(req.body) ? req.body : null)));
@@ -1466,7 +1506,17 @@ Réponds UNIQUEMENT avec le corps du message en texte brut (salutation, contenu,
 }));
 
 // ---------- Historique & activités (sur chaque fiche) ----------
-api.get('/chatter/:model/:id', wrap((req) => chatter(checkModel(req.params.model), Number(req.params.id))));
+api.get('/chatter/:model/:id', wrap((req) => {
+  const model = checkModel(req.params.model), id = Number(req.params.id);
+  const out = chatter(model, id);
+  // pièces jointes reçues avec une réponse du client, rattachées à leur message
+  const files = all("SELECT id, filename, mime, size, source FROM attachments WHERE model=? AND record_id=? AND source LIKE 'email:%' ORDER BY id", model, id);
+  for (const m of out.messages) if (m.kind === 'email_in') m.files = files.filter((f) => f.source === `email:${m.id}`).map(({ source, ...f }) => f);
+  // (la fiche sait si les réponses reviennent toutes seules, pour le dire sous la zone de réponse)
+  const box = publicRepliesConfig();
+  out.inbox = { enabled: Boolean(box.enabled && box.host), at: box.status?.at || null, error: box.status?.error || null };
+  return out;
+}));
 api.post('/chatter/:model/:id/note', wrap((req) => {
   if (!req.body.body?.trim()) throw new BusinessError('Note vide');
   logMessage(checkModel(req.params.model), Number(req.params.id), req.body.body.trim(), req.user.id, 'note');
@@ -1626,6 +1676,7 @@ function startBackgroundJobs() {
   startScheduler();
   startAutomation();
   startInboxPolling();
+  startRepliesPolling();
   archives.resumeQueue(); // lectures de documents interrompues par un arrêt du logiciel
   archives.startInboxPolling();
   startCopilotScheduler();

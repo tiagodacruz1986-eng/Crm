@@ -40,7 +40,7 @@ test('parcours complet du garage', async () => {
   // Fournisseur + article + achat
   const { id: supId } = await call('POST', '/suppliers', { name: 'Pièces Lux SA', iban: 'LU120010001234567891' });
   const { id: prodId } = await call('POST', '/products', { ref: 'FH-001', name: 'Filtre à huile', purchase_price: 5, sale_price: 12, qty_min: 2, supplier_id: supId });
-  const { id: purId } = await call('POST', '/purchases', { supplier_id: supId, supplier_ref: 'FA-778', lines: [{ product_id: prodId, description: 'Filtre à huile', quantity: 10, unit_price: 5, tax_rate: 17 }] });
+  const { id: purId } = await call('POST', '/purchases', { supplier_id: supId, supplier_ref: 'FA-778', reason: 'Réassort du stock', lines: [{ product_id: prodId, description: 'Filtre à huile', quantity: 10, unit_price: 5, tax_rate: 17 }] });
   await call('POST', `/purchases/${purId}/receive`);
   let prod = await call('GET', `/products/${prodId}`);
   assert.equal(prod.qty_on_hand, 10);

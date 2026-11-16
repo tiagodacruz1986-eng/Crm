@@ -386,7 +386,7 @@ test('second contrôle : invitations, bureau IA, achats reçus, avoir et paiemen
   // Achat : une ligne déjà réceptionnée ne se supprime pas et ne descend pas sous la quantité reçue
   const sup = (await A('POST', '/suppliers', { name: 'Pièces SA' })).data.id;
   const prod = (await A('POST', '/products', { name: 'Plaquettes', purchase_price: 20, sale_price: 40 })).data.id;
-  const pu = (await A('POST', '/purchases', { supplier_id: sup, lines: [{ product_id: prod, description: 'Plaquettes', quantity: 4, unit_price: 20, tax_rate: 17 }] })).data.id;
+  const pu = (await A('POST', '/purchases', { supplier_id: sup, reason: 'Réassort du stock', lines: [{ product_id: prod, description: 'Plaquettes', quantity: 4, unit_price: 20, tax_rate: 17 }] })).data.id;
   await A('POST', `/purchases/${pu}/receive`);
   const line = (await A('GET', `/purchases/${pu}`)).data.lines[0];
   assert.equal((await A('PUT', `/purchases/${pu}`, { lines: [] })).status, 400);
