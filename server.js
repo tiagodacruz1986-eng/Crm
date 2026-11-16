@@ -10,7 +10,7 @@ import { db, dataDir, all, get, run, insert, update, tx, today, getSettings, set
 import { hashSecret, verifySecret, createSession, currentUser, requireAuth, purgeSessions } from './src/auth.js';
 import {
   BusinessError, createMove, getDocument, saveDocument, convertDocument, postInvoice, registerPayment, addStockMove,
-  getPurchase, savePurchase, receivePurchase, postPurchase, dashboard, trialBalance, vatReport, profitAndLoss, durationHours,
+  getPurchase, savePurchase, receivePurchase, postPurchase, setPurchasePurpose, hasPurpose, purchasesOfOrder, PURCHASE_ORDER_COLS, PURCHASE_ORDER_JOIN, dashboard, trialBalance, vatReport, profitAndLoss, durationHours,
   touchDocument,
 } from './src/business.js';
 import { parseCamt, parseCsv, importLines, suggestions, matchLine, assignLine, autoReconcile, syncAccount, cancelPayment, unmatchLine, remainingOf, PROVIDERS } from './src/bank.js';
@@ -674,10 +674,13 @@ api.post('/stock/reorder', wrap(() => {
   for (const p of low) (bySupplier[p.supplier_id] ||= []).push(p);
   const created = [];
   for (const [sid, items] of Object.entries(bySupplier)) {
-    created.push(savePurchase({
+    const id = savePurchase({
       supplier_id: Number(sid), notes: 'Réapprovisionnement automatique',
       lines: items.map((p) => ({ product_id: p.id, description: `${p.ref || ''} ${p.name}`.trim(), quantity: Math.max(1, p.qty_min * 2 - p.qty_on_hand), unit_price: p.purchase_price, tax_rate: p.tax_rate })),
-    }));
+    });
+    // (une commande de réassort n'est pas pour un OR : sa raison est connue d'avance)
+    setPurchasePurpose(id, { reason: 'Réassort du stock (articles sous le minimum)' });
+    created.push(id);
   }
   const lowCount = (extra) => get(`SELECT COUNT(*) n FROM products WHERE active=1 AND is_service=0 AND qty_min>0 AND qty_on_hand<=qty_min AND ${extra}`).n;
   return { created, already_ordered: lowCount('supplier_id IS NOT NULL') - low.length, no_supplier: lowCount('supplier_id IS NULL') };
@@ -740,6 +743,11 @@ function mailInfo(id) {
   };
 }
 api.get('/documents/:id', wrap((req) => ({ ...getDocument(Number(req.params.id)), ...mailInfo(Number(req.params.id)) })));
+// Les bons de commande faits pour cet ordre de réparation (les montants et le lien : seulement avec le droit de lire les achats)
+api.get('/documents/:id/purchases', wrap((req) => {
+  const full = can(req.user, 'achats');
+  return purchasesOfOrder(Number(req.params.id)).map((p) => (full ? p : { number: p.number, status: p.status, date: p.date, supplier_name: p.supplier_name, line_count: p.line_count, items: p.items }));
+}));
 // « Écouter le client » : la demande dictée à l'accueil, résumée par l'IA pour le mécanicien (devis et OR).
 // Droits : ceux du type de document (OR → Atelier, devis → Ventes), niveau « Utilisateur ».
 api.post('/documents/request-summary', wrap((req) => {
@@ -756,6 +764,8 @@ api.delete('/documents/:id', wrap((req) => {
   tx(() => {
     run('UPDATE documents SET parent_id=NULL WHERE parent_id=?', d.id);
     run('UPDATE appointments SET document_id=NULL WHERE document_id=?', d.id);
+    // les commandes faites pour cet OR en gardent la trace dans leur raison
+    run("UPDATE purchases SET reason=COALESCE(NULLIF(TRIM(reason), ''), ?), document_id=NULL WHERE document_id=?", `Commande faite pour l’OR ${d.number || ''} (supprimé depuis)`.replace('  ', ' '), d.id);
     run("UPDATE time_entries SET line_id=NULL, end=COALESCE(end, ?) WHERE document_id=?", localDateTime(), d.id);
     run('DELETE FROM order_links WHERE document_id=?', d.id);
     run('DELETE FROM order_posts WHERE document_id=?', d.id);
@@ -862,10 +872,37 @@ api.get('/documents/:id/qr.svg', wrap(async (req, res) => {
 }));
 
 // ---------- Achats ----------
-api.get('/purchases', (req, res) => res.json(all(`SELECT p.*, s.name AS supplier_name, (SELECT COUNT(*) FROM attachments a WHERE a.model='purchase' AND a.record_id=p.id) AS attachment_count
-  FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id ${req.query.review ? "WHERE p.review='to_review' AND p.posted=0" : ''} ORDER BY p.id DESC LIMIT 1000`)));
+api.get('/purchases', (req, res) => res.json(all(`SELECT p.*, s.name AS supplier_name, ${PURCHASE_ORDER_COLS}, (SELECT COUNT(*) FROM attachments a WHERE a.model='purchase' AND a.record_id=p.id) AS attachment_count
+  FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id ${PURCHASE_ORDER_JOIN} ${req.query.review ? "WHERE p.review='to_review' AND p.posted=0" : ''} ORDER BY p.id DESC LIMIT 1000`)));
+// Ordres de réparation auxquels rattacher une commande (recherche par numéro, plaque, client ou véhicule ; ceux en cours d'abord).
+// Lisible avec le seul droit sur les achats : on n'y trouve que de quoi reconnaître l'OR.
+api.get('/purchases/orders', (req, res) => {
+  const cols = "d.id, d.number, d.status, d.date, c.name AS customer_name, v.plate, v.make, v.model";
+  const from = "FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id WHERE d.type='order'";
+  if (req.query.id) return res.json(all(`SELECT ${cols} ${from} AND d.id=?`, Number(req.query.id) || 0));
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+  res.json(all(`SELECT ${cols} ${from} ${q ? "AND (d.number LIKE ? ESCAPE '\\' OR v.plate LIKE ? ESCAPE '\\' OR REPLACE(v.plate, ' ', '') LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR v.make || ' ' || v.model LIKE ? ESCAPE '\\')" : ''}
+    ORDER BY CASE WHEN d.status='invoiced' THEN 1 ELSE 0 END, d.id DESC LIMIT 30`, ...(q ? [like, like, `%${q.replace(/\s/g, '').replace(/[\\%_]/g, '\\$&')}%`, like, like] : [])));
+});
 api.get('/purchases/:id', wrap((req) => getPurchase(Number(req.params.id))));
-api.post('/purchases', wrap((req) => ({ id: savePurchase(req.body) })));
+// Historique : pour quoi la commande est faite (sur l'achat, et sur l'OR concerné)
+function logPurpose(id, r, userId) {
+  if (!r.changed) return;
+  if (r.previous.document_id && r.previous.document_id !== r.order?.id) logMessage('document', r.previous.document_id, `🛒 Bon de commande ${r.number} retiré de cet OR`, userId, 'system');
+  if (r.order) {
+    logMessage('purchase', id, `🔧 Commande faite pour l’OR ${r.order.number}`, userId, 'system');
+    logMessage('document', r.order.id, `🛒 Bon de commande ${r.number} fait pour cet OR`, userId, 'system');
+  } else logMessage('purchase', id, `📝 Commande hors OR — raison : ${r.reason}`, userId, 'system');
+}
+api.post('/purchases', wrap((req) => {
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  // (commande créée depuis un OR : l'OR est vérifié avant d'enregistrer quoi que ce soit)
+  if (b.document_id && get('SELECT type FROM documents WHERE id=?', Number(b.document_id) || 0)?.type !== 'order') throw new BusinessError('Ordre de réparation introuvable');
+  const id = savePurchase(b);
+  if (b.document_id || String(b.reason ?? '').trim()) logPurpose(id, setPurchasePurpose(id, b), req.user.id);
+  return { id };
+}));
 api.put('/purchases/:id', wrap((req) => ({ id: savePurchase(req.body, Number(req.params.id)) })));
 api.delete('/purchases/:id', wrap((req) => {
   const p = get('SELECT * FROM purchases WHERE id=?', req.params.id);
@@ -887,11 +924,20 @@ function assertApproved(req) {
     throw new BusinessError(`Achat de ${p.total.toFixed(2)} € : au-delà de ${o.approval_amount} €, il doit être validé par un administrateur des achats.`, 403);
   }
 }
+// Validation du bon de commande : il doit dire pour quel ordre de réparation il est fait — ou, sinon, pourquoi
 api.post('/purchases/:id/order', wrap((req) => {
   assertApproved(req);
-  run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", req.params.id);
+  const id = Number(req.params.id);
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  if (b.document_id || String(b.reason ?? '').trim()) logPurpose(id, setPurchasePurpose(id, b), req.user.id);
+  const p = get('SELECT status, document_id, reason FROM purchases WHERE id=?', id);
+  if (!p) throw new BusinessError('Achat introuvable', 404);
+  if (p.status === 'draft' && !hasPurpose(p)) throw new BusinessError('Avant de valider la commande, indiquez l’ordre de réparation concerné ou, si elle n’est pas pour un OR, la raison de la commande.');
+  run("UPDATE purchases SET status='ordered' WHERE id=? AND status='draft'", id);
   return { ok: true };
 }));
+// Changer (ou préciser) pour quoi la commande est faite, à tout moment
+api.post('/purchases/:id/assign', wrap((req) => { const id = Number(req.params.id); logPurpose(id, setPurchasePurpose(id, req.body), req.user.id); return getPurchase(id); }));
 api.post('/purchases/:id/receive', wrap((req) => { assertApproved(req); receivePurchase(Number(req.params.id)); return { ok: true }; }));
 api.post('/purchases/:id/post', wrap((req) => { assertApproved(req); postPurchase(Number(req.params.id)); run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));
 api.post('/purchases/:id/reviewed', wrap((req) => { run("UPDATE purchases SET review='ok' WHERE id=?", req.params.id); return { ok: true }; }));

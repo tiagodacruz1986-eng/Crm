@@ -10,6 +10,14 @@ if (!all('PRAGMA table_info(documents)').some((c) => c.name === 'print_count')) 
   db.exec('ALTER TABLE documents ADD COLUMN printed_by INTEGER');
 }
 
+// Bons de commande : pour quel ordre de réparation la commande est faite — ou, si ce n'est pas pour un OR, pourquoi
+// (l'un des deux est demandé à la validation du bon de commande)
+if (!all('PRAGMA table_info(purchases)').some((c) => c.name === 'document_id')) {
+  db.exec('ALTER TABLE purchases ADD COLUMN document_id INTEGER');
+  db.exec('ALTER TABLE purchases ADD COLUMN reason TEXT');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_purchases_document ON purchases(document_id)');
+
 export const DOC_COLS = [
   'type', 'number', 'status', 'customer_id', 'vehicle_id', 'mileage', 'date', 'due_date', 'reference',
   'customer_complaint', 'diagnosis', 'notes', 'internal_notes', 'mechanic_id', 'promised_at', 'parent_id',
@@ -392,8 +400,54 @@ export function addStockMove({ product_id, qty, kind, unit_cost, document_id, pu
 export const PURCHASE_COLS = ['number', 'supplier_id', 'status', 'date', 'supplier_ref', 'due_date', 'notes'];
 export const PLINE_COLS = ['purchase_id', 'product_id', 'description', 'quantity', 'unit_price', 'tax_rate', 'total_ht', 'received_qty', 'account_code'];
 
+// L'ordre de réparation pour lequel une commande est faite (colonnes et jointures à ajouter à une requête sur « purchases p »)
+export const PURCHASE_ORDER_COLS = "o.number AS order_number, o.status AS order_status, ov.plate AS order_plate, TRIM(COALESCE(ov.make, '') || ' ' || COALESCE(ov.model, '')) AS order_vehicle, oc.name AS order_customer";
+export const PURCHASE_ORDER_JOIN = 'LEFT JOIN documents o ON o.id=p.document_id LEFT JOIN vehicles ov ON ov.id=o.vehicle_id LEFT JOIN customers oc ON oc.id=o.customer_id';
+const REASON_MAX = 300;
+
+/** Le bon de commande dit-il pour quoi il est fait (un OR, ou une raison écrite) ? */
+export const hasPurpose = (p) => !!(p && (p.document_id || String(p.reason || '').trim()));
+
+/**
+ * Pour quoi une commande est faite : un ordre de réparation (document_id), ou — si ce n'est pas pour un OR — une raison
+ * écrite. L'un remplace l'autre. Renvoie ce qui a changé, pour l'historique.
+ */
+export function setPurchasePurpose(id, body) {
+  return tx(() => {
+    const p = get('SELECT id, number, document_id, reason FROM purchases WHERE id=?', id);
+    if (!p) throw new BusinessError('Achat introuvable', 404);
+    const b = body && typeof body === 'object' ? body : {};
+    const docId = Number(b.document_id) || null;
+    const reason = String(b.reason ?? '').replace(/\s+/g, ' ').trim().slice(0, REASON_MAX);
+    const previous = { document_id: p.document_id || null, reason: p.reason || null };
+    if (docId) {
+      const o = get('SELECT id, type, number FROM documents WHERE id=?', docId);
+      if (!o || o.type !== 'order') throw new BusinessError('Ordre de réparation introuvable');
+      const changed = p.document_id !== o.id || !!p.reason;
+      if (changed) run('UPDATE purchases SET document_id=?, reason=NULL WHERE id=?', o.id, id);
+      return { changed, number: p.number, order: { id: o.id, number: o.number }, reason: null, previous };
+    }
+    if (!reason) throw new BusinessError('Indiquez l’ordre de réparation concerné ou, si la commande n’est pas pour un OR, la raison de la commande.');
+    if (reason.length < 3) throw new BusinessError('Écrivez la raison de la commande (quelques mots suffisent).');
+    const changed = !!p.document_id || (p.reason || '') !== reason;
+    if (changed) run('UPDATE purchases SET document_id=NULL, reason=? WHERE id=?', reason, id);
+    return { changed, number: p.number, order: null, reason, previous };
+  });
+}
+
+/** Les bons de commande faits pour un ordre de réparation (avec un aperçu de ce qui a été commandé). */
+export function purchasesOfOrder(documentId) {
+  return all(`SELECT p.id, p.number, p.status, p.date, p.posted, p.total, s.name AS supplier_name
+    FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.document_id=? ORDER BY p.id`, documentId).map((p) => {
+    const lines = all('SELECT description, quantity, received_qty, product_id FROM purchase_lines WHERE purchase_id=? ORDER BY id', p.id);
+    const short = (l) => `${String(l.description || 'Article').replace(/\s+/g, ' ').trim().slice(0, 60)}${l.quantity && l.quantity !== 1 ? ' × ' + l.quantity : ''}`;
+    return { ...p, line_count: lines.length, items: lines.slice(0, 3).map(short).join(' · ') + (lines.length > 3 ? ` · +${lines.length - 3}` : '') };
+  });
+}
+
 export function getPurchase(id) {
-  const p = get('SELECT p.*, s.name AS supplier_name, s.iban AS supplier_iban FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?', id);
+  const p = get(`SELECT p.*, s.name AS supplier_name, s.iban AS supplier_iban, ${PURCHASE_ORDER_COLS}
+    FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id ${PURCHASE_ORDER_JOIN} WHERE p.id=?`, id);
   if (!p) throw new BusinessError('Achat introuvable', 404);
   p.lines = all('SELECT l.*, pr.ref AS product_ref, pr.name AS product_name FROM purchase_lines l LEFT JOIN products pr ON pr.id=l.product_id WHERE purchase_id=? ORDER BY l.id', id);
   p.taxes = computeTotals(p.lines.map((l) => ({ ...l, kind: 'part' }))).taxes;

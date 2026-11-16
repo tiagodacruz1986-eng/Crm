@@ -166,6 +166,15 @@ export const DocumentEditor = {
     const mailed = ref({ count: 0, at: null, to: null, by: null, scheduled: null });
     const takeMail = (d) => { if (d && 'mail_count' in d) mailed.value = { count: d.mail_count || 0, at: d.mailed_at || null, to: d.mailed_to || null, by: d.mailed_by_name || null, scheduled: d.mail_scheduled_at || null }; };
     const showMail = ref(false);
+    // Bons de commande faits pour cet ordre de réparation (lus à part : ils ne font pas partie du document)
+    const orderBuys = ref(null);
+    const canBuy = can('achats', 'user');
+    const loadBuys = async () => {
+      const d = doc.value;
+      if (d?.type !== 'order' || !d.id) { orderBuys.value = null; return; }
+      try { const r = await GET(`/documents/${d.id}/purchases`); if (doc.value?.id === d.id) orderBuys.value = r; } catch { /* la carte reste telle quelle */ }
+    };
+    const newBuy = () => go('/purchase/new?document_id=' + doc.value.id);
     // « Fiche » (la saisie) ou « Original » : le document tel qu'il s'imprime, affiché à l'écran
     const view = ref('form');
     const s = store.settings?.workshop || { labor_rate: 85, default_tax: 17 };
@@ -183,6 +192,7 @@ export const DocumentEditor = {
       } else {
         doc.value = await GET('/documents/' + route.params.id);
         store.docType = doc.value.type; // la barre du haut suit : « Atelier » pour un OR, « Ventes » pour un devis ou une facture
+        loadBuys();
         takeTimes(doc.value);
         takePrint(doc.value); takeMail(doc.value);
         if (doc.value.customer_id) vehicles.value = (await GET('/customers/' + doc.value.customer_id)).vehicles;
@@ -459,7 +469,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { printed, printedText, canUnprint, unprint, mailed, mailedText, showMail, mailIt, onMailed, canMail, isInvoice, view, ribbon, curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { orderBuys, canBuy, newBuy, printed, printedText, canUnprint, unprint, mailed, mailedText, showMail, mailIt, onMailed, canMail, isInvoice, view, ribbon, curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showVoice, canVoice, onVoice, complaintBox, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -667,6 +677,15 @@ export const DocumentEditor = {
         <div class="card" v-if="doc.payments && doc.payments.length">
           <h2>Paiements</h2>
           <div v-for="p in doc.payments" class="list-item small"><span>{{ date(p.date) }} · {{ METHODS[p.method] || p.method }}</span><span><b>{{ money(p.amount) }}</b> <button v-if="canCancelPay" class="icon-btn" title="Annuler ce paiement (saisi par erreur)" @click="cancelPay(p)"><Icon name="undo-2" class="ti"/></button></span></div>
+        </div>
+        <div class="card buys-card" v-if="doc.type==='order' && !isNew && orderBuys">
+          <div class="card-head"><h2 style="margin:0">Bons de commande</h2><button v-if="canBuy" class="btn sm" title="Nouveau bon de commande pour cet ordre de réparation" @click="newBuy">+ Commande</button></div>
+          <div v-if="!orderBuys.length" class="muted small">Aucun bon de commande fait pour cet OR.</div>
+          <component :is="b.id ? 'a' : 'div'" v-for="b in orderBuys" :key="b.number" class="buy-row" :href="b.id ? '#/purchase/' + b.id : null">
+            <div class="buy-main"><b>{{ b.number }}</b> <Badge :status="b.status"/><span v-if="b.total != null" class="buy-total">{{ money(b.total) }}</span></div>
+            <div class="muted small">{{ b.supplier_name || 'Fournisseur non précisé' }} · {{ date(b.date) }}</div>
+            <div class="small buy-items" v-if="b.items">{{ b.items }}</div>
+          </component>
         </div>
         <div class="card" v-if="doc.vehicle_id">
           <a :href="'#/vehicle/' + doc.vehicle_id"><Icon name="car" class="ti"/> Historique du véhicule →</a>

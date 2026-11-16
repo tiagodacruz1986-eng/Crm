@@ -184,9 +184,11 @@ export const PurchaseList = {
     <div class="tabs"><button :class="{active: filter==='all'}" @click="filter='all'; load()">Tous les achats</button><button :class="{active: filter==='review'}" @click="filter='review'; load()"><Icon name="bot" class="ti"/> À vérifier <span v-if="toReview || filter==='review'" class="badge b-orange">{{ filter==='review' ? rows.length : toReview }}</span></button></div>
     <div class="card">
       <div class="table-wrap"><table>
-        <thead><tr><th>N°</th><th>Date</th><th>Fournisseur</th><th>Réf. facture</th><th>Statut</th><th class="num">Total TTC</th><th class="num">Reste à payer</th></tr></thead>
+        <thead><tr><th>N°</th><th>Date</th><th>Fournisseur</th><th>Pour</th><th>Réf. facture</th><th>Statut</th><th class="num">Total TTC</th><th class="num">Reste à payer</th></tr></thead>
         <tbody><tr v-for="p in rows" class="click" @click="go('/purchase/' + p.id)">
-          <td><b>{{ p.number }}</b> <span v-if="p.attachment_count" title="Document joint"><Icon name="paperclip" class="ti"/></span></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name || '—' }}</td><td>{{ p.supplier_ref }}</td>
+          <td><b>{{ p.number }}</b> <span v-if="p.attachment_count" title="Document joint"><Icon name="paperclip" class="ti"/></span></td><td>{{ date(p.date) }}</td><td>{{ p.supplier_name || '—' }}</td>
+          <td class="buy-for"><template v-if="p.order_number"><b>{{ p.order_number }}</b> <span v-if="p.order_plate" class="plate">{{ p.order_plate }}</span></template><span v-else-if="p.reason" class="muted small" :title="p.reason">{{ p.reason }}</span></td>
+          <td>{{ p.supplier_ref }}</td>
           <td><Badge :status="p.status"/> <span v-if="p.review === 'to_review' && !p.posted" class="badge b-orange"><Icon name="bot" class="ti"/> à vérifier</span></td>
           <td class="num">{{ money(p.total) }}</td><td class="num">{{ p.posted && p.status !== 'paid' ? money(p.total - p.amount_paid) : '' }}</td>
         </tr></tbody>
@@ -196,8 +198,69 @@ export const PurchaseList = {
   </div>`,
 };
 
+// ---------- Pour quoi une commande est faite : un ordre de réparation, ou — sinon — une raison écrite ----------
+const PURPOSE_FIELDS = ['document_id', 'reason', 'order_number', 'order_status', 'order_plate', 'order_vehicle', 'order_customer'];
+const REASONS = ['Réassort du stock', 'Outillage', 'Consommables de l’atelier', 'Frais généraux'];
+export const PurchasePurpose = {
+  props: { purchase: Object, title: { type: String, default: 'Pour quoi est cette commande ?' }, confirmLabel: { type: String, default: 'Enregistrer' }, busy: Boolean },
+  emits: ['close', 'done'],
+  setup(props, { emit }) {
+    const cur = props.purchase || {};
+    const mode = ref(cur.reason && !cur.document_id ? 'other' : 'order');
+    const q = ref('');
+    const orders = ref([]);
+    const loading = ref(true);
+    const picked = ref(cur.document_id ? { id: cur.document_id, number: cur.order_number, plate: cur.order_plate, customer_name: cur.order_customer, status: cur.order_status } : null);
+    const reason = ref(cur.reason || '');
+    let timer, seq = 0;
+    // (la réponse d'une recherche plus ancienne n'écrase jamais la liste d'une plus récente)
+    const search = (wait = 180) => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const mine = ++seq;
+        let r = [];
+        try { r = await GET('/purchases/orders?q=' + encodeURIComponent(q.value.trim())); } catch { /* liste vide : le message le dit */ }
+        if (mine === seq) { orders.value = r; loading.value = false; }
+      }, wait);
+    };
+    onMounted(() => search(0));
+    onUnmounted(() => { clearTimeout(timer); seq++; });
+    const valid = computed(() => (mode.value === 'order' ? !!picked.value : reason.value.trim().length >= 3));
+    const confirm = () => {
+      if (!valid.value || props.busy) return;
+      emit('done', mode.value === 'order' ? { document_id: picked.value.id, order: picked.value } : { reason: reason.value.trim() });
+    };
+    return { mode, q, orders, loading, picked, reason, search, valid, confirm, REASONS };
+  },
+  template: `
+  <Modal :title="title" @close="$emit('close')">
+    <div class="seg purpose-seg" role="tablist" aria-label="Pour quoi est cette commande">
+      <button type="button" role="tab" :aria-selected="mode === 'order'" :class="{ on: mode === 'order' }" @click="mode = 'order'"><Icon name="wrench" class="ti"/> Pour un ordre de réparation</button>
+      <button type="button" role="tab" :aria-selected="mode === 'other'" :class="{ on: mode === 'other' }" @click="mode = 'other'"><Icon name="package" class="ti"/> Pas pour un OR</button>
+    </div>
+    <template v-if="mode === 'order'">
+      <input v-model="q" type="search" class="purpose-q" placeholder="Chercher : n° d'OR, plaque, client, véhicule…" aria-label="Chercher un ordre de réparation" @input="search()">
+      <div class="purpose-list" role="listbox" aria-label="Ordres de réparation">
+        <button v-for="o in orders" :key="o.id" type="button" role="option" :aria-selected="!!picked && picked.id === o.id" class="purpose-or" :class="{ on: picked && picked.id === o.id }" @click="picked = o">
+          <span class="purpose-or-main"><b>{{ o.number }}</b> <span v-if="o.plate" class="plate">{{ o.plate }}</span> <span class="muted small">{{ [o.make, o.model].filter(Boolean).join(' ') }}</span></span>
+          <span class="purpose-or-sub"><span class="small">{{ o.customer_name || 'Client non précisé' }}</span> <Badge :status="o.status"/></span>
+        </button>
+        <div v-if="!orders.length && !loading" class="muted small purpose-none">{{ q.trim() ? 'Aucun ordre de réparation ne correspond à cette recherche.' : 'Aucun ordre de réparation pour l’instant.' }}</div>
+      </div>
+      <div v-if="picked" class="purpose-picked small"><Icon name="check" class="ti"/> Commande pour l’OR <b>{{ picked.number }}</b><template v-if="picked.plate"> · {{ picked.plate }}</template><template v-if="picked.customer_name"> · {{ picked.customer_name }}</template></div>
+      <div v-else class="muted small">Choisissez l’ordre de réparation dans la liste. Si la commande n’est pas pour un OR, passez sur « Pas pour un OR ».</div>
+    </template>
+    <template v-else>
+      <label>Raison de la commande<textarea v-model="reason" rows="3" maxlength="300" placeholder="Ex. : réassort du stock, outillage, consommables de l’atelier…"></textarea></label>
+      <div class="purpose-chips"><button v-for="r in REASONS" :key="r" type="button" class="btn sm" @click="reason = r">{{ r }}</button></div>
+      <div class="muted small">La raison est obligatoire quand la commande n’est pas faite pour un ordre de réparation.</div>
+    </template>
+    <template #foot><button class="btn" @click="$emit('close')">Annuler</button><button class="btn primary" :disabled="!valid || busy" @click="confirm">{{ confirmLabel }}</button></template>
+  </Modal>`,
+};
+
 export const PurchaseEditor = {
-  components: { PaymentModal, FileViewer },
+  components: { PaymentModal, FileViewer, PurchasePurpose },
   setup() {
     const isNew = route.params.id === 'new';
     const p = ref(null);
@@ -216,7 +279,12 @@ export const PurchaseEditor = {
     onMounted(() => { leaveGuards.add(leaveOk); window.addEventListener('beforeunload', onUnload); });
     onUnmounted(() => { leaveGuards.delete(leaveOk); window.removeEventListener('beforeunload', onUnload); });
     const load = async () => {
-      p.value = isNew ? { date: today(), status: 'draft', lines: [], payments: [] } : await GET('/purchases/' + route.params.id);
+      p.value = isNew ? { date: today(), status: 'draft', lines: [], payments: [], document_id: null, reason: null } : await GET('/purchases/' + route.params.id);
+      // nouvel achat créé depuis un OR (« + Commande ») : il lui est déjà rattaché
+      if (isNew && route.query.document_id) {
+        const o = (await GET('/purchases/orders?id=' + encodeURIComponent(route.query.document_id)).catch(() => []))[0];
+        if (o) applyPurpose({ document_id: o.id, order: o });
+      }
       markSaved();
       if (!isNew) { files.value = await GET('/attachments/purchase/' + route.params.id); if (!viewer.value || !files.value.some((f) => f.id === viewer.value.id)) viewer.value = files.value.find((f) => /pdf|image/.test(f.mime)) || null; }
     };
@@ -243,6 +311,40 @@ export const PurchaseEditor = {
       await act(() => PUT('/purchases/' + p.value.id, p.value), 'Enregistré'); await load(); return p.value.id;
     };
     const action = async (a, msg) => { const id = p.value.posted ? p.value.id : await save(); await act(() => POST(`/purchases/${id}/${a}`), msg); await load(); };
+    // ---------- Pour quoi la commande est faite : demandé à la validation du bon de commande ----------
+    const purpose = ref(null); // null, 'order' (question posée à la validation) ou 'edit' (préciser / modifier)
+    const purposeBusy = ref(false);
+    const hasPurpose = computed(() => !!(p.value && (p.value.document_id || String(p.value.reason || '').trim())));
+    const canSeeOrder = can('atelier');
+    function applyPurpose(b) {
+      const o = b.order || {};
+      Object.assign(p.value, { document_id: b.document_id || null, reason: b.document_id ? null : b.reason || null, order_number: o.number || null, order_status: o.status || null,
+        order_plate: o.plate || null, order_vehicle: o.order_vehicle || [o.make, o.model].filter(Boolean).join(' ') || null, order_customer: o.customer_name || null });
+    }
+    // « Valider la commande » : sans OR ni raison, le logiciel pose d'abord la question
+    const orderIt = () => { if (hasPurpose.value) action('order', 'Commande validée'); else purpose.value = 'order'; };
+    const onPurpose = async (b) => {
+      if (purposeBusy.value) return;
+      purposeBusy.value = true;
+      const send = b.document_id ? { document_id: b.document_id } : { reason: b.reason };
+      try {
+        if (purpose.value === 'order') {
+          const id = await save();
+          await act(() => POST(`/purchases/${id}/order`, send), 'Commande validée');
+          purpose.value = null;
+          await load();
+        } else if (isNew) {
+          applyPurpose(b); // pas encore enregistré : gardé avec l'achat
+          purpose.value = null;
+        } else {
+          const dirty = snap() !== saved;
+          const r = await act(() => POST(`/purchases/${p.value.id}/assign`, send), 'Enregistré');
+          for (const k of PURPOSE_FIELDS) p.value[k] = r[k] ?? null;
+          if (!dirty) markSaved(); // (des modifications en cours restent « non enregistrées »)
+          purpose.value = null;
+        }
+      } catch { /* le message d'erreur est déjà affiché ; la fenêtre reste ouverte */ } finally { purposeBusy.value = false; }
+    };
     const pay = async (x) => { await act(() => POST(`/purchases/${p.value.id}/payments`, x), 'Paiement enregistré'); showPay.value = false; load(); };
     // Paiement fournisseur saisi par erreur : un administrateur de la banque peut l'annuler
     const canCancelPay = can('banque', 'manager');
@@ -255,7 +357,7 @@ export const PurchaseEditor = {
       await act(() => DEL('/payments/' + x.id), 'Paiement annulé'); load();
     };
     const remove = async () => { if (!confirm('Supprimer cet achat ?')) return; await act(() => DEL('/purchases/' + p.value.id)); markSaved(); p.value = null; go('/purchases'); };
-    return { banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
+    return { purpose, purposeBusy, hasPurpose, canSeeOrder, orderIt, onPurpose, banner, canCancelPay, cancelPay, files, viewer, aiBusy, addFiles, removeFile, reviewed, reanalyze, p, isNew, suppliers, accounts, totals, lineTotal, addLine, pickProduct, save, action, pay, remove, showPay, money, date, TAX_RATES };
   },
   template: `
   <div v-if="p">
@@ -263,7 +365,7 @@ export const PurchaseEditor = {
       <h1>Achat {{ p.number || '(nouveau)' }} <Badge v-if="!isNew" :status="p.status"/></h1>
       <div class="btns">
         <button class="btn" v-if="!p.posted" @click="save"><Icon name="save" class="ti"/> Enregistrer</button>
-        <button class="btn" v-if="!isNew && p.status==='draft'" @click="action('order', 'Marqué commandé')"><Icon name="send" class="ti"/> Commandé</button>
+        <button class="btn" v-if="!isNew && p.status==='draft'" title="Le bon de commande est validé : la commande est passée chez le fournisseur" @click="orderIt"><Icon name="send" class="ti"/> Valider la commande</button>
         <button class="btn" v-if="!isNew && p.lines.some(l => l.product_id && l.received_qty < l.quantity)" @click="action('receive', 'Marchandise réceptionnée — stock mis à jour')"><Icon name="inbox" class="ti"/> Réceptionner</button>
         <button class="btn success" v-if="!isNew && !p.posted" @click="action('post', 'Facture fournisseur comptabilisée')"><Icon name="check" class="ti"/> Comptabiliser la facture</button>
         <button class="btn primary" v-if="p.posted && p.status !== 'paid'" @click="showPay = true"><Icon name="banknote" class="ti"/> Payer</button>
@@ -285,6 +387,24 @@ export const PurchaseEditor = {
         <label>N° facture fournisseur<input v-model="p.supplier_ref" :disabled="p.posted"></label>
         <label>Échéance<input v-model="p.due_date" type="date" :disabled="p.posted"></label>
       </div>
+    </div>
+    <div class="card purpose-card">
+      <Icon :name="p.document_id ? 'wrench' : 'package'" class="purpose-ico"/>
+      <div class="purpose-what">
+        <template v-if="p.document_id">
+          <div class="muted small">Commande pour l’ordre de réparation</div>
+          <div><a v-if="canSeeOrder" :href="'#/document/' + p.document_id + '?type=order'"><b>{{ p.order_number }}</b></a><b v-else>{{ p.order_number }}</b> <span v-if="p.order_plate" class="plate">{{ p.order_plate }}</span> <span class="muted">{{ [p.order_vehicle, p.order_customer].filter(Boolean).join(' · ') }}</span> <Badge v-if="p.order_status" :status="p.order_status"/></div>
+        </template>
+        <template v-else-if="p.reason">
+          <div class="muted small">Commande hors ordre de réparation — raison</div>
+          <div class="purpose-reason">{{ p.reason }}</div>
+        </template>
+        <template v-else>
+          <div class="muted small">Commande pour</div>
+          <div class="muted">Pas encore précisé{{ p.status === 'draft' ? ' — la question est posée à la validation de la commande' : '' }}</div>
+        </template>
+      </div>
+      <button class="btn sm" @click="purpose = 'edit'">{{ hasPurpose ? 'Modifier' : 'Préciser' }}</button>
     </div>
     <div class="card">
       <div class="table-wrap"><table class="lines">
@@ -325,6 +445,7 @@ export const PurchaseEditor = {
     </div>
     </div>
     <PaymentModal v-if="showPay" :residual="Math.round((p.total - p.amount_paid) * 100) / 100" title="Paiement fournisseur" @close="showPay = false" @save="pay"/>
+    <PurchasePurpose v-if="purpose" :purchase="p" :busy="purposeBusy" :title="purpose === 'order' ? 'Valider la commande : pour quel ordre de réparation ?' : 'Pour quoi est cette commande ?'" :confirm-label="purpose === 'order' ? 'Valider la commande' : 'Enregistrer'" @close="purpose = null" @done="onPurpose"/>
   </div>`,
 };
 
