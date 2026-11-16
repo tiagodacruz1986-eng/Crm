@@ -1039,8 +1039,10 @@ button, a, input, select { touch-action: manipulation; }
 [data-theme="light"] .home-watermark { opacity: .09; }
 .home-head { position: relative; max-width: 980px; margin: 0 auto 5vh; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
 .home-head h1 { margin: 0; font-size: clamp(24px, 3.4vw, 36px); font-family: var(--font-display); letter-spacing: -.02em; }
-.home-date { color: var(--muted); text-transform: capitalize; margin-top: 4px; }
+/* (majuscule au premier mot seulement : « Lundi 16 novembre », les mois ne prennent pas de majuscule en français) */
+.home-date { color: var(--muted); margin-top: 4px; } .home-date::first-letter { text-transform: uppercase; }
 .home.custom .home-date { color: rgba(255, 255, 255, .8); }
+.cap-first::first-letter { text-transform: uppercase; }
 .home-search { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line-strong); backdrop-filter: blur(16px); min-width: min(320px, 100%); color: var(--muted); }
 .home-search input { border: 0; background: transparent; box-shadow: none; padding: 11px 0; }
 .home.custom .home-search { background: rgba(10, 16, 32, .5); border-color: rgba(255, 255, 255, .2); }

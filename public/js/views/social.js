@@ -154,7 +154,7 @@ export const Social = {
         </div>
       </div>
       <div v-if="pickedDay" class="cal-daylist">
-        <div class="card-head"><b style="text-transform:capitalize">{{ new Date(pickedDay.key + 'T12:00').toLocaleDateString('fr-LU', { weekday: 'long', day: 'numeric', month: 'long' }) }}</b><button class="btn sm primary" @click="planOn(pickedDay.key)">+ Programmer</button></div>
+        <div class="card-head"><b style="display:inline-block" class="cap-first">{{ new Date(pickedDay.key + 'T12:00').toLocaleDateString('fr-LU', { weekday: 'long', day: 'numeric', month: 'long' }) }}</b><button class="btn sm primary" @click="planOn(pickedDay.key)">+ Programmer</button></div>
         <div v-for="p in pickedDay.posts" :key="p.id" class="list-item click" @click="openPost(p)"><span><span class="pchip sm" :class="p.platforms[0]">{{ PICON[p.platforms[0]] }}</span> {{ p.text.slice(0, 80) }}</span><span class="muted small">{{ (p.scheduled_at || '').slice(11, 16) }}</span></div>
       </div>
     </div>

@@ -69,7 +69,7 @@ body.kiosk::before, body.kiosk::after { display: none; }
 .k-brand img { max-height: 54px; max-width: 240px; background: #fff; padding: 6px 12px; border-radius: 12px; }
 .k-brand b { font-size: 22px; }
 .k-when { text-align: right; }
-.k-when .k-muted { text-transform: capitalize; }
+.k-when .k-muted::first-letter { text-transform: uppercase; } /* « Lundi 16 novembre » : pas de majuscule au mois */
 .k-hero { text-align: center; margin: 4vh 0 3vh; }
 .k-hero h1 { font-size: 40px; margin: 0; color: #e8eaee; font-weight: 700; }
 .k-hero p { color: #94a3b8; font-size: 18px; margin: 8px 0 0; }
