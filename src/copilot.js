@@ -216,21 +216,25 @@ const BRIEF_SCHEMA = {
 };
 
 // Version sans IA : règles simples
+// (écriture française : « 2 967,74 € », « 2 factures », « 1 h 25 »)
+const eur = (n) => `${Number(n || 0).toLocaleString('fr-LU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const nb = (n, one, many) => `${n} ${n > 1 ? many : one}`;
+const hm = (x) => { const m = Math.round(Number(x || 0) * 60); return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`; };
 function ruleBasedBrief(st) {
   const tomorrow = (() => { const d = new Date(st.date + 'T12:00:00'); d.setDate(d.getDate() + 1); return localDate(d); })();
   const p = [];
-  if (st.factures_en_retard.length) p.push({ resume: `Relancer ${st.factures_en_retard.length} facture(s) en retard (${round2(st.factures_en_retard.reduce((s, f) => s + f.reste, 0))} €)`, pourquoi: 'Trésorerie', echeance: tomorrow, type: 'payment', module: 'comptabilite' });
-  if (st.or_en_retard.length) p.push({ resume: `Prévenir les clients des ${st.or_en_retard.length} OR en retard`, pourquoi: 'Satisfaction client', echeance: tomorrow, type: 'call', module: 'atelier' });
-  if (st.accords_client_en_attente.length) p.push({ resume: `Relancer ${st.accords_client_en_attente.length} accord(s) client en attente`, pourquoi: 'Travaux bloqués', echeance: tomorrow, type: 'call', module: 'atelier' });
-  if (st.stock_bas.length) p.push({ resume: `Commander ${st.stock_bas.length} article(s) sous le stock minimum`, pourquoi: 'Éviter les ruptures', echeance: tomorrow, type: 'order', module: 'stock' });
-  if (st.factures_fournisseurs_a_verifier) p.push({ resume: `Vérifier ${st.factures_fournisseurs_a_verifier} facture(s) fournisseur`, pourquoi: 'Comptabilité à jour', echeance: tomorrow, type: 'todo', module: 'achats' });
+  if (st.factures_en_retard.length) p.push({ resume: `Relancer ${nb(st.factures_en_retard.length, 'facture', 'factures')} en retard (${eur(round2(st.factures_en_retard.reduce((s, f) => s + f.reste, 0)))})`, pourquoi: 'Trésorerie', echeance: tomorrow, type: 'payment', module: 'comptabilite' });
+  if (st.or_en_retard.length) p.push({ resume: st.or_en_retard.length > 1 ? `Prévenir les clients des ${st.or_en_retard.length} OR en retard` : 'Prévenir le client de l’OR en retard', pourquoi: 'Satisfaction client', echeance: tomorrow, type: 'call', module: 'atelier' });
+  if (st.accords_client_en_attente.length) p.push({ resume: `Relancer ${nb(st.accords_client_en_attente.length, 'accord client', 'accords client')} en attente`, pourquoi: 'Travaux bloqués', echeance: tomorrow, type: 'call', module: 'atelier' });
+  if (st.stock_bas.length) p.push({ resume: `Commander ${nb(st.stock_bas.length, 'article', 'articles')} sous le stock minimum`, pourquoi: 'Éviter les ruptures', echeance: tomorrow, type: 'order', module: 'stock' });
+  if (st.factures_fournisseurs_a_verifier) p.push({ resume: `Vérifier ${nb(st.factures_fournisseurs_a_verifier, 'facture fournisseur', 'factures fournisseurs')}`, pourquoi: 'Comptabilité à jour', echeance: tomorrow, type: 'todo', module: 'achats' });
   if (st.devis_en_attente.length) p.push({ resume: `Relancer ${st.devis_en_attente.length} devis en attente`, pourquoi: 'Chiffre d\'affaires', echeance: tomorrow, type: 'call', module: 'ventes' });
-  const h = st.mecaniciens.map((m) => `${m.nom} ${m.heures_sur_or} h`).join(', ');
+  const h = st.mecaniciens.map((m) => `${m.nom} ${hm(m.heures_sur_or)}`).join(', ');
   const resume = `## Journée du ${new Date(st.date + 'T12:00').toLocaleDateString('fr-LU', { weekday: 'long', day: 'numeric', month: 'long' })}
-- **Facturé** : ${st.ca_facture_ttc.toFixed(2)} € TTC (${st.factures_emises.length} facture(s)) · **Encaissé** : ${st.encaissements.toFixed(2)} €
-- **Atelier** : ${st.or_crees} OR créé(s), ${st.or_en_retard.length} en retard, ${st.or_attente_pieces} en attente de pièces${h ? ` · heures sur OR : ${h}` : ''}
+- **Facturé** : ${eur(st.ca_facture_ttc)} TTC (${nb(st.factures_emises.length, 'facture', 'factures')}) · **Encaissé** : ${eur(st.encaissements)}
+- **Atelier** : ${nb(st.or_crees, 'OR créé', 'OR créés')}, ${st.or_en_retard.length} en retard, ${st.or_attente_pieces} en attente de pièces${h ? ` · heures sur OR : ${h}` : ''}
 - **Demain** : ${st.rendez_vous_demain.length} rendez-vous
-- **Impayés** : ${st.factures_en_retard.length} facture(s) en retard${st.journal.length ? `\n\n**Journal** :\n${st.journal.map((j) => `- ${j}`).join('\n')}` : ''}`;
+- **Impayés** : ${nb(st.factures_en_retard.length, 'facture', 'factures')} en retard${st.journal.length ? `\n\n**Journal** :\n${st.journal.map((j) => `- ${j}`).join('\n')}` : ''}`;
   return { resume, priorites: p.slice(0, 6) };
 }
 
