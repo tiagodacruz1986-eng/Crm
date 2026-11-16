@@ -188,6 +188,7 @@ const PAGE_PX = { A4: 794, Letter: 816 }; // largeur d'une page à l'écran (96 
  * Le document tel qu'il s'imprime, montré à l'écran à la largeur disponible (« l'original », comme dans Odoo).
  * « ribbon » : bandeau en coin (« Envoyé par mail », « Imprimé ») — à l'écran seulement, jamais sur le papier.
  */
+let ppOpen = 0; // aperçus affichés en ce moment (la place de la barre de défilement est réservée tant qu'il y en a un)
 export const PaperPreview = {
   components: { DocPrint },
   props: { doc: Object, ribbon: String, tone: String },
@@ -196,12 +197,32 @@ export const PaperPreview = {
     const scale = ref(1), height = ref(900);
     const width = computed(() => PAGE_PX[store.settings?.layout?.paper] || PAGE_PX.A4);
     let ro = null;
+    // Barre de défilement classique (Windows) : elle apparaît, la page rétrécit et raccourcit, elle disparaît, la page
+    // s'élargit… sans fin. On réserve sa place tant que l'aperçu est affiché (html.pp-open) ; et, là où ce réglage n'existe
+    // pas, on s'arrête sur la plus petite des deux largeurs dès qu'elles alternent.
+    let seen = [], lock = 0;
     const measure = () => {
-      if (paper.value) scale.value = paper.value.clientWidth / width.value;
+      let w = paper.value?.clientWidth || 0;
+      if (w) {
+        if (lock && Math.abs(w - lock) > 24) { lock = 0; seen = []; }
+        if (!lock) {
+          if (seen[seen.length - 1] !== w) { seen.push(w); if (seen.length > 4) seen.shift(); }
+          if (seen.length === 4 && seen[0] === seen[2] && seen[1] === seen[3] && Math.abs(seen[0] - seen[1]) <= 24) lock = Math.min(seen[0], seen[1]);
+        }
+        scale.value = (lock || w) / width.value;
+      }
       if (inner.value) height.value = Math.ceil(inner.value.offsetHeight * scale.value);
     };
-    onMounted(() => { ro = new ResizeObserver(measure); [paper.value, inner.value].forEach((el) => el && ro.observe(el)); nextTick(measure); });
-    onUnmounted(() => ro?.disconnect());
+    onMounted(() => {
+      ppOpen += 1;
+      document.documentElement.classList.add('pp-open');
+      ro = new ResizeObserver(measure); [paper.value, inner.value].forEach((el) => el && ro.observe(el)); nextTick(measure);
+    });
+    onUnmounted(() => {
+      ro?.disconnect();
+      ppOpen = Math.max(0, ppOpen - 1);
+      if (!ppOpen) document.documentElement.classList.remove('pp-open');
+    });
     return { paper, inner, scale, height, width };
   },
   template: `

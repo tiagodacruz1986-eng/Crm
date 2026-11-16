@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS emails (
   error TEXT, user_id INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_emails_record ON emails(model, record_id);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY, model TEXT NOT NULL, record_id INTEGER NOT NULL, kind TEXT DEFAULT 'note', body TEXT,
   email_id INTEGER, user_id INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP

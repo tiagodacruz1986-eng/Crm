@@ -59,13 +59,13 @@ export const DocumentList = {
             <td v-if="type==='invoice'" :class="{late: r.due_date < today() && ['posted','partial'].includes(r.status)}">{{ date(r.due_date) }}</td>
             <td><Badge :status="r.status"/></td>
             <td v-if="type==='order'"><span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimé{{ r.print_count > 1 ? ' ×' + r.print_count : '' }}</span><span v-else class="muted small">Non</span></td>
-            <td v-if="isInvoices"><span v-if="r.mailed_at" class="badge b-blue" :title="mailedTitle(r)"><Icon name="mail" class="ti"/> Par mail</span> <span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimée</span><span v-if="!r.mailed_at && !r.print_count" class="muted small">{{ r.status === 'draft' ? '' : 'Pas encore' }}</span></td>
+            <td v-if="isInvoices"><template v-if="r.status !== 'draft'"><span v-if="r.mailed_at" class="badge b-blue" :title="mailedTitle(r)"><Icon name="mail" class="ti"/> Par mail</span> <span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimée</span><span v-if="!r.mailed_at && !r.print_count" class="muted small">Pas encore</span></template></td>
             <td class="num">{{ money(r.type === 'credit_note' ? -r.total : r.total) }}</td>
             <td class="num" v-if="type==='invoice'">{{ r.type === 'invoice' && r.status !== 'draft' ? money(r.total - r.amount_paid) : '' }}</td>
           </tr>
         </tbody>
       </table></div>
-      <Empty v-if="!shown.length" :text="rows.length ? (isInvoices ? 'Toutes ces factures ont été envoyées par mail ou imprimées' : 'Tous ces OR ont déjà été imprimés') : 'Aucun document'"/>
+      <Empty v-if="!shown.length" :text="rows.length ? (isInvoices ? (type === 'credit_note' ? 'Aucune note de crédit validée en attente d’envoi ou d’impression' : 'Aucune facture validée en attente d’envoi ou d’impression') : 'Tous ces OR ont déjà été imprimés') : 'Aucun document'"/>
     </div>
   </div>`,
 };
@@ -405,7 +405,7 @@ export const DocumentEditor = {
           if (r === 'logout') return; // l'écran de connexion s'affiche : on n'imprime pas cette page-là
           if (r === 'failed' && !confirm('L’impression n’a pas pu être notée : pas de connexion au serveur du garage.\n\nImprimer quand même ? La feuille ne sera pas marquée « imprimée ».')) return;
           // (facture : une fois la fenêtre d'impression fermée, on montre l'original, avec sa mention « Imprimé »)
-          setTimeout(() => { lastMark = Date.now(); window.print(); if (isInvoice.value) view.value = 'original'; }, 100);
+          setTimeout(() => { lastMark = Date.now(); window.print(); if (isInvoice.value && locked.value) view.value = 'original'; }, 100);
           return;
         }
       } finally { setTimeout(() => { printing = false; }, 1000); }
@@ -426,7 +426,7 @@ export const DocumentEditor = {
       if (dirty.value && !locked.value) { try { await save(true); } catch { return; } }
       showMail.value = true;
     };
-    // Envoyé : la mention apparaît, et on montre l'original (la facture telle que le client la reçoit)
+    // Envoyé : la mention apparaît, et on montre l'original (la facture telle qu'elle s'imprime)
     // (aussi quand l'envoi part du bouton « Envoyer un e-mail » de l'historique ; un e-mail sans le document ne compte pas)
     const onMailed = async () => { const before = mailed.value.count; await refreshMarks(); if (isInvoice.value && mailed.value.count > before) view.value = 'original'; };
     // un e-mail envoyé depuis l'historique en bas de page (ou une activité) : les mentions suivent
@@ -437,7 +437,9 @@ export const DocumentEditor = {
       return m.scheduled ? `Envoi par mail programmé pour le ${datetime(m.scheduled)}` : 'Pas encore envoyée par mail';
     });
     // Bandeau en coin de l'original : « Envoyé par mail » d'abord (comme dans Odoo), sinon « Imprimé »
-    const ribbon = computed(() => (mailed.value.count ? { text: 'Envoyé par mail', tone: 'mail' } : printed.value.count ? { text: 'Imprimé', tone: 'print' } : null));
+    // (pas de bandeau sur une facture encore en brouillon : l'imprimer pour relecture n'est pas la remettre au client)
+    const ribbon = computed(() => (isInvoice.value && doc.value?.status === 'draft' ? null
+      : mailed.value.count ? { text: 'Envoyé par mail', tone: 'mail' } : printed.value.count ? { text: 'Imprimé', tone: 'print' } : null));
     const canUnprint = computed(() => !!doc.value && can(doc.value.type === 'order' ? 'atelier' : 'ventes', 'user'));
     const unprint = async () => {
       if (!confirm('Retirer la marque « imprimé » ? (à faire seulement si la feuille n’est pas sortie)')) return;
@@ -503,7 +505,7 @@ export const DocumentEditor = {
         <button role="tab" :aria-selected="view === 'form'" :class="{ on: view === 'form' }" @click="view = 'form'">Fiche</button>
         <button role="tab" :aria-selected="view === 'original'" :class="{ on: view === 'original' }" @click="view = 'original'">{{ locked ? 'Original' : 'Aperçu' }}</button>
       </div>
-      <span v-if="view === 'original'" class="muted small">{{ locked ? 'Le document tel que le client le reçoit' : 'Le document tel qu’il s’imprimera' }}<template v-if="dirty"> — avec vos modifications non enregistrées</template>.</span>
+      <span v-if="view === 'original'" class="muted small">{{ locked ? 'Le document tel qu’il s’imprime' : 'Le document tel qu’il s’imprimera' }}<template v-if="dirty"> — avec vos modifications non enregistrées</template>.</span>
     </div>
     <div v-if="!isNew && view === 'original'" class="doc-original no-print">
       <PaperPreview :doc="doc" :ribbon="ribbon ? ribbon.text : ''" :tone="ribbon ? ribbon.tone : ''"/>

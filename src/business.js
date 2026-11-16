@@ -267,7 +267,8 @@ export function postInvoice(id) {
     // (une facture à 0 € — geste commercial — n'a pas d'écriture comptable)
     if (lines.some((l) => l.debit || l.credit)) createMove({ journal_code: 'VTE', date, ref: number, label: `${d.type === 'credit_note' ? 'Avoir' : 'Facture'} ${d.customer_name}`, document_id: id }, lines);
 
-    run("UPDATE documents SET number=?, status='posted', posted_at=?, date=?, updated_at=? WHERE id=?", number, new Date().toISOString(), date, new Date().toISOString(), id);
+    // (un brouillon imprimé pour relecture n'est pas la facture : la facture numérotée repart « jamais imprimée »)
+    run("UPDATE documents SET number=?, status='posted', posted_at=?, date=?, updated_at=?, print_count=0, printed_at=NULL, printed_by=NULL WHERE id=?", number, new Date().toISOString(), date, new Date().toISOString(), id);
     // Une facture à 0 € est soldée tout de suite (sinon elle resterait « à payer » et serait relancée)
     refreshPaymentStatus(id);
     // Un avoir solde automatiquement la facture d'origine à hauteur de son montant

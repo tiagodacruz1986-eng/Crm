@@ -192,3 +192,23 @@ test('facture envoyée par mail : la fiche et la liste le disent (quand, à qui,
   assert.equal((await A('GET', '/documents?type=invoice')).data.find((x) => x.id === other).mailed_at, null);
 });
 
+
+test('un brouillon imprimé pour relecture, puis validé : la facture numérotée repart « jamais imprimée »', async () => {
+  const inv = await order('invoice');
+  // le brouillon est imprimé (épreuve) : c'est noté sur le brouillon…
+  assert.equal((await A('POST', `/documents/${inv}/printed`)).data.print_count, 1);
+  assert.equal((await A('GET', `/documents/${inv}`)).data.print_count, 1);
+  // …mais la facture validée n'a encore été ni imprimée ni envoyée : elle doit rester dans « à remettre au client »
+  const posted = await A('POST', `/documents/${inv}/post`);
+  assert.equal(posted.status, 200);
+  const d = (await A('GET', `/documents/${inv}`)).data;
+  assert.equal(d.status, 'posted');
+  assert.equal(d.print_count, 0);
+  assert.equal(d.printed_at, null);
+  assert.equal(d.printed_by_name, null);
+  const row = (await A('GET', '/documents?type=invoice')).data.find((x) => x.id === inv);
+  assert.equal(row.print_count, 0);
+  assert.equal(row.printed_at, null);
+  // une fois validée, l'impression compte de nouveau normalement
+  assert.equal((await A('POST', `/documents/${inv}/printed`)).data.print_count, 1);
+});
