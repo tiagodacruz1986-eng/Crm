@@ -93,10 +93,11 @@ const OPEN = [/^\/attendance\/me$/, /^\/attendance\/check$/, /^\/copilot\/journa
 // Composer ou prévisualiser un e-mail ne demande pas l'application E-mails (mais bien le droit de lire la fiche liée)
 const MAIL_OPEN = /^\/mail\/(compose|preview)$/;
 const MAIL_RECORD = /^\/mail\/(compose|preview|send|draft-ai)$/;
-const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/, /^\/archives\/ask$/];
+// (noter qu'un document a été imprimé : il suffit de pouvoir le lire — celui qui l'imprime le voit déjà)
+const READ_POSTS = [/^\/website\/preview$/, /^\/mail\/preview$/, /^\/documents\/\d+\/qr\.svg$/, /^\/documents\/\d+\/printed$/, /^\/archives\/ask$/];
 // Suppressions courantes (annuler son e-mail programmé, effacer une conversation IA, retirer une pièce jointe) :
 // le niveau « Utilisateur » suffit ; les autres suppressions restent réservées aux administrateurs de l'application.
-const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/, /^\/wheels\/vehicle\/\d+\/[a-z]+\/photo\/[a-z]+$/];
+const USER_DELETES = [/^\/mail\/\d+$/, /^\/agent-conversations\//, /^\/agent-tasks\/\d+$/, /^\/agent-results\/\d+$/, /^\/agents\/[^/]+\/messages$/, /^\/attachment\/\d+$/, /^\/wheels\/vehicle\/\d+\/[a-z]+\/photo\/[a-z]+$/, /^\/documents\/\d+\/printed$/];
 
 const typeApp = (t) => (t === 'order' ? 'atelier' : 'ventes');
 /** Types de documents demandés dans l'adresse (?type=order,quote ou ?type=order&type=quote). */
@@ -164,7 +165,7 @@ export function requiredAccess(req) {
   const need = [];
   const hit = PREFIXES.find(([p]) => (p.endsWith('-') ? path.startsWith(p) : path === p || path.startsWith(p + '/')));
   if (hit && !MAIL_OPEN.test(path)) {
-    const level = read || READ_POSTS.some((r) => r.test(path)) ? 'read' : req.method === 'DELETE' && !USER_DELETES.some((r) => r.test(path)) ? 'manager' : 'user';
+    const level = read || (req.method === 'POST' && READ_POSTS.some((r) => r.test(path))) ? 'read' : req.method === 'DELETE' && !USER_DELETES.some((r) => r.test(path)) ? 'manager' : 'user';
     for (const app of hit[1] ? [hit[1]] : documentApps(req, path, read)) need.push([app, level]);
   }
   // E-mail lié à une fiche (facture, relevé client…) : il faut pouvoir lire cette fiche

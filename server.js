@@ -715,7 +715,7 @@ api.get('/documents', (req, res) => {
   if (req.query.overdue) { where.push("d.status IN ('posted','partial') AND d.due_date<?"); p.push(today()); }
   if (req.query.q) { const q = `%${req.query.q}%`; where.push('(d.number LIKE ? OR c.name LIKE ? OR v.plate LIKE ?)'); p.push(q, q, q); }
   res.json(all(`SELECT d.id, d.type, d.number, d.status, d.date, d.due_date, d.subtotal, d.total, d.amount_paid, d.promised_at, d.customer_complaint,
-      d.mechanic_id, d.stage, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
+      d.mechanic_id, d.stage, d.print_count, d.printed_at, c.name AS customer_name, v.plate, v.make, v.model, u.name AS mechanic_name, u.color AS mechanic_color,
       (SELECT ROUND(SUM(quantity),2) FROM document_lines WHERE document_id=d.id AND kind='labor') AS hours_sold,
       CASE WHEN d.type='order' THEN (SELECT ROUND(SUM(CASE WHEN kind NOT IN ('labor','fee') THEN 0 WHEN planned_hours IS NOT NULL THEN planned_hours WHEN kind='labor' THEN MAX(quantity, 0) ELSE 0 END),2)
         FROM document_lines WHERE document_id=d.id) END AS hours_planned,
@@ -806,6 +806,35 @@ api.post('/documents/:id/payments', wrap((req) => {
   return { id };
 }));
 // QR code de paiement SEPA (EPC) imprimé sur la facture — scannable par les applis bancaires
+// Impression d'un document : le logiciel note quand, par qui et combien de fois. On voit d'un coup d'œil si la feuille
+// d'atelier d'un OR est déjà sortie, et on ne l'imprime pas deux fois sans le savoir. (La marque est posée quand
+// l'impression est lancée ; elle ne « modifie » pas le document : une saisie en cours ailleurs n'est pas dérangée.)
+const printInfo = (id) => get('SELECT d.print_count, d.printed_at, u.name AS printed_by_name FROM documents d LEFT JOIN users u ON u.id=d.printed_by WHERE d.id=?', id);
+api.post('/documents/:id/printed', wrap((req) => {
+  const id = Number(req.params.id);
+  const d = get('SELECT id, print_count, printed_at, printed_by FROM documents WHERE id=?', id);
+  if (!d) throw new BusinessError('Document introuvable', 404);
+  const now = localDateTime();
+  // bouton « Imprimer » et raccourci du navigateur peuvent se suivre de très près : une seule impression est comptée
+  const again = d.printed_by === req.user.id && d.printed_at && new Date(now) - new Date(d.printed_at) < 5000;
+  if (!again) {
+    const n = (d.print_count || 0) + 1;
+    run('UPDATE documents SET print_count=?, printed_at=?, printed_by=? WHERE id=?', n, now, req.user.id, id);
+    logMessage('document', id, n > 1 ? `🖨️ Imprimé de nouveau (${n}e fois)` : '🖨️ Imprimé', req.user.id, 'system');
+  }
+  return printInfo(id);
+}));
+// Impression annulée dans la fenêtre du navigateur, ou marque posée par erreur : on la retire
+api.delete('/documents/:id/printed', wrap((req) => {
+  const id = Number(req.params.id);
+  const d = get('SELECT id, print_count FROM documents WHERE id=?', id);
+  if (!d) throw new BusinessError('Document introuvable', 404);
+  if (d.print_count) {
+    run('UPDATE documents SET print_count=0, printed_at=NULL, printed_by=NULL WHERE id=?', id);
+    logMessage('document', id, '🖨️ Marque « imprimé » retirée', req.user.id, 'system');
+  }
+  return printInfo(id);
+}));
 api.get('/documents/:id/qr.svg', wrap(async (req, res) => {
   const d = getDocument(Number(req.params.id));
   const c = getSettings().company;

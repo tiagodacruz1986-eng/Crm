@@ -54,6 +54,7 @@ export const Workshop = {
           <div class="row"><b>{{ o.number }}</b><span class="plate" v-if="o.plate">{{ o.plate }}</span></div>
           <div class="small brand-line"><BrandLogo :make="o.make" :size="22"/><span>{{ o.make }} {{ o.model }} · {{ o.customer_name }}</span></div>
           <div class="desc">{{ o.customer_complaint || '—' }}</div>
+          <div class="kprint" :class="{ done: o.print_count }" :title="o.print_count ? 'Feuille d’atelier déjà imprimée' : 'Feuille d’atelier pas encore imprimée'"><Icon name="printer" class="ti"/> {{ o.print_count ? 'Imprimé' + (o.print_count > 1 ? ' ×' + o.print_count : '') : 'Pas encore imprimé' }}</div>
           <div class="row small">
             <span v-if="o.active_workers" class="live">{{ o.mechanic_name || 'en cours' }}</span>
             <span v-else class="muted">{{ o.mechanic_name || 'non assigné' }}</span>

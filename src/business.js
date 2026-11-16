@@ -1,6 +1,14 @@
 // Logique métier : documents (devis / OR / factures), stock, comptabilité, paiements.
 import { all, get, run, insert, update, tx, round2, today, nextNumber, getSettings, localDate, localDateTime, isDate } from './db.js';
 import { attachTimes, cleanPlanned, isIntervention, stopLineTimers, stopOrderTimers, currentWork } from './worktime.js';
+import { db } from './db.js';
+
+// Impression des documents : combien de fois, quand et par qui (pour ne pas sortir deux fois la feuille d'atelier d'un OR)
+if (!all('PRAGMA table_info(documents)').some((c) => c.name === 'print_count')) {
+  db.exec('ALTER TABLE documents ADD COLUMN print_count INTEGER DEFAULT 0');
+  db.exec('ALTER TABLE documents ADD COLUMN printed_at TEXT');
+  db.exec('ALTER TABLE documents ADD COLUMN printed_by INTEGER');
+}
 
 export const DOC_COLS = [
   'type', 'number', 'status', 'customer_id', 'vehicle_id', 'mileage', 'date', 'due_date', 'reference',
@@ -45,9 +53,9 @@ export function getDocument(id) {
     `SELECT d.*, c.name AS customer_name, c.company AS customer_company, c.email AS customer_email,
        c.address AS customer_address, c.zip AS customer_zip, c.city AS customer_city, c.country AS customer_country,
        c.vat_number AS customer_vat, c.phone AS customer_phone, c.mobile AS customer_mobile,
-       v.plate, v.make, v.model, v.vin, v.version, u.name AS mechanic_name
+       v.plate, v.make, v.model, v.vin, v.version, u.name AS mechanic_name, pu.name AS printed_by_name
      FROM documents d LEFT JOIN customers c ON c.id=d.customer_id LEFT JOIN vehicles v ON v.id=d.vehicle_id
-     LEFT JOIN users u ON u.id=d.mechanic_id WHERE d.id=?`, id);
+     LEFT JOIN users u ON u.id=d.mechanic_id LEFT JOIN users pu ON pu.id=d.printed_by WHERE d.id=?`, id);
   if (!d) throw new BusinessError('Document introuvable', 404);
   d.lines = all(
     `SELECT l.*, p.ref AS product_ref, p.qty_on_hand FROM document_lines l LEFT JOIN products p ON p.id=l.product_id

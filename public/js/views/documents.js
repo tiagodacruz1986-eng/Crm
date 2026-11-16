@@ -6,6 +6,7 @@ import { DocPrint } from '../doc-print.js';
 import { lineTotal, computeTotals } from '../totals.js';
 import { can } from '../apps.js';
 import { VoiceRequest } from '../voice-request.js';
+import { bus } from '../mail.js';
 
 export const DocumentList = {
   setup() {
@@ -22,10 +23,14 @@ export const DocumentList = {
       rows.value = await GET('/documents?' + params);
     };
     onMounted(load);
+    // OR : ceux dont la feuille d'atelier n'est pas encore sortie
+    const unprinted = ref(false);
+    const shown = computed(() => (unprinted.value ? rows.value.filter((r) => !r.print_count) : rows.value));
+    const printedTitle = (r) => `Imprimé ${r.print_count > 1 ? r.print_count + ' fois, la dernière fois' : ''} le ${datetime(r.printed_at)}`.replace(/\s+/g, ' ');
     const statuses = { quote: ['draft', 'sent', 'accepted', 'refused'], invoice: ['draft', 'posted', 'partial', 'paid'], credit_note: ['draft', 'posted', 'partial', 'paid'], order: ['open', 'in_progress', 'waiting_parts', 'done', 'invoiced'] }[type] || [];
     // « reste dû » : seulement les factures validées (un brouillon n'est pas encore dû)
     const totals = computed(() => ({ total: rows.value.reduce((s, r) => s + (r.type === 'credit_note' ? -r.total : r.total), 0), due: rows.value.filter((r) => r.type === 'invoice' && ['posted', 'partial'].includes(r.status)).reduce((s, r) => s + (r.total - r.amount_paid), 0) }));
-    return { type, rows, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
+    return { type, rows, shown, unprinted, printedTitle, q, status, load, statuses, STATUS, DOC_TYPES, DOC_TYPES_SHORT, money, date, go, totals, today };
   },
   template: `
   <div>
@@ -37,23 +42,25 @@ export const DocumentList = {
       <div class="toolbar">
         <input v-model="q" @input="load" placeholder="N°, client, plaque…">
         <select v-model="status" @change="load"><option value="">Tous les statuts</option><option v-if="type==='invoice'" value="overdue">En retard</option><option v-for="s in statuses" :value="s">{{ STATUS[s][0] }}</option></select>
-        <span class="muted" style="margin-left:auto">{{ rows.length }} documents · {{ money(totals.total) }} TTC<span v-if="type==='invoice'"> · reste dû {{ money(totals.due) }}</span></span>
+        <label v-if="type==='order'" class="check"><input v-model="unprinted" type="checkbox"> Pas encore imprimés</label>
+        <span class="muted" style="margin-left:auto">{{ shown.length }} documents · {{ money(totals.total) }} TTC<span v-if="type==='invoice'"> · reste dû {{ money(totals.due) }}</span></span>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Véhicule</th><th v-if="type==='invoice'">Échéance</th><th>Statut</th><th class="num">Total TTC</th><th class="num" v-if="type==='invoice'">Reste dû</th></tr></thead>
+        <thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Véhicule</th><th v-if="type==='invoice'">Échéance</th><th>Statut</th><th v-if="type==='order'">Imprimé</th><th class="num">Total TTC</th><th class="num" v-if="type==='invoice'">Reste dû</th></tr></thead>
         <tbody>
-          <tr v-for="r in rows" class="click" @click="go('/document/' + r.id)">
+          <tr v-for="r in shown" :key="r.id" class="click" @click="go('/document/' + r.id)">
             <td><b>{{ r.number || 'Brouillon' }}</b> <span v-if="r.type==='credit_note'" class="badge b-purple">Avoir</span></td>
             <td>{{ date(r.date) }}</td><td>{{ r.customer_name }}</td>
             <td><span class="brand-line"><BrandLogo :make="r.make" :size="24"/><span><span class="plate" v-if="r.plate">{{ r.plate }}</span> <span class="muted small">{{ r.make }} {{ r.model }}</span></span></span></td>
             <td v-if="type==='invoice'" :class="{late: r.due_date < today() && ['posted','partial'].includes(r.status)}">{{ date(r.due_date) }}</td>
             <td><Badge :status="r.status"/></td>
+            <td v-if="type==='order'"><span v-if="r.print_count" class="badge b-green" :title="printedTitle(r)"><Icon name="printer" class="ti"/> Imprimé{{ r.print_count > 1 ? ' ×' + r.print_count : '' }}</span><span v-else class="muted small">Non</span></td>
             <td class="num">{{ money(r.type === 'credit_note' ? -r.total : r.total) }}</td>
             <td class="num" v-if="type==='invoice'">{{ r.type === 'invoice' && r.status !== 'draft' ? money(r.total - r.amount_paid) : '' }}</td>
           </tr>
         </tbody>
       </table></div>
-      <Empty v-if="!rows.length" text="Aucun document"/>
+      <Empty v-if="!shown.length" :text="rows.length ? 'Tous ces OR ont déjà été imprimés' : 'Aucun document'"/>
     </div>
   </div>`,
 };
@@ -147,6 +154,9 @@ export const DocumentEditor = {
     watch(() => doc.value?.customer_complaint, () => nextTick(fitComplaint));
     const showPay = ref(false);
     const dirty = ref(false);
+    // Impression : gardée à part du document (la relire ou la poser ne touche jamais à une saisie en cours)
+    const printed = ref({ count: 0, at: null, by: null });
+    const takePrint = (d) => { printed.value = { count: d?.print_count || 0, at: d?.printed_at || null, by: d?.printed_by_name || null }; };
     const s = store.settings?.workshop || { labor_rate: 85, default_tax: 17 };
 
     const load = async () => {
@@ -162,6 +172,7 @@ export const DocumentEditor = {
       } else {
         doc.value = await GET('/documents/' + route.params.id);
         takeTimes(doc.value);
+        takePrint(doc.value);
         if (doc.value.customer_id) vehicles.value = (await GET('/customers/' + doc.value.customer_id)).vehicles;
       }
       await nextTick();
@@ -193,6 +204,7 @@ export const DocumentEditor = {
         // Modifié ailleurs (diagnostic saisi à la tablette, ligne cochée…) et rien en cours de saisie ici : on prend tout le document
         if (!dirty.value && fresh.updated_at !== doc.value.updated_at) { doc.value = fresh; takeTimes(fresh); await nextTick(); dirty.value = false; }
         else takeTimes(fresh);
+        takePrint(fresh); // imprimé entre-temps sur un autre poste : on le voit ici aussi
       } catch { /* prochain essai dans une minute */ } finally { reading = false; }
     }, 10000); });
     onUnmounted(() => clearInterval(ticker));
@@ -342,12 +354,41 @@ export const DocumentEditor = {
       const id = doc.value.id;
       const fresh = await GET('/documents/' + id);
       if (dirty.value || doc.value?.id !== id) return; // une saisie a commencé pendant la relecture : on ne l'écrase pas
-      doc.value = fresh; takeTimes(fresh);
+      doc.value = fresh; takeTimes(fresh); takePrint(fresh);
       await nextTick();
       dirty.value = false;
     };
     const remove = async () => { if (!confirm('Supprimer ce document ?')) return; await act(() => DEL('/documents/' + doc.value.id), 'Supprimé'); dirty.value = false; history.back(); };
-    const print = async () => { if (dirty.value && !locked.value) await save(true); setTimeout(() => window.print(), 100); };
+    // Impression : le logiciel note quand, par qui et combien de fois. Pour un OR déjà imprimé, il demande avant d'en
+    // sortir une seconde feuille (deux feuilles du même OR dans l'atelier = travail fait deux fois, ou pas du tout).
+    let lastMark = 0;
+    const markPrinted = async () => {
+      if (!doc.value?.id) return;
+      lastMark = Date.now();
+      try { takePrint(await POST(`/documents/${doc.value.id}/printed`)); bus.tick++; } catch { /* l'impression continue ; la marque sera posée la prochaine fois */ }
+    };
+    const printedText = computed(() => {
+      const p = printed.value;
+      return p.count ? `Imprimé${p.count > 1 ? ' ' + p.count + ' fois' : ''} · ${p.count > 1 ? 'dernière fois le ' : 'le '}${datetime(p.at)}${p.by ? ' · ' + p.by : ''}` : 'Pas encore imprimé';
+    });
+    const print = async () => {
+      // (l'état est relu juste avant : un collègue a peut-être imprimé cet OR il y a une minute)
+      if (doc.value.type === 'order') { try { takePrint(await GET('/documents/' + doc.value.id)); } catch { /* on garde ce qu'on sait */ } }
+      const p = printed.value;
+      if (doc.value.type === 'order' && p.count > 0 && !confirm(`Cet OR a déjà été imprimé ${p.count > 1 ? p.count + ' fois, la dernière fois ' : ''}le ${datetime(p.at)}${p.by ? ' par ' + p.by : ''}.\n\nL’imprimer de nouveau ?`)) return;
+      if (dirty.value && !locked.value) await save(true);
+      await markPrinted();
+      setTimeout(() => window.print(), 100);
+    };
+    // Impression lancée par le menu ou le raccourci du navigateur (Ctrl+P) : notée aussi
+    const onBeforePrint = () => { if (Date.now() - lastMark > 4000) markPrinted(); };
+    onMounted(() => window.addEventListener('beforeprint', onBeforePrint));
+    onUnmounted(() => window.removeEventListener('beforeprint', onBeforePrint));
+    const canUnprint = computed(() => !!doc.value && can(doc.value.type === 'order' ? 'atelier' : 'ventes', 'user'));
+    const unprint = async () => {
+      if (!confirm('Retirer la marque « imprimé » ? (à faire seulement si la feuille n’est pas sortie)')) return;
+      try { takePrint(await act(() => DEL(`/documents/${doc.value.id}/printed`), 'Marque « imprimé » retirée')); bus.tick++; } catch { /* message déjà affiché */ }
+    };
 
     const flow = computed(() => {
       const d = doc.value;
@@ -361,7 +402,7 @@ export const DocumentEditor = {
     const METHODS = { bank: 'Virement', card: 'Carte', cash: 'Espèces', payconiq: 'Payconiq' };
     const productLabel = (p) => `${p.ref ? p.ref + ' — ' : ''}${p.name} ${p.is_service ? '(forfait)' : `· stock ${p.qty_on_hand}`} · ${money(p.sale_price)}`;
 
-    return { curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
+    return { printed, printedText, canUnprint, unprint, curMake, canClock, canClockHere, clockUser, runningOn, clock, work, pct, isWork, lineSpent, lineOver, linePlanned: plannedOf, plannedBad, tOf, times, onLive, canCancelPay, cancelPay, showDiscount, doc, vehicles, mechanics, isNew, locked, totals, lineTotal, addLine, pickProduct, move, onCustomer, onQuickCustomer, save, convert, post, setStatus, pay, remove, print,
       showCustomer, showVoice, canVoice, onVoice, complaintBox, showPay, dirty, flow, productLabel, METHODS, money, date, datetime, hours, store, DOC_TYPES, DOC_TYPES_SHORT, TAX_RATES, STATUS };
   },
   template: `
@@ -372,6 +413,10 @@ export const DocumentEditor = {
           <template v-for="(f, i) in flow"><span v-if="i">→</span><a :href="'#/document/' + f.id" :class="{cur: f.cur}">{{ DOC_TYPES_SHORT[f.type] }} {{ f.number || '' }}</a></template>
         </div>
         <h1 style="margin-top:6px">{{ DOC_TYPES[doc.type] }} {{ doc.number || (isNew ? '(nouveau)' : '(brouillon)') }} <Badge v-if="!isNew" :status="doc.status"/></h1>
+        <div v-if="!isNew && (doc.type === 'order' || printed.count)" class="print-mark" :class="{ done: printed.count }">
+          <Icon name="printer" class="ti"/> <span>{{ printedText }}</span>
+          <button v-if="printed.count && canUnprint" class="icon-btn" title="La feuille n’est pas sortie : retirer la marque « imprimé »" aria-label="Retirer la marque « imprimé »" @click="unprint">✕</button>
+        </div>
       </div>
       <div class="btns">
         <button class="btn" v-if="!locked" @click="save()"><Icon name="save" class="ti"/> Enregistrer</button>
