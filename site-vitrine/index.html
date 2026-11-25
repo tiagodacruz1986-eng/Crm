@@ -793,6 +793,12 @@ $$('[data-count]').forEach(el=>co.observe(el));
 <script type="module">
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';
+
+/* Modèle 3D réaliste (.glb). DÉMO : modèle d'exemple three.js, à remplacer par un modèle sous licence commerciale. */
+const CAR_MODEL_URL='https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/ferrari.glb';
+const DRACO_URL='https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/';
 
 const sec=document.getElementById('xray'), stick=document.getElementById('xrStick');
 let renderer;
@@ -911,7 +917,7 @@ mesh(box(.7,.2,.22),M.black,.42,.58,0,inter);
 mesh(cyl(.012,.012,.14,8),M.steel,.3,.74,0,inter);mesh(new THREE.SphereGeometry(.035,16,12),M.accent,.3,.82,0,inter);
 
 /* ---------- Moteur ---------- */
-const eng=group(1.6,.6,0);
+const eng=group(-1.15,.55,0);
 const block=mesh(box(.46,.34,.62),M.dark,0,0,0,eng);
 const head=mesh(box(.44,.12,.6),M.steel,0,.23,0,eng);ex(head,'engine',0,.5,0);
 const cover=mesh(box(.38,.06,.52),M.accent,0,.32,0,eng);ex(cover,'engine',0,.82,0);
@@ -929,20 +935,21 @@ tag('Culasse',head,'engine',0,.06,0);tag('Pistons',pistons[1],'engine');tag('Vil
 tag('Filtre à huile',oil,'engine');tag('Admission',intake,'engine',0,.05,.2);tag('Boîte de vitesses',gbx,'engine');
 
 /* ---------- Refroidissement & électronique ---------- */
-const rad=group(2.08,.6,0);mesh(box(.06,.4,1.2),M.dark,0,0,0,rad);mesh(box(.045,.34,1.1),M.cyan,0,0,0,rad).material=M.cyan;
+const rad=group(2.0,.45,0);mesh(box(.06,.4,1.2),M.dark,0,0,0,rad);mesh(box(.045,.34,1.1),M.cyan,0,0,0,rad).material=M.cyan;
 for(let i=0;i<22;i++)mesh(box(.05,.34,.008),M.steel,.005,0,-.52+i*.05,rad);
 ex(rad,'cool',.85,.15,0);
-const fan=group(1.98,.6,0);mesh(box(.03,.36,.36),M.black,0,0,0,fan).visible=false;
+const fan=group(1.9,.45,0);mesh(box(.03,.36,.36),M.black,0,0,0,fan).visible=false;
 const blades=group(0,0,0,fan);for(let i=0;i<6;i++){const b=mesh(box(.012,.15,.06),M.black,0,.09,0,blades);const piv=new THREE.Group();piv.rotation.x=i*Math.PI/3;piv.add(b);blades.add(piv);b.rotation.y=.4}
 mesh(alongX(cyl(.04,.04,.05)),M.accent,0,0,0,fan);ex(fan,'cool',.45,.05,0);
-const batt=group(1.28,.78,.6);mesh(box(.24,.2,.18),M.black,0,0,0,batt);mesh(box(.245,.03,.185),M.accent,0,.1,0,batt);
+const batt=group(1.55,.5,.42);mesh(box(.24,.2,.18),M.black,0,0,0,batt);mesh(box(.245,.03,.185),M.accent,0,.1,0,batt);
 mesh(cyl(.018,.018,.04,10),M.red,.07,.12,.05,batt);mesh(cyl(.018,.018,.04,10),M.steel,-.07,.12,.05,batt);ex(batt,'cool',0,.6,.35);
-const ecu=group(1.28,.8,-.6);mesh(box(.16,.04,.12),M.dark,0,0,0,ecu);mesh(box(.12,.042,.02),M.cyan,0,0,.04,ecu);ex(ecu,'cool',0,.55,-.35);
+const ecu=group(1.55,.52,-.42);mesh(box(.16,.04,.12),M.dark,0,0,0,ecu);mesh(box(.12,.042,.02),M.cyan,0,0,.04,ecu);ex(ecu,'cool',0,.55,-.35);
 tag('Radiateur',rad,'cool',0,.2,.3);tag('Ventilateur',fan,'cool',0,.18,0);tag('Batterie',batt,'cool',0,.12,0);tag('Calculateur',ecu,'cool');
 
 /* ---------- Roues, freins, suspension ---------- */
+const V3=(x,y,z)=>new THREE.Vector3(x,y,z);
 class Helix extends THREE.Curve{constructor(r,h,t){super();this.r=r;this.h=h;this.t=t}getPoint(u,o=new THREE.Vector3()){const a=u*Math.PI*2*this.t;return o.set(Math.cos(a)*this.r,u*this.h-this.h/2,Math.sin(a)*this.r)}}
-const springGeo=new THREE.TubeGeometry(new Helix(.07,.42,6),220,.012,8,false);
+const springGeo=new THREE.TubeGeometry(new Helix(.065,.32,5),200,.012,8,false);
 function corner(x,z,expl){
   const s=Math.sign(z),C={};
   const w=group(x,.36,z);
@@ -956,8 +963,8 @@ function corner(x,z,expl){
   C.disc=mesh(alongZ(cyl(.18,.18,.022,40)),M.steel,0,0,-s*.03,w);
   mesh(alongZ(cyl(.09,.09,.03,24)),M.dark,0,0,-s*.03,C.disc.parent===w?w:w);
   C.cal=mesh(box(.1,.13,.07),M.red,-.12,.12,-s*.03,w);C.cal.rotation.z=.75;
-  C.spring=mesh(springGeo,M.accent,x,.7,z-s*.24);
-  C.shock=group(x,.7,z-s*.24);mesh(cyl(.026,.026,.5,12),M.steel,0,0,0,C.shock);mesh(cyl(.045,.045,.05,16),M.dark,0,.26,0,C.shock);
+  C.spring=mesh(springGeo,M.accent,x,.62,z-s*.24);
+  C.shock=group(x,.62,z-s*.24);mesh(cyl(.026,.026,.4,12),M.steel,0,0,0,C.shock);mesh(cyl(.045,.045,.05,16),M.dark,0,.21,0,C.shock);
   C.arm=mesh(box(.08,.035,.42),M.dark,x,.3,z-s*.3);
   mesh(alongZ(cyl(.022,.022,.42,10)),M.steel,x,.36,z-s*.32);
   if(expl==='wheel'){
@@ -974,11 +981,9 @@ function corner(x,z,expl){
 const wheels=[corner(1.35,.8,'wheel'),corner(1.35,-.8),corner(-1.35,.8,'susp'),corner(-1.35,-.8)];
 
 /* Échappement, réservoir, transmissions */
-const exPath=new THREE.CatmullRomCurve3([new THREE.Vector3(1.42,.42,.26),new THREE.Vector3(1.15,.22,.22),new THREE.Vector3(0,.2,.28),new THREE.Vector3(-1.5,.22,.3),new THREE.Vector3(-2.28,.26,.42)]);
-mesh(new THREE.TubeGeometry(exPath,80,.03,10,false),M.steel);
-mesh(alongX(cyl(.1,.1,.46,24)),M.dark,-1.6,.23,.3);
-mesh(box(.45,.16,.8),M.black,-.75,.32,-.05);
-[-1,1].forEach(s=>mesh(alongZ(cyl(.025,.025,.5,10)),M.steel,1.35,.36,s*.5));
+[-1,1].forEach(s=>{const ep=new THREE.CatmullRomCurve3([V3(-1.2,.42,s*.2),V3(-1.55,.3,s*.26),V3(-1.95,.33,s*.3),V3(-2.22,.4,s*.3)]);
+  mesh(new THREE.TubeGeometry(ep,60,.03,10,false),M.steel);mesh(alongX(cyl(.09,.09,.3,24)),M.dark,-1.9,.33,s*.3)});
+[-1,1].forEach(s=>mesh(alongZ(cyl(.025,.025,.5,10)),M.steel,-1.35,.36,s*.5));
 
 /* Plan de scan */
 const scan=new THREE.Mesh(new THREE.PlaneGeometry(2.3,1.9),new THREE.MeshBasicMaterial({color:0xD4FF3A,transparent:true,opacity:0,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
@@ -988,20 +993,65 @@ const scanLine=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeome
 /* Étiquettes interactives (habitacle) */
 tag('Écran & diagnostic',scr,'interior');tag('Volant & capteurs',sw,'interior',0,.17,0);tag('Climatisation',vents[3],'interior');
 
+/* ---------- Modèle réaliste ---------- */
+const shellMats=[],interMats=[];let glb=null;
+const xrayMat=new THREE.ShaderMaterial({uniforms:{c:{value:new THREE.Color(0xD4FF3A)},o:{value:0}},
+  vertexShader:'varying vec3 vN;varying vec3 vV;void main(){vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=normalize(-mv.xyz);gl_Position=projectionMatrix*mv;}',
+  fragmentShader:'uniform vec3 c;uniform float o;varying vec3 vN;varying vec3 vV;void main(){float f=pow(1.-abs(dot(vN,vV)),2.2);gl_FragColor=vec4(c*(f*1.3+.03),(f+.03)*o);}',
+  transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
+const hud=document.getElementById('xrPct');
+const draco=new DRACOLoader().setDecoderPath(DRACO_URL);
+new GLTFLoader().setDRACOLoader(draco).load(CAR_MODEL_URL,gltf=>{
+  const m=gltf.scene;m.rotation.y=-Math.PI/2;m.position.x=.17;car.add(m);glb=m;
+  const INTERIOR=/^(leather|interior_dark|interior_light|carpet)$/;
+  const paint=new THREE.MeshPhysicalMaterial({color:0x1e252e,metalness:.9,roughness:.32,clearcoat:1,clearcoatRoughness:.06});
+  m.getObjectByName('main').children.forEach(o=>{
+    if(!o.isMesh)return;
+    if(o.name==='yellow_trim'||o.name==='blue'){o.visible=false;return}
+    if(INTERIOR.test(o.name)){o.material=o.material.clone();o.material.transparent=true;interMats.push(o.material);return}
+    if(o.name==='body'){o.material=paint;o.add(new THREE.Mesh(o.geometry,xrayMat))}
+    o.material=o.material.clone();o.material.transparent=true;
+    if(o.name==='glass'){o.material.color.set(0x0b1218);o.material.opacity=.6;o.material.depthWrite=false}
+    shellMats.push({mat:o.material,base:o.material.opacity});
+  });
+  /* on masque la carrosserie et les roues simplifiées */
+  [shell,glass,roof,pillar,...edges].forEach(o=>o.visible=false);
+  car.children.filter(o=>o.isMesh&&(o.material===M.light||o.material===M.tail)).forEach(o=>o.visible=false);
+  inter.children.forEach(o=>{if(o!==scr)o.visible=false});
+  scr.position.set(.62,.84,-.08);scr.scale.setScalar(.8);
+  m.traverse(o=>{if(/^centre/.test(o.name))o.visible=false});
+  wheels.forEach(w=>[w.spin,w.disc,w.cal].forEach(o=>o.visible=false));
+  for(let i=parts.length-1;i>=0;i--){const o=parts[i].obj;if(wheels.some(w=>[w.spin,w.disc,w.cal].includes(o)))parts.splice(i,1)}
+  for(let i=tags.length-1;i>=0;i--){if(['Pneu','Jante','Disque de frein','Étrier','Volant & capteurs','Climatisation'].includes(tags[i].label)){tags[i].el?.remove();tags.splice(i,1)}}
+  /* roue avant droite : vue éclatée */
+  const fr=m.getObjectByName('wheel_fr');
+  fr.children.forEach(c=>{const n=c.name;const d=n.startsWith('tire')?.95:n.startsWith('brake')?.32:.62;ex(c,'wheel',d,0,0)});
+  const tire=fr.children.find(c=>c.name.startsWith('tire')),rim=fr.children.find(c=>c.name.startsWith('rim')),brk=fr.children.find(c=>c.name.startsWith('brake'));
+  addTag('Pneu',tire,'wheel',0,.36,0);addTag('Jante',rim,'wheel');addTag('Disque & étrier',brk,'wheel',0,-.12,0);
+  /* roue arrière droite écartée pour montrer la suspension */
+  ex(m.getObjectByName('wheel_rr'),'susp',.9,0,0);
+  glbWheels=['wheel_fl','wheel_fr','wheel_rl','wheel_rr'].map(n=>m.getObjectByName(n));
+  addTag('Volant',m.getObjectByName('steering_wheel'),'interior',0,.15,0);
+  sec.classList.add('glb-ready');
+},xhr=>{if(xhr.total)hud.textContent='modèle '+Math.round(xhr.loaded/xhr.total*100)+'%'},err=>console.warn('Modèle 3D non chargé, version simplifiée utilisée',err));
+let glbWheels=[];
+
 /* ---------- Étiquettes HTML ---------- */
 const tagLayer=document.getElementById('tags3d');
-tags.forEach(t=>{t.el=document.createElement('div');t.el.className='tag3d';t.el.innerHTML=`<i></i><span>${t.label}</span>`;tagLayer.appendChild(t.el)});
+const mkTag=t=>{t.el=document.createElement('div');t.el.className='tag3d';t.el.innerHTML=`<i></i><span>${t.label}</span>`;tagLayer.appendChild(t.el)};
+tags.forEach(mkTag);
+function addTag(label,obj,g,dx=0,dy=0,dz=0){tag(label,obj,g,dx,dy,dz);mkTag(tags[tags.length-1])}
 
 /* ---------- Chorégraphie ---------- */
 const V=(x,y,z)=>new THREE.Vector3(x,y,z);
 const K=[
   [0   ,V(6.2,2.3,6.2),  V(0,.7,0)],
   [.1  ,V(4.4,1.9,4.6),  V(.2,.8,0)],
-  [.2  ,V(-.16,1.2,-.38),V(1.6,1.0,-.3)],
-  [.29 ,V(-.18,1.22,-.34),V(1.2,.94,.3)],
-  [.36 ,V(.1,1.45,-.1),  V(1.7,.8,0)],
-  [.45 ,V(3.9,2.2,3.0),  V(1.6,.8,0)],
-  [.51 ,V(3.4,2.8,2.5),  V(1.6,.85,0)],
+  [.2  ,V(-.05,.98,-.35),V(1.6,.8,-.3)],
+  [.29 ,V(-.08,1.0,-.3), V(1.2,.74,.35)],
+  [.36 ,V(.6,1.7,.6),    V(-1.0,.6,0)],
+  [.45 ,V(-3.9,2.2,2.9), V(-1.15,.65,0)],
+  [.51 ,V(-3.3,2.8,2.3), V(-1.15,.7,0)],
   [.58 ,V(2.7,1.0,3.9),  V(1.35,.45,1.15)],
   [.63 ,V(2.2,.9,4.1),  V(1.35,.45,1.2)],
   [.69 ,V(-.1,1.5,4.3),V(-1.35,.85,1.05)],
@@ -1056,16 +1106,18 @@ function frame(){
   parts.forEach(o=>o.obj.position.copy(o.base).addScaledVector(o.v,W[o.g]));
   M.body.opacity=1-X*.94;M.body.depthWrite=X<.02;
   M.glass.opacity=.55-X*.47;edgeMat.opacity=.12+X*.6;
+  shellMats.forEach(s=>{s.mat.opacity=s.base*(1-X*.97);s.mat.depthWrite=X<.02&&s.base===1});xrayMat.uniforms.o.value=X;
+  const io=1-X*(1-W.interior)*.75;interMats.forEach(m=>{m.opacity=io;m.depthWrite=io>.98});
   const s=clamp((p-.08)/.1);scan.position.x=scanLine.position.x=2.5-5*s;
   scan.material.opacity=s>0&&s<1?Math.sin(s*Math.PI)*.06:0;scanLine.material.opacity=s>0&&s<1?Math.sin(s*Math.PI):0;
   /* animations mécaniques */
   pistons.forEach((pi,i)=>pi.position.y=Math.sin(time*7+(i%3?Math.PI:0))*.045);
   crank.rotation.z=time*7;blades.rotation.x=time*(4+W.cool*6);
-  const roll=(p<.1||p>.92)?time*1.2:0;wheels.forEach(w=>w.spin.rotation.z=-roll);
+  const roll=(p<.1||p>.92)?time*1.2:0;wheels.forEach(w=>w.spin.rotation.z=-roll);glbWheels.forEach(w=>w.rotation.x=roll);
   car.position.y=Math.sin(time*1.4)*.006*(1-X);
   /* caméra */
   camAt(p,P,T);
-  if(aspectK!==1){tmp.subVectors(P,T).multiplyScalar(aspectK*(1-W.interior*.8)+W.interior*.8);P.copy(T).add(tmp)}
+  if(aspectK!==1){tmp.subVectors(P,T).multiplyScalar(aspectK+(1-aspectK)*W.interior);P.copy(T).add(tmp)}
   camera.position.copy(P);camera.lookAt(T);
   renderer.render(scene,camera);
   /* étiquettes */
@@ -1077,7 +1129,7 @@ function frame(){
   });
   cards.forEach(c=>c.classList.toggle('on',p>=+c.dataset.a&&p<+c.dataset.b));
   let ri=0;railP.forEach((rp,i)=>{if(p>=rp-.07)ri=i});rail.forEach((b,i)=>b.classList.toggle('on',i===ri));
-  prog.style.width=(p*100)+'%';pct.textContent=Math.round(p*100)+'%';
+  prog.style.width=(p*100)+'%';if(glb||!/mod/.test(pct.textContent))pct.textContent=Math.round(p*100)+'%';
 }
 frame();
 }
