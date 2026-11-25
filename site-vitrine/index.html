@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto GAP · Garage</title>
+<meta name="description" content="Garage Auto GAP : entretien, réparation, diagnostic. Prenez rendez-vous en ligne en 1 minute.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0C0F; --bg-2:#111419; --card:#151920; --line:#232833;
+  --text:#EEF1F5; --muted:#8B93A1; --accent:#D4FF3A; --accent-ink:#0A0C0F;
+  --cyan:#3AE0FF; --danger:#FF5A4E; --radius:18px;
+  --font-d:'Space Grotesk',system-ui,sans-serif; --font-b:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font-b);line-height:1.55;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+.wrap{width:min(1180px,100% - 32px);margin-inline:auto}
+h1,h2,h3{font-family:var(--font-d);letter-spacing:-.02em;line-height:1.05}
+.eyebrow{font-family:var(--font-d);font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);display:inline-flex;align-items:center;gap:.6rem}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--accent)}
+section{padding:110px 0;position:relative}
+.sec-head{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:48px;flex-wrap:wrap}
+.sec-head h2{font-size:clamp(2rem,4.6vw,3.4rem);max-width:640px;margin-top:14px}
+.sec-head p{color:var(--muted);max-width:380px}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:.6rem;padding:14px 22px;border-radius:999px;font-weight:600;font-family:var(--font-d);transition:transform .2s, box-shadow .2s, background .2s}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 30px -8px rgba(212,255,58,.55)}
+.btn-ghost{border:1px solid var(--line);background:rgba(255,255,255,.02)}
+.btn-ghost:hover{border-color:var(--muted)}
+.btn svg{width:18px;height:18px}
+
+/* Nav */
+nav{position:fixed;inset:0 0 auto;z-index:50;transition:background .3s,border-color .3s;border-bottom:1px solid transparent}
+nav.scrolled{background:rgba(10,12,15,.78);backdrop-filter:blur(14px);border-color:var(--line)}
+.nav-in{display:flex;align-items:center;justify-content:space-between;height:74px}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--font-d);font-weight:700;font-size:1.25rem}
+.logo-mark{width:34px;height:34px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-size:.9rem;font-weight:700}
+.nav-links{display:flex;gap:30px;font-size:.93rem;color:var(--muted)}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{padding:10px 18px}
+.burger{display:none;width:40px;height:40px;border-radius:12px;border:1px solid var(--line)}
+@media (max-width:860px){.nav-links{display:none}.nav-links.open{display:flex;position:absolute;top:74px;left:0;right:0;flex-direction:column;gap:0;background:var(--bg-2);border-bottom:1px solid var(--line);padding:8px 16px}.nav-links.open a{padding:14px 0;border-bottom:1px solid var(--line)}.burger{display:grid;place-items:center}.nav-cta{display:none}}
+
+/* Hero */
+.hero{min-height:100vh;padding:140px 0 80px;display:flex;align-items:center;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;background:
+  radial-gradient(600px 400px at 80% 30%,rgba(212,255,58,.10),transparent 70%),
+  radial-gradient(500px 400px at 10% 80%,rgba(58,224,255,.07),transparent 70%);pointer-events:none}
+.grid-bg{position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;mask-image:radial-gradient(ellipse at 60% 40%,#000 10%,transparent 70%);opacity:.35;pointer-events:none}
+.hero-in{display:grid;grid-template-columns:1.05fr 1fr;gap:40px;align-items:center;position:relative}
+.status{display:inline-flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);font-size:.85rem;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 rgba(212,255,58,.6);animation:pulse 2s infinite}
+.dot.closed{background:var(--danger);animation:none}
+@keyframes pulse{70%{box-shadow:0 0 0 10px rgba(212,255,58,0)}100%{box-shadow:0 0 0 0 rgba(212,255,58,0)}}
+.hero h1{font-size:clamp(2.7rem,6.4vw,5.4rem);margin:22px 0 22px}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p.lead{color:var(--muted);font-size:1.12rem;max-width:520px}
+.hero-actions{display:flex;gap:12px;margin-top:34px;flex-wrap:wrap}
+.trust{display:flex;gap:28px;margin-top:46px;flex-wrap:wrap}
+.trust div{font-size:.85rem;color:var(--muted)}
+.trust strong{display:block;font-family:var(--font-d);font-size:1.6rem;color:var(--text)}
+
+/* Car diagnostic */
+.diag{position:relative;background:linear-gradient(180deg,var(--card),var(--bg-2));border:1px solid var(--line);border-radius:28px;padding:26px 22px 22px}
+.diag-top{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--muted);font-family:var(--font-d);letter-spacing:.1em;text-transform:uppercase}
+.diag-top b{color:var(--accent);font-weight:500}
+.car-box{position:relative;margin:18px 0 10px}
+.car-box svg{width:100%;height:auto;display:block}
+.scan{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);box-shadow:0 0 18px 4px rgba(212,255,58,.45);animation:scan 4.5s ease-in-out infinite;left:6%}
+@keyframes scan{50%{left:94%}}
+.hot{position:absolute;width:30px;height:30px;border-radius:50%;transform:translate(-50%,-50%);display:grid;place-items:center}
+.hot::before{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);animation:ring 2.4s infinite}
+.hot i{width:11px;height:11px;border-radius:50%;background:var(--accent);display:block}
+.hot.active i{background:var(--cyan)}
+.hot.active::before{border-color:var(--cyan)}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.diag-q{font-family:var(--font-d);font-size:1.15rem;margin-bottom:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:8px 13px;border-radius:999px;border:1px solid var(--line);font-size:.85rem;color:var(--muted);transition:.2s}
+.chip:hover{color:var(--text);border-color:var(--muted)}
+.chip.on{background:var(--cyan);border-color:var(--cyan);color:#04161b;font-weight:600}
+.diag-out{margin-top:16px;padding:14px 16px;border-radius:14px;background:rgba(58,224,255,.07);border:1px solid rgba(58,224,255,.25);display:none;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.diag-out.show{display:flex;animation:fade .35s}
+.diag-out p{font-size:.92rem}
+.diag-out small{color:var(--muted);display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}}
+@media (max-width:960px){.hero-in{grid-template-columns:1fr}.hero{padding-top:120px}}
+
+/* Marquee */
+.marquee{border-block:1px solid var(--line);overflow:hidden;padding:18px 0;background:var(--bg-2)}
+.marquee-track{display:flex;gap:56px;width:max-content;animation:mq 32s linear infinite;font-family:var(--font-d);font-size:1.05rem;color:var(--muted);white-space:nowrap}
+.marquee-track span::after{content:"✦";color:var(--accent);margin-left:56px}
+@keyframes mq{to{transform:translateX(-50%)}}
+
+/* Services */
+.services{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.svc{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:14px;transition:border-color .25s, transform .25s;position:relative;overflow:hidden}
+.svc:hover{border-color:rgba(212,255,58,.5);transform:translateY(-4px)}
+.svc .ico{width:46px;height:46px;border-radius:12px;background:rgba(212,255,58,.1);color:var(--accent);display:grid;place-items:center}
+.svc .ico svg{width:24px;height:24px}
+.svc h3{font-size:1.3rem}
+.svc p{color:var(--muted);font-size:.93rem;flex:1}
+.svc-foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:14px;font-size:.88rem}
+.svc-foot b{font-family:var(--font-d);font-size:1.15rem}
+.svc-foot button{color:var(--accent);font-weight:600}
+@media (max-width:960px){.services{grid-template-columns:1fr 1fr}}
+@media (max-width:620px){.services{grid-template-columns:1fr}}
+
+/* Promos */
+#promos{background:var(--bg-2)}
+.promos{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px}
+.promo{border-radius:24px;padding:28px;position:relative;overflow:hidden;border:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;gap:14px;min-height:320px}
+.promo.big{background:var(--accent);color:var(--accent-ink);border:0}
+.promo.big .muted{color:rgba(10,12,15,.65)}
+.promo .tag{align-self:flex-start;font-family:var(--font-d);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;padding:6px 11px;border-radius:999px;border:1px solid currentColor;opacity:.85}
+.promo .pct{font-family:var(--font-d);font-weight:700;font-size:clamp(3.4rem,7vw,5.6rem);line-height:.9}
+.promo h3{font-size:1.35rem}
+.promo .muted{color:var(--muted);font-size:.92rem}
+.promo .spacer{flex:1}
+.count{display:flex;gap:8px}
+.count div{min-width:54px;text-align:center;padding:8px 4px;border-radius:10px;background:rgba(0,0,0,.25)}
+.promo:not(.big) .count div{background:rgba(255,255,255,.05)}
+.count b{display:block;font-family:var(--font-d);font-size:1.25rem}
+.count small{font-size:.65rem;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+.code{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1.5px dashed currentColor;border-radius:12px;padding:10px 14px;font-family:var(--font-d);font-weight:600;letter-spacing:.08em}
+.code button{font-size:.8rem;font-weight:600;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.12)}
+.promo:not(.big) .code button{background:rgba(255,255,255,.07)}
+.promo .deco{position:absolute;right:-40px;bottom:-40px;width:200px;height:200px;border-radius:50%;border:30px solid rgba(10,12,15,.08)}
+@media (max-width:960px){.promos{grid-template-columns:1fr}}
+
+/* Booking */
+.book{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:30px}
+.steps{display:flex;gap:6px;margin-bottom:28px}
+.steps div{flex:1;height:4px;border-radius:4px;background:var(--line);transition:background .3s}
+.steps div.done{background:var(--accent)}
+.step-label{font-size:.8rem;color:var(--muted);font-family:var(--font-d);letter-spacing:.12em;text-transform:uppercase}
+.step h3{font-size:1.7rem;margin:8px 0 22px}
+.step{display:none}
+.step.on{display:block;animation:fade .35s}
+.opts{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.opt{text-align:left;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-2);display:flex;gap:12px;align-items:flex-start;transition:.2s}
+.opt:hover{border-color:var(--muted)}
+.opt.on{border-color:var(--accent);background:rgba(212,255,58,.06)}
+.opt .box{width:20px;height:20px;flex:none;border-radius:6px;border:1.5px solid var(--muted);display:grid;place-items:center;margin-top:2px}
+.opt.on .box{background:var(--accent);border-color:var(--accent)}
+.opt.on .box::after{content:"";width:9px;height:5px;border:2px solid var(--accent-ink);border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+.opt b{font-family:var(--font-d);display:block}
+.opt small{color:var(--muted)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field.full{grid-column:1/-1}
+.field label{font-size:.82rem;color:var(--muted)}
+.field input,.field select,.field textarea{background:var(--bg-2);border:1px solid var(--line);border-radius:12px;padding:13px 14px;outline:none;transition:border-color .2s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent)}
+.plate{font-family:var(--font-d);font-weight:700;letter-spacing:.14em;text-transform:uppercase;background:#F6D21C!important;color:#111!important;border-color:#F6D21C!important;padding-left:48px!important}
+.plate-wrap{position:relative}
+.plate-wrap::before{content:"L";position:absolute;left:0;top:0;bottom:0;width:34px;background:#1E4BB8;color:#fff;border-radius:12px 0 0 12px;display:grid;place-items:center;font-family:var(--font-d);font-weight:700;font-size:.85rem}
+.days{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin}
+.day{flex:none;width:68px;padding:12px 0;border-radius:14px;border:1px solid var(--line);background:var(--bg-2);text-align:center;transition:.2s}
+.day small{display:block;color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}
+.day b{font-family:var(--font-d);font-size:1.35rem}
+.day:disabled{opacity:.3;cursor:not-allowed}
+.day.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.day.on small{color:rgba(10,12,15,.7)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px;margin-top:18px}
+.slot{padding:11px 0;border-radius:10px;border:1px solid var(--line);background:var(--bg-2);font-family:var(--font-d);font-weight:500}
+.slot:disabled{text-decoration:line-through;opacity:.3;cursor:not-allowed}
+.slot.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.toggle{display:flex;gap:10px;align-items:center;margin-top:18px;font-size:.92rem;color:var(--muted)}
+.toggle input{accent-color:var(--accent);width:18px;height:18px}
+.nav-btns{display:flex;justify-content:space-between;margin-top:30px;gap:10px}
+.err{color:var(--danger);font-size:.85rem;margin-top:12px;min-height:1.2em}
+.recap{position:sticky;top:96px}
+.recap h4{font-family:var(--font-d);font-size:1.1rem;margin-bottom:16px}
+.recap ul{list-style:none;display:flex;flex-direction:column;gap:10px;font-size:.92rem}
+.recap li{display:flex;justify-content:space-between;gap:10px}
+.recap li span:first-child{color:var(--muted)}
+.recap .total{border-top:1px solid var(--line);margin-top:16px;padding-top:16px;display:flex;justify-content:space-between;align-items:end}
+.recap .total b{font-family:var(--font-d);font-size:1.8rem;color:var(--accent)}
+.recap .note{font-size:.78rem;color:var(--muted);margin-top:12px}
+.done-box{text-align:center;padding:30px 10px}
+.done-ico{width:74px;height:74px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin:0 auto 20px;animation:pop .5s cubic-bezier(.3,1.6,.5,1)}
+@keyframes pop{from{transform:scale(0)}}
+.ref{display:inline-block;margin:14px 0 24px;padding:8px 16px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line);font-family:var(--font-d);letter-spacing:.12em}
+@media (max-width:960px){.book{grid-template-columns:1fr}.recap{position:static}}
+@media (max-width:560px){.opts,.fields{grid-template-columns:1fr}.panel{padding:22px}}
+
+/* About */
+.about{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
+.about-visual{position:relative;aspect-ratio:4/5;border-radius:28px;overflow:hidden;border:1px solid var(--line);background:
+  linear-gradient(160deg,rgba(212,255,58,.14),transparent 40%),
+  repeating-linear-gradient(-45deg,#12161c 0 14px,#0f1217 14px 28px)}
+.about-visual .badge{position:absolute;left:24px;bottom:24px;right:24px;background:rgba(10,12,15,.8);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;padding:20px;display:flex;gap:16px;align-items:center}
+.about-visual .badge b{font-family:var(--font-d);font-size:2.4rem;color:var(--accent)}
+.about-visual .big-letter{position:absolute;top:6%;left:8%;font-family:var(--font-d);font-weight:700;font-size:clamp(7rem,16vw,13rem);line-height:.8;color:transparent;-webkit-text-stroke:1.5px rgba(212,255,58,.5)}
+.about-txt p{color:var(--muted);margin-top:18px}
+.about-txt h2{font-size:clamp(2rem,4.4vw,3.2rem);margin-top:14px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:34px}
+.stats div{border:1px solid var(--line);border-radius:16px;padding:18px}
+.stats b{font-family:var(--font-d);font-size:2rem;display:block}
+.stats small{color:var(--muted);font-size:.82rem}
+.values{display:flex;flex-direction:column;gap:12px;margin-top:28px}
+.values div{display:flex;gap:12px;align-items:flex-start}
+.values span{color:var(--accent);font-family:var(--font-d);font-weight:700}
+@media (max-width:900px){.about{grid-template-columns:1fr}.about-visual{aspect-ratio:16/11}}
+
+/* Reviews */
+.reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.rev{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:16px}
+.stars{color:var(--accent);letter-spacing:3px}
+.rev p{flex:1}
+.who{display:flex;gap:12px;align-items:center;font-size:.88rem}
+.who i{width:40px;height:40px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line);display:grid;place-items:center;font-style:normal;font-family:var(--font-d);font-weight:600}
+.who small{color:var(--muted);display:block}
+@media (max-width:900px){.reviews{grid-template-columns:1fr}}
+
+/* Contact */
+#contact{background:var(--bg-2)}
+.contact{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.hours{list-style:none}
+.hours li{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line);font-size:.95rem}
+.hours li.today{color:var(--accent);font-weight:600}
+.map{border-radius:24px;border:1px solid var(--line);min-height:320px;position:relative;overflow:hidden;background:
+  linear-gradient(90deg,transparent 48%,#1b2029 48% 52%,transparent 52%),
+  linear-gradient(0deg,transparent 30%,#1b2029 30% 33%,transparent 33%),
+  linear-gradient(20deg,transparent 60%,#181c24 60% 63%,transparent 63%),
+  var(--card)}
+.pin{position:absolute;left:50%;top:40%;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center}
+.pin div{background:var(--accent);color:var(--accent-ink);padding:8px 14px;border-radius:12px;font-family:var(--font-d);font-weight:700;font-size:.9rem;white-space:nowrap}
+.pin span{width:2px;height:22px;background:var(--accent)}
+.pin i{width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 8px rgba(212,255,58,.2)}
+.contact-lines{display:flex;flex-direction:column;gap:14px;margin-top:26px}
+.contact-lines a{display:flex;gap:14px;align-items:center;padding:16px;border:1px solid var(--line);border-radius:14px;transition:.2s}
+.contact-lines a:hover{border-color:var(--accent)}
+.contact-lines svg{width:20px;height:20px;color:var(--accent)}
+@media (max-width:900px){.contact{grid-template-columns:1fr}}
+
+footer{padding:40px 0;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+.foot-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .8s ease, transform .8s ease}
+.reveal.in{opacity:1;transform:none}
+.toast{position:fixed;bottom:24px;left:50%;transform:translate(-50%,120px);background:var(--text);color:var(--bg);padding:12px 20px;border-radius:999px;font-weight:600;font-size:.9rem;transition:transform .35s;z-index:100}
+.toast.show{transform:translate(-50%,0)}
+.fab{position:fixed;right:18px;bottom:18px;z-index:40;display:none}
+@media (max-width:860px){.fab{display:inline-flex}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div class="wrap nav-in">
+    <a href="#top" class="logo"><span class="logo-mark">AG</span>Auto GAP</a>
+    <div class="nav-links" id="links">
+      <a href="#services">Services</a>
+      <a href="#promos">Promotions</a>
+      <a href="#rdv">Rendez-vous</a>
+      <a href="#garage">Le garage</a>
+      <a href="#contact">Contact</a>
+    </div>
+    <a href="#rdv" class="btn btn-primary nav-cta">Prendre RDV</a>
+    <button class="burger" id="burger" aria-label="Menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero" id="top">
+  <div class="grid-bg"></div>
+  <div class="wrap hero-in">
+    <div>
+      <span class="status"><span class="dot" id="statusDot"></span><span id="statusTxt">Atelier ouvert</span></span>
+      <h1>Votre voiture,<br>entre de <em>bonnes mains.</em></h1>
+      <p class="lead">Entretien, diagnostic, pneus, carrosserie. Un devis clair avant chaque intervention, et votre rendez-vous réservé en moins d'une minute.</p>
+      <div class="hero-actions">
+        <a href="#rdv" class="btn btn-primary">Réserver un créneau
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        <a href="#promos" class="btn btn-ghost">Voir les promos du mois</a>
+      </div>
+      <div class="trust">
+        <div><strong data-count="4.9">0</strong>note Google</div>
+        <div><strong data-count="12000" data-suffix="+">0</strong>véhicules entretenus</div>
+        <div><strong data-count="24" data-suffix="h">0</strong>délai moyen</div>
+      </div>
+    </div>
+
+    <!-- Interactive diagnostic -->
+    <div class="diag reveal">
+      <div class="diag-top"><span>Pré-diagnostic</span><b>● En ligne</b></div>
+      <div class="car-box" id="carBox">
+        <svg viewBox="0 0 600 240" fill="none" stroke="#3a4250" stroke-width="2">
+          <path d="M40 170 C40 150 60 140 90 136 L170 126 C200 96 240 72 300 70 L380 70 C430 72 470 100 500 128 L540 136 C560 140 568 152 568 170 L568 182 L40 182 Z" fill="#12161c"/>
+          <path d="M190 126 C215 100 245 86 300 84 L330 84 L330 126 Z M345 84 L380 84 C420 86 450 104 474 126 L345 126 Z" fill="#0d1014" stroke="#2c3340"/>
+          <circle cx="150" cy="184" r="34" fill="#0A0C0F" stroke="#4a5262" stroke-width="3"/>
+          <circle cx="150" cy="184" r="14" stroke="#4a5262"/>
+          <circle cx="462" cy="184" r="34" fill="#0A0C0F" stroke="#4a5262" stroke-width="3"/>
+          <circle cx="462" cy="184" r="14" stroke="#4a5262"/>
+          <path d="M548 148 L566 152" stroke="#D4FF3A" stroke-width="4" stroke-linecap="round"/>
+          <path d="M42 150 L56 150" stroke="#FF5A4E" stroke-width="4" stroke-linecap="round"/>
+          <path d="M20 220 L580 220" stroke="#232833" stroke-dasharray="4 8"/>
+        </svg>
+        <div class="scan"></div>
+      </div>
+      <p class="diag-q">Où ça coince ?</p>
+      <div class="chips" id="chips"></div>
+      <div class="diag-out" id="diagOut">
+        <p><small>Notre recommandation</small><span id="diagTxt"></span></p>
+        <button class="btn btn-primary" id="diagGo" style="padding:10px 16px">Réserver</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="marquee"><div class="marquee-track" id="mq"></div></div>
+
+<!-- SERVICES -->
+<section id="services">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div><span class="eyebrow">Nos services</span><h2>Tout pour votre véhicule, sous un même toit.</h2></div>
+      <p>Toutes marques, essence, diesel, hybride et électrique. Prix affichés TTC, pièces d'origine ou équivalentes.</p>
+    </div>
+    <div class="services" id="svcGrid"></div>
+  </div>
+</section>
+
+<!-- PROMOS -->
+<section id="promos">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div><span class="eyebrow">Promotions</span><h2>Les offres du moment.</h2></div>
+      <p>Code à saisir lors de la réservation en ligne. La remise s'applique automatiquement au récapitulatif.</p>
+    </div>
+    <div class="promos">
+      <article class="promo big reveal">
+        <span class="tag">Offre phare · Hiver</span>
+        <div class="pct">-20%</div>
+        <h3>Montage de pneus hiver + contrôle sécurité offert</h3>
+        <p class="muted">Équilibrage, gonflage et vérification freins, batterie, éclairage. Gardiennage possible.</p>
+        <div class="spacer"></div>
+        <div class="count" data-end="14"></div>
+        <div class="code"><span>HIVER20</span><button data-copy="HIVER20">Copier</button></div>
+        <span class="deco"></span>
+      </article>
+      <article class="promo reveal">
+        <span class="tag" style="color:var(--cyan)">Climatisation</span>
+        <div class="pct" style="color:var(--cyan)">-15%</div>
+        <h3>Recharge & désinfection clim</h3>
+        <p class="muted">Contrôle d'étanchéité inclus.</p>
+        <div class="spacer"></div>
+        <div class="count" data-end="30"></div>
+        <div class="code" style="color:var(--cyan)"><span>CLIM15</span><button data-copy="CLIM15">Copier</button></div>
+      </article>
+      <article class="promo reveal">
+        <span class="tag" style="color:var(--accent)">Fidélité</span>
+        <div class="pct">5<sup style="font-size:.4em">ᵉ</sup></div>
+        <h3>Votre 5ᵉ vidange est offerte</h3>
+        <p class="muted">Carte fidélité digitale, liée à votre plaque. Rien à garder dans le portefeuille.</p>
+        <div class="spacer"></div>
+        <a href="#rdv" class="btn btn-ghost" style="justify-content:center">En profiter</a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- BOOKING -->
+<section id="rdv">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div><span class="eyebrow">Rendez-vous en ligne</span><h2>Réservez en 4 étapes.</h2></div>
+      <p>Confirmation immédiate par e-mail et SMS. Annulation gratuite jusqu'à 24 h avant.</p>
+    </div>
+    <div class="book">
+      <div class="panel" id="wizard">
+        <div class="steps" id="bar"><div></div><div></div><div></div><div></div></div>
+
+        <div class="step on" data-step="0">
+          <span class="step-label">Étape 1 / 4</span>
+          <h3>Quelle(s) prestation(s) ?</h3>
+          <div class="opts" id="svcOpts"></div>
+        </div>
+
+        <div class="step" data-step="1">
+          <span class="step-label">Étape 2 / 4</span>
+          <h3>Votre véhicule</h3>
+          <div class="fields">
+            <div class="field full"><label>Plaque d'immatriculation</label><div class="plate-wrap"><input class="plate" id="fPlate" placeholder="AB 1234" maxlength="9" style="width:100%"></div></div>
+            <div class="field"><label>Marque</label>
+              <select id="fBrand"><option value="">Choisir…</option><option>Audi</option><option>BMW</option><option>Citroën</option><option>Dacia</option><option>Ford</option><option>Hyundai</option><option>Kia</option><option>Mercedes-Benz</option><option>Peugeot</option><option>Renault</option><option>Skoda</option><option>Tesla</option><option>Toyota</option><option>Volkswagen</option><option>Volvo</option><option>Autre</option></select></div>
+            <div class="field"><label>Modèle</label><input id="fModel" placeholder="ex. Golf 8"></div>
+            <div class="field"><label>Kilométrage</label><input id="fKm" type="number" placeholder="ex. 85000"></div>
+            <div class="field"><label>Motorisation</label><select id="fFuel"><option>Essence</option><option>Diesel</option><option>Hybride</option><option>Électrique</option></select></div>
+            <div class="field full"><label>Un symptôme à signaler ? (facultatif)</label><textarea id="fNote" rows="3" placeholder="Bruit au freinage, voyant allumé…"></textarea></div>
+          </div>
+        </div>
+
+        <div class="step" data-step="2">
+          <span class="step-label">Étape 3 / 4</span>
+          <h3>Choisissez votre créneau</h3>
+          <div class="days" id="days"></div>
+          <div class="slots" id="slots"></div>
+          <label class="toggle"><input type="checkbox" id="fCourtesy"> J'ai besoin d'un véhicule de courtoisie</label>
+        </div>
+
+        <div class="step" data-step="3">
+          <span class="step-label">Étape 4 / 4</span>
+          <h3>Vos coordonnées</h3>
+          <div class="fields">
+            <div class="field"><label>Prénom & nom</label><input id="fName" autocomplete="name"></div>
+            <div class="field"><label>Téléphone</label><input id="fPhone" type="tel" autocomplete="tel" placeholder="+352 …"></div>
+            <div class="field full"><label>E-mail</label><input id="fMail" type="email" autocomplete="email"></div>
+            <div class="field full"><label>Code promo</label><input id="fCode" placeholder="ex. HIVER20" style="text-transform:uppercase"></div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="fRgpd"> J'accepte que mes données soient utilisées pour gérer mon rendez-vous.</label>
+        </div>
+
+        <div class="step" data-step="4">
+          <div class="done-box">
+            <div class="done-ico"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12l5 5L20 7"/></svg></div>
+            <h3>C'est réservé !</h3>
+            <p style="color:var(--muted)" id="doneTxt"></p>
+            <div class="ref" id="doneRef"></div><br>
+            <button class="btn btn-primary" id="icsBtn">Ajouter à mon agenda</button>
+            <button class="btn btn-ghost" id="againBtn" style="margin-top:10px">Nouveau rendez-vous</button>
+          </div>
+        </div>
+
+        <p class="err" id="err"></p>
+        <div class="nav-btns" id="navBtns">
+          <button class="btn btn-ghost" id="prev" style="visibility:hidden">← Retour</button>
+          <button class="btn btn-primary" id="next">Continuer →</button>
+        </div>
+      </div>
+
+      <aside class="panel recap">
+        <h4>Récapitulatif</h4>
+        <ul id="recap"></ul>
+        <div class="total"><span style="color:var(--muted)">Estimation</span><b id="total">0 €</b></div>
+        <p class="note">Estimation indicative TTC. Le devis définitif vous est présenté avant toute intervention.</p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section id="garage">
+  <div class="wrap about">
+    <div class="about-visual reveal">
+      <div class="big-letter">GAP</div>
+      <div class="badge"><b>15</b><div><strong>ans d'expérience</strong><br><small style="color:var(--muted)">Une équipe de passionnés, formée aux dernières technologies.</small></div></div>
+    </div>
+    <div class="about-txt reveal">
+      <span class="eyebrow">Le garage</span>
+      <h2>Un garage de quartier, avec l'outillage d'une concession.</h2>
+      <p>Chez Auto GAP, on croit qu'un bon garage, c'est d'abord de la confiance. On vous explique ce qu'on fait, on vous montre les pièces remplacées, et on ne touche à rien sans votre accord.</p>
+      <p>Valise de diagnostic multimarque, atelier dédié aux véhicules hybrides et électriques, et un suivi de chaque intervention envoyé directement sur votre téléphone.</p>
+      <div class="values">
+        <div><span>01</span><p><strong>Transparence.</strong> Devis détaillé, photos avant/après envoyées par SMS.</p></div>
+        <div><span>02</span><p><strong>Rapidité.</strong> La plupart des entretiens réalisés dans la journée.</p></div>
+        <div><span>03</span><p><strong>Garantie.</strong> Pièces et main-d'œuvre garanties 12 mois.</p></div>
+      </div>
+      <div class="stats">
+        <div><b data-count="6">0</b><small>mécaniciens certifiés</small></div>
+        <div><b data-count="8">0</b><small>ponts élévateurs</small></div>
+        <div><b data-count="98" data-suffix="%">0</b><small>clients satisfaits</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- REVIEWS -->
+<section style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal"><div><span class="eyebrow">Avis clients</span><h2>Ils nous confient leur voiture.</h2></div><p>Exemples d'avis à remplacer par vos vrais avis Google.</p></div>
+    <div class="reviews">
+      <div class="rev reveal"><span class="stars">★★★★★</span><p>« Réservation en ligne le soir, voiture prête le lendemain midi. Devis respecté au centime près. »</p><div class="who"><i>MS</i><div>Marie S.<small>Peugeot 3008</small></div></div></div>
+      <div class="rev reveal"><span class="stars">★★★★★</span><p>« Enfin un garage qui explique. Ils m'ont envoyé une photo de mes plaquettes usées avant de les changer. »</p><div class="who"><i>JL</i><div>Jean L.<small>Volkswagen Golf</small></div></div></div>
+      <div class="rev reveal"><span class="stars">★★★★★</span><p>« Très bon accueil, véhicule de courtoisie disponible. Je recommande pour les hybrides. »</p><div class="who"><i>AP</i><div>Ana P.<small>Toyota C-HR</small></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section id="contact">
+  <div class="wrap contact">
+    <div class="reveal">
+      <span class="eyebrow">Nous trouver</span>
+      <h2 style="font-size:clamp(2rem,4.4vw,3.2rem);margin:14px 0 26px">Passez nous voir.</h2>
+      <ul class="hours" id="hours"></ul>
+      <div class="contact-lines">
+        <a href="tel:+35200000000"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>+352 00 00 00 00</a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Adresse du garage, Luxembourg</a>
+      </div>
+    </div>
+    <div class="map reveal"><div class="pin"><div>Auto GAP</div><span></span><i></i></div></div>
+  </div>
+</section>
+
+<footer><div class="wrap foot-in"><a href="#top" class="logo"><span class="logo-mark">AG</span>Auto GAP</a><span>© <span id="yr"></span> Auto GAP · Mentions légales · Politique de confidentialité</span></div></footer>
+
+<a href="#rdv" class="btn btn-primary fab">Prendre RDV</a>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const ICONS={
+  oil:'<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+  brake:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M21 12h-3"/>',
+  tire:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v5M12 16v5M3 12h5M16 12h5"/>',
+  diag:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 10l2 2 3-4 2 3 3-2M8 20h8"/>',
+  ac:'<path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1L19.1 4.9"/>',
+  body:'<path d="M3 15l2-6h14l2 6v3H3z"/><circle cx="7.5" cy="18" r="1.5"/><circle cx="16.5" cy="18" r="1.5"/>'
+};
+const SERVICES=[
+  {id:'vidange',name:'Vidange & entretien',desc:'Huile, filtres et révision selon le carnet constructeur. Carnet tamponné.',price:129,dur:1,ico:'oil'},
+  {id:'freins',name:'Freinage',desc:'Plaquettes, disques et liquide de frein. Contrôle offert sur demande.',price:149,dur:1.5,ico:'brake'},
+  {id:'pneus',name:'Pneus & géométrie',desc:'Montage, équilibrage, parallélisme. Gardiennage de vos pneus saisonniers.',price:49,dur:.75,ico:'tire',promo:'HIVER20'},
+  {id:'diag',name:'Diagnostic électronique',desc:'Lecture des codes défaut, voyant moteur, batterie, systèmes hybrides.',price:69,dur:.5,ico:'diag'},
+  {id:'clim',name:'Climatisation',desc:'Recharge, désinfection et contrôle d’étanchéité du circuit.',price:89,dur:1,ico:'ac',promo:'CLIM15'},
+  {id:'carro',name:'Carrosserie & vitrage',desc:'Petits chocs, rayures, remplacement de pare-brise. Devis sur photo.',price:0,dur:2,ico:'body'}
+];
+const PROMOS={HIVER20:{svc:'pneus',pct:20},CLIM15:{svc:'clim',pct:15}};
+const SYMPTOMS=[
+  {t:'Voyant allumé',s:['diag'],m:'Un diagnostic électronique (30 min) pour lire les codes défaut.'},
+  {t:'Bruit au freinage',s:['freins'],m:'Contrôle du freinage : plaquettes et disques probablement usés.'},
+  {t:'Ça tire d’un côté',s:['pneus'],m:'Vérification de la géométrie et des pneus.'},
+  {t:'Clim qui souffle chaud',s:['clim'],m:'Recharge de climatisation et contrôle d’étanchéité.'},
+  {t:'Révision à faire',s:['vidange'],m:'Vidange et entretien selon le carnet constructeur.'},
+  {t:'Rayure / choc',s:['carro'],m:'Passage en carrosserie, devis gratuit sur photo.'}
+];
+const eur=n=>n.toLocaleString('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0});
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)};
+
+/* Nav */
+addEventListener('scroll',()=>$('#nav').classList.toggle('scrolled',scrollY>20),{passive:true});
+$('#burger').onclick=()=>$('#links').classList.toggle('open');
+$$('#links a').forEach(a=>a.onclick=()=>$('#links').classList.remove('open'));
+$('#yr').textContent=new Date().getFullYear();
+
+/* Hours & live status */
+const HOURS=[null,[7.5,18],[7.5,18],[7.5,18],[7.5,18],[7.5,17],[8,12]]; // 0=dim
+const DAYN=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+const hm=h=>`${Math.floor(h)}h${h%1?String(Math.round(h%1*60)).padStart(2,'0'):'00'}`;
+(function(){
+  const now=new Date(),d=now.getDay(),h=now.getHours()+now.getMinutes()/60,r=HOURS[d];
+  const open=r&&h>=r[0]&&h<r[1];
+  $('#statusDot').classList.toggle('closed',!open);
+  $('#statusTxt').textContent=open?`Atelier ouvert · jusqu'à ${hm(r[1])}`:'Atelier fermé · réservez en ligne 24h/24';
+  $('#hours').innerHTML=[1,2,3,4,5,6,0].map(i=>`<li class="${i===d?'today':''}"><span>${DAYN[i]}</span><span>${HOURS[i]?hm(HOURS[i][0])+' – '+hm(HOURS[i][1]):'Fermé'}</span></li>`).join('');
+})();
+
+/* Marquee */
+const mq=['Toutes marques','Hybride & électrique','Devis avant intervention','Véhicule de courtoisie','Garantie 12 mois','Diagnostic multimarque','Gardiennage pneus'];
+$('#mq').innerHTML=[...mq,...mq].map(x=>`<span>${x}</span>`).join('');
+
+/* Services grid */
+$('#svcGrid').innerHTML=SERVICES.map(s=>`<article class="svc reveal"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[s.ico]}</svg></div><h3>${s.name}</h3><p>${s.desc}</p><div class="svc-foot"><span>${s.price?'dès <b>'+eur(s.price)+'</b>':'<b>Sur devis</b>'}</span><button data-book="${s.id}">Réserver →</button></div></article>`).join('');
+
+/* Diagnostic */
+let diagSel=null;
+$('#chips').innerHTML=SYMPTOMS.map((s,i)=>`<button class="chip" data-i="${i}">${s.t}</button>`).join('');
+$$('#chips .chip').forEach(c=>c.onclick=()=>{
+  $$('#chips .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+  diagSel=SYMPTOMS[c.dataset.i];$('#diagTxt').textContent=diagSel.m;
+  const o=$('#diagOut');o.classList.remove('show');void o.offsetWidth;o.classList.add('show');
+});
+$('#diagGo').onclick=()=>{if(diagSel){state.svcs=new Set(diagSel.s);renderOpts();$('#fNote').value=diagSel.t;goto(0);location.hash='rdv'}};
+
+/* Countdowns */
+$$('.count').forEach(el=>{
+  const end=Date.now()+(+el.dataset.end)*864e5-3600e3*5;
+  const tick=()=>{let d=Math.max(0,end-Date.now());const u=[864e5,36e5,6e4,1e3].map(x=>{const v=Math.floor(d/x);d-=v*x;return v});
+    el.innerHTML=['jours','h','min','s'].map((l,i)=>`<div><b>${String(u[i]).padStart(2,'0')}</b><small>${l}</small></div>`).join('')};
+  tick();setInterval(tick,1000);
+});
+$$('[data-copy]').forEach(b=>b.onclick=()=>{
+  const c=b.dataset.copy;navigator.clipboard?.writeText(c).catch(()=>{});
+  $('#fCode').value=c;renderRecap();toast(`Code ${c} copié et appliqué à votre réservation`);
+});
+
+/* Booking wizard */
+const state={step:0,svcs:new Set(),day:null,slot:null};
+function renderOpts(){
+  $('#svcOpts').innerHTML=SERVICES.map(s=>`<button class="opt ${state.svcs.has(s.id)?'on':''}" data-id="${s.id}"><span class="box"></span><span><b>${s.name}</b><small>${s.price?'dès '+eur(s.price):'Sur devis'} · ~${s.dur<1?s.dur*60+' min':s.dur+' h'}</small></span></button>`).join('');
+  $$('#svcOpts .opt').forEach(o=>o.onclick=()=>{const id=o.dataset.id;state.svcs.has(id)?state.svcs.delete(id):state.svcs.add(id);renderOpts()});
+  renderRecap();
+}
+$$('[data-book]').forEach(b=>b.onclick=()=>{state.svcs.add(b.dataset.book);renderOpts();goto(0);location.hash='rdv'});
+
+function seeded(n){let x=Math.sin(n)*1e4;return x-Math.floor(x)}
+function renderDays(){
+  const out=[];const base=new Date();base.setHours(0,0,0,0);
+  for(let i=1;i<=21;i++){const d=new Date(base);d.setDate(base.getDate()+i);out.push(d)}
+  $('#days').innerHTML=out.map(d=>{const off=!HOURS[d.getDay()];const k=d.toISOString().slice(0,10);
+    return `<button class="day ${state.day===k?'on':''}" data-k="${k}" ${off?'disabled':''}><small>${d.toLocaleDateString('fr-FR',{weekday:'short'})}</small><b>${d.getDate()}</b><small>${d.toLocaleDateString('fr-FR',{month:'short'})}</small></button>`}).join('');
+  $$('#days .day').forEach(b=>b.onclick=()=>{state.day=b.dataset.k;state.slot=null;renderDays();renderSlots();renderRecap()});
+}
+function renderSlots(){
+  if(!state.day){$('#slots').innerHTML='<p style="color:var(--muted);grid-column:1/-1">Sélectionnez un jour pour voir les créneaux disponibles.</p>';return}
+  const d=new Date(state.day+'T12:00'),r=HOURS[d.getDay()],seed=+state.day.replaceAll('-','');let html='';
+  for(let h=r[0];h<r[1]-.5;h+=.5){const busy=seeded(seed+h*7)<.35;const lab=hm(h).replace('h',':');
+    html+=`<button class="slot ${state.slot===lab?'on':''}" data-s="${lab}" ${busy?'disabled':''}>${lab}</button>`}
+  $('#slots').innerHTML=html;
+  $$('#slots .slot').forEach(b=>b.onclick=()=>{state.slot=b.dataset.s;renderSlots();renderRecap()});
+}
+function calc(){
+  let total=0,dur=0,disc=0;const code=$('#fCode').value.trim().toUpperCase(),p=PROMOS[code];
+  state.svcs.forEach(id=>{const s=SERVICES.find(x=>x.id===id);total+=s.price;dur+=s.dur;if(p&&p.svc===id)disc+=s.price*p.pct/100});
+  return{total,dur,disc,code:p?code:null};
+}
+function renderRecap(){
+  const c=calc(),names=[...state.svcs].map(id=>SERVICES.find(x=>x.id===id).name);
+  const car=[$('#fBrand').value,$('#fModel').value].filter(Boolean).join(' ');
+  const dayTxt=state.day?new Date(state.day+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}):'—';
+  $('#recap').innerHTML=`
+    <li><span>Prestations</span><span style="text-align:right">${names.length?names.join('<br>'):'—'}</span></li>
+    <li><span>Véhicule</span><span>${car||'—'}${$('#fPlate').value?'<br><small style="color:var(--muted)">'+$('#fPlate').value.toUpperCase()+'</small>':''}</span></li>
+    <li><span>Date</span><span style="text-align:right">${dayTxt}${state.slot?'<br>à '+state.slot:''}</span></li>
+    <li><span>Durée estimée</span><span>${c.dur?'~'+(c.dur<1?c.dur*60+' min':c.dur+' h'):'—'}</span></li>
+    ${c.disc?`<li><span>Remise ${c.code}</span><span style="color:var(--accent)">−${eur(c.disc)}</span></li>`:''}`;
+  $('#total').textContent=c.total?eur(c.total-c.disc):(state.svcs.has('carro')?'Sur devis':'0 €');
+}
+['#fPlate','#fBrand','#fModel','#fCode'].forEach(s=>$(s).addEventListener('input',renderRecap));
+
+function validate(){
+  const s=state.step;
+  if(s===0&&!state.svcs.size)return'Choisissez au moins une prestation.';
+  if(s===1&&($('#fPlate').value.trim().length<3||!$('#fBrand').value))return'Indiquez la plaque et la marque.';
+  if(s===2&&(!state.day||!state.slot))return'Choisissez un jour et un créneau.';
+  if(s===3){if(!$('#fName').value.trim()||!$('#fPhone').value.trim())return'Nom et téléphone requis.';
+    if(!/^\S+@\S+\.\S+$/.test($('#fMail').value))return'E-mail invalide.';if(!$('#fRgpd').checked)return'Merci d’accepter le traitement de vos données.'}
+  return'';
+}
+function goto(n){
+  state.step=n;$$('.step').forEach(x=>x.classList.toggle('on',+x.dataset.step===n));
+  $$('#bar div').forEach((b,i)=>b.classList.toggle('done',i<=n));
+  $('#prev').style.visibility=n>0&&n<4?'visible':'hidden';
+  $('#navBtns').style.display=n===4?'none':'flex';
+  $('#next').textContent=n===3?'Confirmer le rendez-vous ✓':'Continuer →';
+  $('#err').textContent='';
+}
+$('#next').onclick=()=>{const e=validate();if(e){$('#err').textContent=e;return}
+  if(state.step===3){finish();return}goto(state.step+1);
+  if(state.step===2){renderDays();renderSlots()}
+  if(innerWidth<960)$('#wizard').scrollIntoView({behavior:'smooth',block:'start'});
+};
+$('#prev').onclick=()=>goto(state.step-1);
+
+let lastRef='';
+function finish(){
+  lastRef='AG-'+Math.random().toString(36).slice(2,7).toUpperCase();
+  const d=new Date(state.day+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  $('#doneTxt').innerHTML=`Merci ${$('#fName').value.split(' ')[0]} ! On vous attend <b style="color:var(--text)">${d} à ${state.slot}</b>.<br>Une confirmation a été envoyée à ${$('#fMail').value}.`;
+  $('#doneRef').textContent='Réf. '+lastRef;goto(4);
+}
+$('#icsBtn').onclick=()=>{
+  const [h,m]=state.slot.split(':');const st=state.day.replaceAll('-','')+'T'+h.padStart(2,'0')+m+'00';
+  const ics=`BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:${lastRef}@autogap\nDTSTART:${st}\nSUMMARY:RDV garage Auto GAP\nDESCRIPTION:${[...state.svcs].join(', ')} - Réf ${lastRef}\nEND:VEVENT\nEND:VCALENDAR`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([ics],{type:'text/calendar'}));a.download='rdv-auto-gap.ics';a.click();
+};
+$('#againBtn').onclick=()=>{state.svcs.clear();state.day=state.slot=null;$$('#wizard input,#wizard textarea').forEach(i=>i.type==='checkbox'?i.checked=false:i.value='');renderOpts();goto(0)};
+
+renderOpts();goto(0);
+
+/* Counters & reveal */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;e.target.classList.add('in');io.unobserve(e.target)}),{threshold:.15});
+$$('.reveal').forEach(el=>io.observe(el));
+const co=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;const el=e.target,to=+el.dataset.count,dec=to%1?1:0,suf=el.dataset.suffix||'';let t0;
+  const step=t=>{t0??=t;const p=Math.min(1,(t-t0)/1400),v=to*(1-Math.pow(1-p,3));el.textContent=v.toLocaleString('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec})+suf;if(p<1)requestAnimationFrame(step)};
+  requestAnimationFrame(step);co.unobserve(el)}),{threshold:.5});
+$$('[data-count]').forEach(el=>co.observe(el));
+</script>
+</body>
+</html>
